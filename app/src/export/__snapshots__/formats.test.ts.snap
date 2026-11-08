@@ -1,0 +1,148 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`archidekt CSV shape > keeps the card in the file when grouped by name 1`] = `
+"Quantity,Name,Finish,Condition,Date Added,Language,Purchase Price,Tags,Edition Name,Edition Code,Multiverse Id,Scryfall ID,Collector Number
+1,Clue,Normal,NM,2026-05-15,EN,,,,,,,
+1,Delver of Secrets // Insectile Aberration,Normal,NM,2026-05-15,EN,,,,,,,
+1,Demonic Tutor,Normal,NM,2026-05-15,EN,,,,,,,
+1,Fire // Ice,Normal,NM,2026-05-15,EN,,,,,,,
+1,"Hogaak, Arisen Necropolis",Normal,NM,2026-05-15,EN,,,,,,,
+4,Sol Ring,Normal,NM,2026-05-15,EN,,,,,,,
+"
+`;
+
+exports[`archidekt CSV shape > matches its snapshot 1`] = `
+"Quantity,Name,Finish,Condition,Date Added,Language,Purchase Price,Tags,Edition Name,Edition Code,Multiverse Id,Scryfall ID,Collector Number
+1,Clue,Normal,NM,2026-05-15,KR,,,Modern Horizons 2 Tokens,tmh2,0,clue,14
+1,Delver of Secrets // Insectile Aberration,Normal,MP,2026-05-15,DE,,,Innistrad,isd,226749,11bf83bb-c95b-4b4f-9a56-ce7a1816307a,51
+1,Demonic Tutor,Etched,D,2026-05-15,CS,,,Commander Masters,cmm,626364,tutor-etched,509
+1,Fire // Ice,Normal,NM,2026-05-15,JP,,,Apocalypse,apc,0,fire-ice,128
+1,"Hogaak, Arisen Necropolis",Normal,HP,2026-05-15,EN,,,Modern Horizons,mh1,0,hogaak,202
+1,Sol Ring,Foil,NM,2026-05-15,EN,,,Commander Masters,cmm,627874,1b59533a-3e38-495d-873e-2f89fbd08494,410
+1,Sol Ring,Normal,LP,2026-05-15,EN,,,Commander Masters,cmm,627874,1b59533a-3e38-495d-873e-2f89fbd08494,410
+2,Sol Ring,Normal,NM,2026-05-15,EN,,,Commander Masters,cmm,627874,1b59533a-3e38-495d-873e-2f89fbd08494,410
+"
+`;
+
+exports[`deckbox CSV shape > keeps the card in the file when grouped by name 1`] = `
+"Count,Tradelist Count,Name,Edition,Edition Code,Card Number,Condition,Language,Foil,Signed,Artist Proof,Altered Art,Misprint,Promo,Textless,Printing Id,Printing Note,Tags,My Price
+1,0,Clue,,,,Near Mint,English,,,,,,,,,,,
+1,0,Delver of Secrets // Insectile Aberration,,,,Near Mint,English,,,,,,,,,,,
+1,0,Demonic Tutor,,,,Near Mint,English,,,,,,,,,,,
+1,0,Fire // Ice,,,,Near Mint,English,,,,,,,,,,,
+1,0,"Hogaak, Arisen Necropolis",,,,Near Mint,English,,,,,,,,,,,
+4,0,Sol Ring,,,,Near Mint,English,,,,,,,,,,,
+"
+`;
+
+exports[`deckbox CSV shape > matches its snapshot 1`] = `
+"Count,Tradelist Count,Name,Edition,Edition Code,Card Number,Condition,Language,Foil,Signed,Artist Proof,Altered Art,Misprint,Promo,Textless,Printing Id,Printing Note,Tags,My Price
+1,0,Clue,Extras: Modern Horizons 2,tmh2,14,Mint,Korean,,,,,,,,,,,
+1,0,Delver of Secrets // Insectile Aberration,Innistrad,isd,51,Played,German,,,,,,,,,,,
+1,0,Demonic Tutor,Commander Masters,cmm,509,Poor,Chinese,foil,,,,,,,,,,
+1,0,Fire // Ice,Apocalypse,apc,128,Near Mint,Japanese,,,,,,,,,,,
+1,0,"Hogaak, Arisen Necropolis",Modern Horizons,mh1,202,Heavily Played,English,,,,,,,,,,,
+1,0,Sol Ring,Commander Masters,cmm,410,Near Mint,English,foil,,,,,,,,,,
+1,0,Sol Ring,Commander Masters,cmm,410,Good (Lightly Played),English,,,,,,,,,,,
+2,0,Sol Ring,Commander Masters,cmm,410,Near Mint,English,,,,,,,,,,,
+"
+`;
+
+exports[`detailed list > marks foil and etched as real Moxfield exports do 1`] = `
+"1 Clue (TMH2) 14
+1 Delver of Secrets (ISD) 51
+1 Demonic Tutor (CMM) 509 *E*
+1 Fire // Ice (APC) 128
+1 Hogaak, Arisen Necropolis (MH1) 202
+1 Sol Ring (CMM) 410 *F*
+3 Sol Ring (CMM) 410
+"
+`;
+
+exports[`manabox CSV shape > keeps the card in the file when grouped by name 1`] = `
+"Name,Set code,Set name,Collector number,Foil,Rarity,Quantity,ManaBox ID,Scryfall ID,Purchase price,Misprint,Altered,Signed,Condition,Language,Proxy,Purchase price currency,Added
+Clue,,,,normal,,1,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+Delver of Secrets // Insectile Aberration,,,,normal,,1,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+Demonic Tutor,,,,normal,,1,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+Fire // Ice,,,,normal,,1,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+"Hogaak, Arisen Necropolis",,,,normal,,1,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+Sol Ring,,,,normal,,4,,,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+"
+`;
+
+exports[`manabox CSV shape > matches its snapshot 1`] = `
+"Name,Set code,Set name,Collector number,Foil,Rarity,Quantity,ManaBox ID,Scryfall ID,Purchase price,Misprint,Altered,Signed,Condition,Language,Proxy,Purchase price currency,Added
+Clue,TMH2,Modern Horizons 2 Tokens,14,normal,common,1,,clue,,false,false,false,mint,ko,false,,2026-05-15T13:51:43.373Z
+Delver of Secrets // Insectile Aberration,ISD,Innistrad,51,normal,common,1,,11bf83bb-c95b-4b4f-9a56-ce7a1816307a,,false,false,false,light_played,de,false,,2026-05-15T13:51:43.373Z
+Demonic Tutor,CMM,Commander Masters,509,etched,mythic,1,,tutor-etched,,false,false,false,poor,zh_CN,false,,2026-05-15T13:51:43.373Z
+Fire // Ice,APC,Apocalypse,128,normal,uncommon,1,,fire-ice,,false,false,false,near_mint,ja,false,,2026-05-15T13:51:43.373Z
+"Hogaak, Arisen Necropolis",MH1,Modern Horizons,202,normal,rare,1,,hogaak,,false,false,false,played,en,false,,2026-05-15T13:51:43.373Z
+Sol Ring,CMM,Commander Masters,410,foil,uncommon,1,,1b59533a-3e38-495d-873e-2f89fbd08494,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+Sol Ring,CMM,Commander Masters,410,normal,uncommon,1,,1b59533a-3e38-495d-873e-2f89fbd08494,,false,false,false,good,en,false,,2026-05-15T13:51:43.373Z
+Sol Ring,CMM,Commander Masters,410,normal,uncommon,2,,1b59533a-3e38-495d-873e-2f89fbd08494,,false,false,false,near_mint,en,false,,2026-05-15T13:51:43.373Z
+"
+`;
+
+exports[`markdown for AI > has title, metadata, totals, table and a fenced plain list 1`] = `
+"# Box 3
+
+- Location: Shelf | top
+- Created: 2026-05-15
+- Exported: 2026-05-16
+- Cards: 9
+- Unique: 6
+
+| Qty | Name | Set | # | Finish | Lang |
+|---|---|---|---|---|---|
+| 1 | Clue | TMH2 | 14 | Nonfoil | ko |
+| 1 | Delver of Secrets // Insectile Aberration | ISD | 51 | Nonfoil | de |
+| 1 | Demonic Tutor | CMM | 509 | Etched | zhs |
+| 1 | Fire // Ice | APC | 128 | Nonfoil | ja |
+| 1 | Hogaak, Arisen Necropolis | MH1 | 202 | Nonfoil | en |
+| 1 | Sol Ring | CMM | 410 | Foil | en |
+| 3 | Sol Ring | CMM | 410 | Nonfoil | en |
+
+\`\`\`text
+1 Clue
+1 Delver of Secrets
+1 Demonic Tutor
+1 Fire // Ice
+1 Hogaak, Arisen Necropolis
+4 Sol Ring
+\`\`\`
+"
+`;
+
+exports[`moxfield CSV shape > keeps the card in the file when grouped by name 1`] = `
+""Count","Tradelist Count","Name","Edition","Condition","Language","Foil","Tags","Last Modified","Collector Number","Alter","Proxy","Purchase Price"
+"1","0","Clue","","Near Mint","English","","","","","False","False",""
+"1","0","Delver of Secrets // Insectile Aberration","","Near Mint","English","","","","","False","False",""
+"1","0","Demonic Tutor","","Near Mint","English","","","","","False","False",""
+"1","0","Fire // Ice","","Near Mint","English","","","","","False","False",""
+"1","0","Hogaak, Arisen Necropolis","","Near Mint","English","","","","","False","False",""
+"4","0","Sol Ring","","Near Mint","English","","","","","False","False",""
+"
+`;
+
+exports[`moxfield CSV shape > matches its snapshot 1`] = `
+""Count","Tradelist Count","Name","Edition","Condition","Language","Foil","Tags","Last Modified","Collector Number","Alter","Proxy","Purchase Price"
+"1","0","Clue","tmh2","Mint","Korean","","","","14","False","False",""
+"1","0","Delver of Secrets // Insectile Aberration","isd","Played","German","","","","51","False","False",""
+"1","0","Demonic Tutor","cmm","Damaged","Chinese","etched","","","509","False","False",""
+"1","0","Fire // Ice","apc","Near Mint","Japanese","","","","128","False","False",""
+"1","0","Hogaak, Arisen Necropolis","mh1","Heavily Played","English","","","","202","False","False",""
+"1","0","Sol Ring","cmm","Near Mint","English","foil","","","410","False","False",""
+"1","0","Sol Ring","cmm","Good (Lightly Played)","English","","","","410","False","False",""
+"2","0","Sol Ring","cmm","Near Mint","English","","","","410","False","False",""
+"
+`;
+
+exports[`plain list > uses front faces, keeps split cards whole and merges each card into one line 1`] = `
+"1 Clue
+1 Delver of Secrets
+1 Demonic Tutor
+1 Fire // Ice
+1 Hogaak, Arisen Necropolis
+4 Sol Ring
+"
+`;
