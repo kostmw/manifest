@@ -3,6 +3,18 @@
 > Working name: **Manifest** (an MTG keyword *and* the word for a list of what's in a shipment).
 > Tagline: *Scan a stack, get a list.*
 
+## Commands
+
+Node comes from `.nvmrc`. One package at the repo root; Vite's root is `app/`.
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server |
+| `npm run check` | Typecheck, unit tests, production build |
+| `npm run e2e` | Playwright against a production build, with a fake camera |
+
+Set `MANIFEST_BASE` to build for a sub-path (GitHub Pages uses `/manifest/`; CI sets it).
+
 ## Mission
 
 Build a free, privacy-respecting web app that scans physical trading cards with a phone or webcam (or from image files), identifies each card accurately, and outputs clean card lists as `.txt`, `.md`, or `.csv`. The lists are for pasting into AI chats and importing into sites like Moxfield, Archidekt, EDHREC, ManaBox, and Deckbox.

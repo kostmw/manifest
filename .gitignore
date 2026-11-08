@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dev-dist/
+# Generated index artifacts. Published by CI, never committed.
+data/
+# Real photos are owner-supplied and may be large; labels stay in git.
+tests/fixtures/real-scans/*.jpg
+tests/fixtures/real-scans/*.jpeg
+tests/fixtures/real-scans/*.png
+tests/fixtures/real-scans/*.heic
+test-results/
+playwright-report/
+.DS_Store
+*.log
+.claude/

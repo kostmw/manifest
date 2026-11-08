@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-zinc-900);
+  color: var(--color-zinc-100);
+  -webkit-tap-highlight-color: transparent;
+}
