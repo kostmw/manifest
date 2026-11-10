@@ -196,7 +196,7 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
     <div className="flex flex-col gap-4">
       {recognizer.status === 'loading' && (
         <p role="status" className="text-sm text-zinc-400">
-          Getting the card reader ready. The first time, this downloads about 4 MB.
+          Getting the card reader ready. The first time, this downloads about 3 MB.
         </p>
       )}
       {recognizer.status === 'error' && (

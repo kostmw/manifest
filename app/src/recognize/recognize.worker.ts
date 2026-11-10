@@ -95,7 +95,13 @@ const api = {
     const core = WebAssembly.validate(SIMD_PROBE) ? 'tesseract-core-simd-lstm.js' : 'tesseract-core-lstm.js';
     const [dictionary, engine] = await Promise.all([
       loadNameDictionary(gameId),
-      createTesseractEngine({ langPath: base.replace(/\/$/, ''), corePath: `${base}${core}`, workerPath: `${base}worker.min.js` }),
+      createTesseractEngine({
+        langPath: base.replace(/\/$/, ''),
+        corePath: `${base}${core}`,
+        workerPath: `${base}worker.min.js`,
+        // The versioned directory names the model, so a model change can't reuse an old cached one.
+        cachePath: __OCR_DIR__,
+      }),
     ]);
     await ocr?.dispose();
     names = new NameIndex(dictionary);

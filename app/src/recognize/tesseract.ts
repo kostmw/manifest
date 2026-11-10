@@ -15,7 +15,11 @@ export interface TesseractPaths {
   corePath?: string;
   /** Tesseract.js worker script. Browser only. */
   workerPath?: string;
-  /** Where Node keeps its unpacked copy of the language data (it defaults to the working directory). */
+  /**
+   * Where the unpacked language data is cached: a directory in Node (else the
+   * working directory), a key prefix in the browser's IndexedDB. Tesseract keys
+   * the cache by this alone, not by `langPath`, so it must name the model.
+   */
   cachePath?: string;
 }
 

@@ -19,7 +19,6 @@
     "eval": "tsx tests/eval/run.ts"
   },
   "dependencies": {
-    "@tesseract.js-data/eng": "^1.0.0",
     "comlink": "^4.4.2",
     "dexie": "^4.4.7",
     "dexie-react-hooks": "^4.4.0",

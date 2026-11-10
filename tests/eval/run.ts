@@ -44,7 +44,8 @@ const { values } = parseArgs({
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
     out: { type: 'string', default: '.cache/eval/report' },
-    'ocr-model': { type: 'string', default: 'node_modules/@tesseract.js-data/eng/4.0.0_best_int' },
+    // The model the app ships; see vendor/tessdata_fast/README.md.
+    'ocr-model': { type: 'string', default: 'vendor/tessdata_fast' },
   },
 });
 

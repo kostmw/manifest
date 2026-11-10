@@ -52,14 +52,16 @@ const versionOf = (name: string) => (JSON.parse(readFileSync(`${packageDir(name)
  * offline and nothing leaves the device. The directory name carries the
  * versions, so a cached copy can never mix with a newer one.
  */
-const OCR_DIR = `ocr/${versionOf('tesseract.js')}-${versionOf('tesseract.js-core')}`;
+// The fast English model, vendored (see vendor/tessdata_fast/README.md); the tag names its commit.
+const OCR_MODEL = 'eng-fast-923915d';
+const OCR_DIR = `ocr/${versionOf('tesseract.js')}-${versionOf('tesseract.js-core')}-${OCR_MODEL}`;
 const OCR_FILES: Record<string, string> = {
   'worker.min.js': `${packageDir('tesseract.js')}/dist/worker.min.js`,
   'tesseract-core-simd-lstm.js': `${packageDir('tesseract.js-core')}/tesseract-core-simd-lstm.js`,
   'tesseract-core-simd-lstm.wasm': `${packageDir('tesseract.js-core')}/tesseract-core-simd-lstm.wasm`,
   'tesseract-core-lstm.js': `${packageDir('tesseract.js-core')}/tesseract-core-lstm.js`,
   'tesseract-core-lstm.wasm': `${packageDir('tesseract.js-core')}/tesseract-core-lstm.wasm`,
-  'eng.traineddata.gz': `${packageDir('@tesseract.js-data/eng')}/4.0.0_best_int/eng.traineddata.gz`,
+  'eng.traineddata.gz': resolve('vendor/tessdata_fast/eng.traineddata.gz'),
 };
 const CONTENT_TYPES: Record<string, string> = {
   js: 'text/javascript',
@@ -125,7 +127,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         navigateFallback: 'index.html',
         // Index shards are versioned by the app and cached separately, on demand. OCR files
-        // (about 4 MB) are cached the first time the scanner starts, not on install.
+        // (about 3 MB) are cached the first time the scanner starts, not on install.
         globIgnores: ['data/**', 'ocr/**'],
         navigateFallbackDenylist: [/\/data\//, /\/ocr\//],
         runtimeCaching: [

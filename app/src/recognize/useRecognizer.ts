@@ -8,7 +8,7 @@ export type RecognizerStatus = 'loading' | 'ready' | 'error';
 /**
  * Starts the recognition worker and loads the name list and OCR engine into
  * it. Mounted only while the scanner is shown, so the OCR download (about
- * 4 MB, once) happens only for people who scan.
+ * 3 MB, once) happens only for people who scan.
  */
 export function useRecognizer(game: GameId) {
   const [status, setStatus] = useState<RecognizerStatus>('loading');
