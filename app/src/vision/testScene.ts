@@ -5,6 +5,7 @@
  */
 import { applyHomography, homography, type Point, type Quad } from './geometry';
 import { createRgba, type RgbaImage } from './image';
+import { PHONE_FOCAL_SHARE } from './perspective';
 
 export type Rgb = [number, number, number];
 
@@ -85,6 +86,27 @@ export function cardQuad(center: Point, height: number, angle = 0, aspect = 488 
   ].map(([x, y]) => ({ x: center.x + x! * cos - y! * sin, y: center.y + x! * sin + y! * cos })) as Quad;
 }
 
+/**
+ * A card in the middle of the frame, seen by a phone camera tipped `tilt`
+ * degrees back from straight above it (the top edge farther away): `height`
+ * is how tall it would look straight on.
+ */
+export function tiltedCardQuad(frame: { width: number; height: number }, height: number, tilt: number, aspect = 488 / 680): Quad {
+  const focal = PHONE_FOCAL_SHARE * Math.max(frame.width, frame.height);
+  const t = (tilt * Math.PI) / 180;
+  const w = (height * aspect) / 2;
+  const h = height / 2;
+  return [
+    [-w, -h],
+    [w, -h],
+    [w, h],
+    [-w, h],
+  ].map(([x, y]) => {
+    const scale = focal / (focal - y! * Math.sin(t));
+    return { x: frame.width / 2 + x! * scale, y: frame.height / 2 + y! * Math.cos(t) * scale };
+  }) as Quad;
+}
+
 /** Largest corner distance between two quads, whichever corner each starts from. */
 export function cornerError(found: readonly Point[], truth: readonly Point[]): number {
   let best = Number.POSITIVE_INFINITY;
@@ -96,4 +118,36 @@ export function cornerError(found: readonly Point[], truth: readonly Point[]): n
     best = Math.min(best, worst);
   }
   return best;
+}
+
+/** A card whose art box holds soft blobs, a different pattern for every seed, so fingerprints can tell cards apart. */
+export function artCard(seed: number): RgbaImage {
+  const card = makeCard();
+  let state = seed;
+  const random = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const blobs = Array.from({ length: 6 }, () => ({ x: random() * 412, y: random() * 296, r: 30 + random() * 90, v: random() * 220 }));
+  for (let y = 80; y < 376; y++) {
+    for (let x = 38; x < 450; x++) {
+      let value = 40;
+      for (const blob of blobs) value += blob.v * Math.exp(-((x - 38 - blob.x) ** 2 + (y - 80 - blob.y) ** 2) / (blob.r * blob.r));
+      const p = (y * 488 + x) * 4;
+      card.data[p] = Math.min(255, value);
+      card.data[p + 1] = Math.min(255, value * 0.8);
+      card.data[p + 2] = Math.min(255, value * 0.6);
+    }
+  }
+  return card;
+}
+
+/** A 488×680 card shrunk to Scryfall's `small` size (146×204), as the fingerprint index is built from. */
+export function scryfallSmall(card: RgbaImage): RgbaImage {
+  const out = createRgba(146, 204);
+  for (let y = 0; y < 204; y++) {
+    for (let x = 0; x < 146; x++) {
+      const s = (Math.floor((y * card.height) / 204) * card.width + Math.floor((x * card.width) / 146)) * 4;
+      const o = (y * 146 + x) * 4;
+      for (let c = 0; c < 4; c++) out.data[o + c] = card.data[s + c]!;
+    }
+  }
+  return out;
 }

@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { printingShardFile, printingShardIndex } from '../../app/src/games/shard';
+import { decodeHashShard } from '../../app/src/games/hashShard';
+import { hashShardFile, printingShardFile, printingShardIndex } from '../../app/src/games/shard';
 import type { Printing } from '../../app/src/games/types';
 import { writeGameIndex, writeManifest } from '../writeIndex';
 import { buildNameDictionary, mtgIndexBuilder, readJsonLines, toPrinting, type ScryfallCard } from './mtg';
@@ -159,6 +160,40 @@ describe('build from the Scryfall sample', () => {
     await expect(
       writeGameIndex('mtg', { source: { name: 't', updatedAt: 't' }, printings: [huge], names: { names: [], faces: {} } }, 1, outDir),
     ).rejects.toThrow(/over the .* byte limit/);
+  });
+
+  it('writes fingerprints row for row with the printings shards, tied to them by checksum', async () => {
+    outDir = await mkdtemp(join(tmpdir(), 'manifest-index-'));
+    const data = await mtgIndexBuilder.buildIndex({ sourceFile: SAMPLE, cacheDir: outDir });
+    const byId = new Map(data.printings.map((printing, i) => [printing.id, new Uint8Array(16).fill(i + 1)]));
+    byId.delete(data.printings[0]!.id); // A printing without an image.
+    const index = await writeGameIndex('mtg', data, mtgIndexBuilder.shardCount, outDir, {
+      version: 1,
+      rowBytes: 16,
+      imageSize: 'small',
+      byId,
+    });
+    expect(index.fingerprint).toEqual({ version: 1, rowBytes: 16, imageSize: 'small' });
+    expect(index.hashes).toHaveLength(mtgIndexBuilder.shardCount);
+
+    const shardNumber = printingShardIndex(data.printings[1]!.name, mtgIndexBuilder.shardCount);
+    const printings = JSON.parse(await readFile(join(outDir, printingShardFile('mtg', shardNumber)), 'utf8')) as Printing[];
+    const hashes = decodeHashShard(new Uint8Array(await readFile(join(outDir, hashShardFile('mtg', shardNumber)))));
+    expect(hashes.rows).toBe(printings.length);
+    expect(hashes.printingsSha).toBe(index.shards[shardNumber]!.sha256.slice(0, 16));
+    printings.forEach((printing, row) => {
+      const expected = byId.get(printing.id)?.[0] ?? 0;
+      expect(hashes.words[row * 4]! & 0xff).toBe(expected);
+    });
+  });
+
+  it('writes the collector-number index for cards that print a set code', async () => {
+    outDir = await mkdtemp(join(tmpdir(), 'manifest-index-'));
+    const { data, index } = await build(outDir);
+    const collectors = JSON.parse(await readFile(join(outDir, index.collectors!.file), 'utf8')) as Record<string, Record<string, number>>;
+    expect(data.names.names[collectors['cmm']!['410'] as number]).toBe('Sol Ring');
+    expect(collectors['lea']).toBeUndefined(); // 1993: no set code on the card.
+    expect(index.hashes).toBeUndefined();
   });
 
   it('writes a manifest with the build date and shard list, keeping other games', async () => {

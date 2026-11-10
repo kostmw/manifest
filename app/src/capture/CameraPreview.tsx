@@ -14,7 +14,7 @@ export function CameraPreview({
   /** Drawn over the live video, e.g. the outline of a detected card. */
   overlay?: ReactNode;
 }) {
-  const { state, start, stop } = camera;
+  const { state, start, stop, torch, setTorchOn } = camera;
   const stream = state.status === 'live' ? state.stream : null;
 
   useEffect(() => {
@@ -65,9 +65,21 @@ export function CameraPreview({
         )}
       </div>
       {stream && (
-        <button type="button" onClick={stop} className={`${BUTTON} self-start bg-zinc-800 hover:bg-zinc-700`}>
-          Stop camera
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={stop} className={`${BUTTON} bg-zinc-800 hover:bg-zinc-700`}>
+            Stop camera
+          </button>
+          {torch.supported && (
+            <button
+              type="button"
+              aria-pressed={torch.on}
+              onClick={() => void setTorchOn(!torch.on)}
+              className={`${BUTTON} ${torch.on ? 'bg-amber-400 text-zinc-950 hover:bg-amber-300' : 'bg-zinc-800 hover:bg-zinc-700'}`}
+            >
+              {torch.on ? 'Flashlight on' : 'Flashlight'}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );

@@ -5,6 +5,11 @@ import type { FrameOutcome, RecognizeWorker } from './recognize.worker';
 
 export type RecognizerStatus = 'loading' | 'ready' | 'error';
 
+/** Adds what the main thread spent: getting the pixels (`capture`), and the whole round trip (`wall`). */
+function withMainThreadTimings(outcome: FrameOutcome, capture: number, started: number): FrameOutcome {
+  return { ...outcome, timings: { capture, ...outcome.timings, wall: performance.now() - started } };
+}
+
 /**
  * Starts the recognition worker and loads the name list and OCR engine into
  * it. Mounted only while the scanner is shown, so the OCR download (about
@@ -41,15 +46,19 @@ export function useRecognizer(game: GameId) {
   const live = useCallback(async (video: HTMLVideoElement): Promise<FrameOutcome | null> => {
     const remote = remoteRef.current;
     if (!remote || video.readyState < 2 || video.videoWidth === 0) return null;
+    const started = performance.now();
     const bitmap = await createImageBitmap(video);
-    return remote.live(transfer(bitmap, [bitmap]));
+    const capture = performance.now() - started;
+    return withMainThreadTimings(await remote.live(transfer(bitmap, [bitmap])), capture, started);
   }, []);
 
   const photo = useCallback(async (file: Blob): Promise<FrameOutcome | null> => {
     const remote = remoteRef.current;
     if (!remote) return null;
+    const started = performance.now();
     const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    return remote.photo(transfer(bitmap, [bitmap]));
+    const decode = performance.now() - started;
+    return withMainThreadTimings(await remote.photo(transfer(bitmap, [bitmap])), decode, started);
   }, []);
 
   const again = useCallback(() => {

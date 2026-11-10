@@ -18,18 +18,21 @@ async function scanPhoto(page: Page, options: FakeCardOptions) {
   await page.getByLabel('Scan a photo').setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer });
 }
 
-test('reads a card from a photo and adds it to the batch', async ({ page }) => {
-  await scanPhoto(page, { title: 'Sol Ring' });
+test('reads a card and its exact printing from a photo, and adds it to the batch', async ({ page }) => {
+  await scanPhoto(page, { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } });
 
   const result = page.getByRole('region', { name: 'Scan result' });
   await expect(result).toBeVisible({ timeout: 30_000 });
-  await expect(result.getByText('Recognized')).toBeVisible();
+  await expect(result.getByText('Recognized', { exact: true })).toBeVisible();
   await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName(
     'Choose Sol Ring',
   );
-  await expect(page.getByRole('heading', { name: /^Sol Ring/ })).toBeVisible();
+  await expect(result.getByText(/Collector line read as/)).toBeVisible();
+  // The sample index has two printings of Sol Ring; the collector line picks one.
+  const best = result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first();
+  await expect(best).toContainText('CMM 410');
 
-  await page.getByRole('button', { name: 'Add CMM 410 Nonfoil' }).click();
+  await best.getByRole('button', { name: 'Add CMM 410 Nonfoil' }).click();
   await expect(page.getByText(/^Added Sol Ring/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Batch (1)' })).toBeVisible();
 
@@ -37,10 +40,37 @@ test('reads a card from a photo and adds it to the batch', async ({ page }) => {
   await expect(result).toBeHidden();
 });
 
-test('reads a card that is upside down', async ({ page }) => {
-  await scanPhoto(page, { title: 'Demonic Tutor', flipped: true, rotation: -0.1 });
-  const candidates = page.getByRole('list', { name: 'Candidates' });
-  await expect(candidates.getByRole('button').first()).toHaveAccessibleName('Choose Demonic Tutor', { timeout: 30_000 });
+test('reads a card that is upside down, collector line included', async ({ page }) => {
+  await scanPhoto(page, { title: 'Demonic Tutor', collector: { set: 'CMM', number: '509', rarity: 'M' }, flipped: true, rotation: -0.1 });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName(
+    'Choose Demonic Tutor',
+    { timeout: 30_000 },
+  );
+  await expect(result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first()).toContainText('CMM 509');
+});
+
+test('finds a card by its collector line when the title is unreadable', async ({ page }) => {
+  await scanPhoto(page, { title: 'Xqzv Jwkp', collector: { set: 'CMM', number: '703', rarity: 'U' } });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first()).toContainText(
+    'CMM 703',
+    { timeout: 30_000 },
+  );
+  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName('Choose Sol Ring');
+});
+
+test('shows every printing of a name on request', async ({ page }) => {
+  await scanPhoto(page, { title: 'Lightning Bolt' });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByRole('list', { name: 'Printing candidates' })).toBeVisible({ timeout: 30_000 });
+  // Two printings and no collector line: the scanner can't tell which.
+  await expect(result.getByText('Recognized the card. Which printing is it?')).toBeVisible();
+  await result.getByRole('button', { name: 'Choose Lightning Bolt' }).click();
+  await expect(page.getByRole('heading', { name: /^Lightning Bolt/ })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Printings' }).getByRole('listitem')).toHaveCount(2);
+  await result.getByRole('button', { name: 'Back to closest printings' }).click();
+  await expect(result.getByRole('list', { name: 'Printing candidates' })).toBeVisible();
 });
 
 test('lets the user pick when the reading is unsure', async ({ page }) => {
@@ -74,4 +104,33 @@ test('explains what to do while no card is in view of the camera', async ({ page
   await page.getByRole('button', { name: 'Start camera' }).click();
   // Chromium's fake camera shows a test pattern, not a card.
   await expect(page.getByRole('status')).toContainText('Place one card flat in view');
+});
+
+test("says it couldn't read a card, with a hint and a way to search instead", async ({ page }) => {
+  // Gibberish for a title and no collector line: nothing to go on (the e2e index has no fingerprints).
+  await scanPhoto(page, { title: 'Xqzv Jwkp' });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByText("Couldn't read this card.")).toBeVisible({ timeout: 30_000 });
+  await expect(result.getByRole('alert')).toContainText(/light|flatter/);
+  await expect(result.getByRole('button', { name: 'Search by name instead' })).toBeVisible();
+  await expect(result.getByTestId('debug-result')).toHaveCount(0);
+});
+
+async function openScannerWithDebug(page: Page) {
+  await page.goto('./?debug=1');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
+  await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
+}
+
+test('shows per-stage timings for a photo with ?debug=1', async ({ page }) => {
+  await openScannerWithDebug(page);
+  await scanPhoto(page, { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } });
+  const timings = page.getByRole('region', { name: 'Scan result' }).getByTestId('debug-result');
+  await expect(timings).toContainText(/capture \d+ · pixels \d+ · detect \d+ .*ocr \d+.* wall \d+ ms/, { timeout: 30_000 });
+});
+
+test('shows live frame timings with ?debug=1', async ({ page }) => {
+  await openScannerWithDebug(page);
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByTestId('debug-live')).toContainText(/\d+×\d+ · [\d.]+ fps · capture \d+ · pixels \d+ · detect \d+/);
 });

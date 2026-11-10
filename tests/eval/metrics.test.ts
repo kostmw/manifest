@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeMetrics, metricsByTag, quadError, quantile, thresholdSweep, type EvalOutcome } from './metrics';
+import { computeMetrics, isPrintingTwin, metricsByTag, quadError, quantile, thresholdSweep, type EvalOutcome } from './metrics';
 import { createRng, placedCorners, randomParams, seedFrom } from './synthesize';
 
 function outcome(expected: string, predicted: string[], overrides: Partial<EvalOutcome> = {}): EvalOutcome {
@@ -53,6 +53,44 @@ describe('computeMetrics', () => {
     const [loose, strict] = thresholdSweep(outcomes, [0.9, 0.93]);
     expect(loose).toMatchObject({ acceptRate: 0.5, wrong: 1 });
     expect(strict).toMatchObject({ acceptRate: 0.25, wrong: 0 });
+  });
+});
+
+describe('printing metrics', () => {
+  const outcomes = [
+    outcome('A', ['A'], { expectedId: 'a1', predictedIds: ['a1', 'a2'], decision: 'accept', confidence: 0.95 }),
+    outcome('B', ['B'], { expectedId: 'b1', predictedIds: ['b2', 'b1'], topIsTwin: true, decision: 'accept', confidence: 0.92 }),
+    outcome('C', ['C'], { expectedId: 'c1', predictedIds: ['c2'] }),
+  ];
+
+  it('judge auto-accepts on the exact printing, and count twins separately', () => {
+    expect(computeMetrics(outcomes)).toMatchObject({
+      top1Name: 1,
+      top1Printing: 1 / 3,
+      top1PrintingOrTwin: 2 / 3,
+      top5Printing: 2 / 3,
+      wrongAutoAccepts: 1,
+      wrongNameAccepts: 0,
+    });
+  });
+
+  it('are null for a names-only run', () => {
+    expect(computeMetrics([outcome('A', ['A'])]).top1Printing).toBeNull();
+  });
+});
+
+describe('isPrintingTwin', () => {
+  const p = (set: string, number: string, name = 'X') => ({ name, set, number });
+  it('pairs a set\'s printing with its promos and List reprint', () => {
+    expect(isPrintingTwin(p('ltr', '166'), p('pltr', '166s'))).toBe(true);
+    expect(isPrintingTwin(p('war', '137'), p('plst', 'WAR-137'))).toBe(true);
+    expect(isPrintingTwin(p('pwar', '137p'), p('pwar', '137s'))).toBe(true);
+  });
+  it('keeps other printings apart', () => {
+    expect(isPrintingTwin(p('ltr', '166'), p('ltr', '166'))).toBe(false);
+    expect(isPrintingTwin(p('ltr', '166'), p('ltr', '617'))).toBe(false);
+    expect(isPrintingTwin(p('c15', '122'), p('c16', '122'))).toBe(false);
+    expect(isPrintingTwin(p('ltr', '166'), p('pltr', '166s', 'Y'))).toBe(false);
   });
 });
 

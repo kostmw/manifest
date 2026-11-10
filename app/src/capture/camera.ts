@@ -13,17 +13,20 @@ export const CAMERA_FAILURE_MESSAGES: Record<CameraFailure, string> = {
 
 /**
  * Ideal rather than exact constraints: phones get the rear camera, and laptops
- * with only a front camera still work. Resolution is capped for throughput.
+ * with only a front camera still work. Resolution is capped for throughput
+ * (720p unless a phone test asks for 1080p, see ui/debug.ts).
  */
-export const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
-  audio: false,
-  video: {
-    facingMode: { ideal: 'environment' },
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30, max: 30 },
-  },
-};
+export function cameraConstraints(resolution: 720 | 1080 = 720): MediaStreamConstraints {
+  return {
+    audio: false,
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: resolution === 1080 ? 1920 : 1280 },
+      height: { ideal: resolution },
+      frameRate: { ideal: 30, max: 30 },
+    },
+  };
+}
 
 export function classifyCameraError(error: unknown): CameraFailure {
   const name = (error as { name?: unknown } | null)?.name;

@@ -1,23 +1,72 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import type { PrintingCandidate } from '../recognize/identify';
 import type { FrameOutcome, ScanResult } from '../recognize/recognize.worker';
 import { useRecognizer } from '../recognize/useRecognizer';
-import { PrintingList, usePrintings, type Message } from '../search/printings';
+import { PrintingList, PrintingRow, usePrintings, type Message } from '../search/printings';
 import type { Batch } from '../session/types';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
-import { QUALITY_HINTS } from '../vision/quality';
+import { debugEnabled, formatTimings } from '../ui/debug';
+import { ADVICE_HINTS, QUALITY_HINTS, type QualityAdvice } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
-import { useCamera } from './useCamera';
+import { useCamera, type Torch } from './useCamera';
 
 /** Time between live frames. Detection takes a fraction of it; OCR runs only on steady frames. */
 const FRAME_INTERVAL_MS = 120;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function liveHint(frame: FrameOutcome | null): string {
+/** Below this, a reading is a guess: the right name is among the candidates only about one time in four. */
+const UNREADABLE_BELOW = 0.5;
+
+function liveHint(frame: FrameOutcome | null, torch: Torch): string {
   if (!frame?.corners) return 'Place one card flat in view. A plain background that contrasts with the card works best.';
   const issue = frame.issues[0];
+  if (issue === 'too-dark' && torch.supported && !torch.on) return 'Too dark: turn on the flashlight, or add light.';
+  // Seen at a steep angle, the far edge is stretched when the card is straightened: it looks
+  // blurry however still the phone is.
+  if (issue === 'blurry' && frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (issue) return QUALITY_HINTS[issue];
-  return frame.steadyFrames >= 3 ? 'Reading…' : 'Hold still…';
+  if (frame.phase === 'read') return 'Done with this card. Take it away to scan the next one.';
+  if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
+  if (frame.phase !== 'reading') return 'Hold still…';
+  return frame.advice.includes('dim') && torch.supported && !torch.on ? 'Reading… More light would help: try the flashlight.' : 'Reading…';
+}
+
+/** What to try when a card couldn't be read, from what the quality gate noticed. */
+function unreadableHint(advice: QualityAdvice[]): string {
+  if (advice.includes('tilted') && advice.includes('dim')) return `${ADVICE_HINTS.tilted} ${ADVICE_HINTS.dim}`;
+  if (advice.includes('tilted')) return ADVICE_HINTS.tilted;
+  if (advice.includes('dim')) return `${ADVICE_HINTS.dim} Turn on a lamp or the flashlight.`;
+  return 'Try more light, or hold the phone flatter, straight above the card.';
+}
+
+/** Frames per second, smoothed. */
+function useFrameRate(frame: FrameOutcome | null): number {
+  const last = useRef<number | null>(null);
+  const [rate, setRate] = useState(0);
+  useEffect(() => {
+    if (!frame) return;
+    const now = performance.now();
+    if (last.current !== null) {
+      const instant = 1000 / Math.max(1, now - last.current);
+      setRate((previous) => (previous ? previous * 0.8 + instant * 0.2 : instant));
+    }
+    last.current = now;
+  }, [frame]);
+  return rate;
+}
+
+function LiveDebug({ frame, rate }: { frame: FrameOutcome | null; rate: number }) {
+  if (!frame) return null;
+  const metrics = frame.metrics;
+  return (
+    <p data-testid="debug-live" className="font-mono text-xs break-words text-zinc-500">
+      {frame.frame.width}×{frame.frame.height} · {rate.toFixed(1)} fps · {formatTimings(frame.timings)} ms
+      {metrics &&
+        ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}`}
+      {` · ${frame.phase}`}
+    </p>
+  );
 }
 
 function Outline({ frame }: { frame: FrameOutcome | null }) {
@@ -42,15 +91,32 @@ function Outline({ frame }: { frame: FrameOutcome | null }) {
   );
 }
 
+/** Why a printing was picked, in a few words. */
+function matchNote(candidate: PrintingCandidate): string {
+  const parts: string[] = [];
+  const collector = candidate.collector;
+  if (collector?.number === 'exact' && (collector.set === 'exact' || collector.set === 'close')) parts.push('collector number and set match');
+  else if (collector?.number === 'exact') parts.push('collector number matches');
+  else if (collector?.set === 'exact') parts.push('set matches');
+  if (candidate.hashDistance !== null && candidate.hashDistance <= 14) parts.push('artwork matches');
+  if (parts.length === 0 && candidate.title >= 0.8) parts.push('name matches');
+  return parts.join(', ');
+}
+
 function ResultPanel({
   result,
+  timings,
   batch,
+  debug,
   onDone,
   onReadAgain,
   onSearchInstead,
 }: {
   result: ScanResult;
+  /** The whole frame's timings, main thread included, for the debug readout. */
+  timings: Record<string, number>;
   batch: Batch | null;
+  debug: boolean;
   onDone: () => void;
   onReadAgain?: () => void;
   onSearchInstead: () => void;
@@ -58,8 +124,9 @@ function ResultPanel({
   const printings = usePrintings(batch?.game ?? 'mtg');
   const [message, setMessage] = useState<Message | null>(null);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
-  const top = result.candidates[0];
+  const top = result.names[0];
   const sure = result.decision === 'accept';
+  const identified = result.printings.length > 0;
 
   useEffect(() => {
     if (!result.card) return;
@@ -68,10 +135,23 @@ function ResultPanel({
     return () => URL.revokeObjectURL(url);
   }, [result.card]);
 
-  // A confident read goes straight to its printings; an unsure one waits for a pick.
+  // Without exact printings, a confident read goes straight to all printings of its name.
   useEffect(() => {
-    if (sure && top) printings.load(top.name);
+    if (sure && top && !identified) printings.load(top);
   }, [result]); // Once per result, not on every change of the lookup it starts.
+
+  const unreadable = !top || (!sure && result.nameConfidence < UNREADABLE_BELOW);
+  const status = unreadable
+    ? "Couldn't read this card."
+    : identified
+      ? sure
+        ? 'Recognized'
+        : result.nameConfidence >= 0.9
+          ? 'Recognized the card. Which printing is it?'
+          : 'Not sure. Is it one of these?'
+      : sure
+        ? 'Recognized'
+        : 'Not sure. Is it one of these?';
 
   return (
     <section aria-label="Scan result" className="flex flex-col gap-3 rounded-xl bg-zinc-800/40 p-3">
@@ -81,28 +161,40 @@ function ResultPanel({
         )}
         <div className="flex min-w-0 flex-col gap-2">
           <p className="text-sm text-zinc-400">
-            {top ? (sure ? 'Recognized' : 'Not sure. Is it one of these?') : "Couldn't read this card."}
+            <span>{status}</span>
+            {top && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
           </p>
+          {unreadable && (
+            <p role="alert" className="text-sm text-amber-300">
+              {unreadableHint(result.advice)}
+            </p>
+          )}
           {result.titleText && (
             <p className="text-xs text-zinc-500">
               Title read as <span className="font-mono">“{result.titleText}”</span>
             </p>
           )}
+          {result.collectorText && (
+            <p className="text-xs break-all text-zinc-500">
+              Collector line read as <span className="font-mono">“{result.collectorText}”</span>
+            </p>
+          )}
+          {unreadable && top && <p className="text-xs text-zinc-500">Closest guesses:</p>}
           <ul aria-label="Candidates" className="flex flex-col gap-1">
-            {result.candidates.map((candidate, index) => (
-              <li key={candidate.name}>
+            {/* A sure printing needs no list of other names; its printings are below. */}
+            {(identified && sure ? result.names.slice(0, 1) : result.names).map((name) => (
+              <li key={name}>
                 <button
                   type="button"
-                  aria-label={`Choose ${candidate.name}`}
-                  onClick={() => printings.load(candidate.name)}
+                  aria-label={`Choose ${name}`}
+                  onClick={() => printings.load(name)}
                   className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm ${
-                    printings.state.status !== 'idle' && printings.state.name === candidate.name
+                    printings.state.status !== 'idle' && printings.state.name === name
                       ? 'bg-zinc-100 text-zinc-900'
                       : 'bg-zinc-800 hover:bg-zinc-700'
                   }`}
                 >
-                  {candidate.name}
-                  {index === 0 && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
+                  {name}
                 </button>
               </li>
             ))}
@@ -112,6 +204,24 @@ function ResultPanel({
       <p aria-live="polite" className={`min-h-5 text-sm ${message?.failed ? 'text-amber-300' : 'text-emerald-300'}`}>
         {message?.text}
       </p>
+      {identified && batch && printings.state.status === 'idle' && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-base font-semibold">{sure ? 'Best match' : 'Closest printings'}</h2>
+          <ul aria-label="Printing candidates" className="flex flex-col gap-2">
+            {result.printings.map((candidate, index) => (
+              <PrintingRow
+                key={candidate.printing.id}
+                printing={candidate.printing}
+                batch={batch}
+                onAdded={setMessage}
+                note={matchNote(candidate)}
+                highlighted={index === 0 && sure}
+              />
+            ))}
+          </ul>
+          <p className="text-xs text-zinc-500">Not here? Choose a name above to see all its printings.</p>
+        </div>
+      )}
       <PrintingList
         key={printings.state.status === 'idle' ? '' : printings.state.name}
         printings={printings}
@@ -119,18 +229,28 @@ function ResultPanel({
         onAdded={setMessage}
       />
       <div className="flex flex-wrap gap-2">
+        {identified && printings.state.status !== 'idle' && (
+          <button type="button" onClick={printings.clear} className={BUTTON_SECONDARY}>
+            Back to closest printings
+          </button>
+        )}
         <button type="button" onClick={onDone} className={BUTTON_PRIMARY}>
           Scan next card
         </button>
         {onReadAgain && (
           <button type="button" onClick={onReadAgain} className={BUTTON_SECONDARY}>
-            Read again
+            {unreadable ? 'Try again' : 'Read again'}
           </button>
         )}
         <button type="button" onClick={onSearchInstead} className={BUTTON_SECONDARY}>
           Search by name instead
         </button>
       </div>
+      {debug && (
+        <p data-testid="debug-result" className="font-mono text-xs break-words text-zinc-500">
+          {formatTimings(timings)} ms · confidence {result.confidence.toFixed(2)} (name {result.nameConfidence.toFixed(2)})
+        </p>
+      )}
     </section>
   );
 }
@@ -140,7 +260,9 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
   const camera = useCamera();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
-  const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo' } | null>(null);
+  const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo'; timings: Record<string, number> } | null>(null);
+  const [debug] = useState(() => debugEnabled());
+  const rate = useFrameRate(frame);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
   const streaming = camera.state.status === 'live';
   const { live, photo, again } = recognizer;
@@ -158,7 +280,7 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
           if (outcome) {
             setFrame(outcome);
             if (outcome.result) {
-              setResult({ scan: outcome.result, source: 'live' });
+              setResult({ scan: outcome.result, source: 'live', timings: outcome.timings });
               break;
             }
           }
@@ -182,7 +304,7 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
     try {
       const outcome = await photo(file);
       if (outcome?.result) {
-        setResult({ scan: outcome.result, source: 'photo' });
+        setResult({ scan: outcome.result, source: 'photo', timings: outcome.timings });
         setPhotoState('idle');
       } else {
         setPhotoState('no-card');
@@ -211,7 +333,9 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
       {result ? (
         <ResultPanel
           result={result.scan}
+          timings={result.timings}
           batch={batch}
+          debug={debug}
           onDone={() => {
             setResult(null);
             setFrame(null);
@@ -230,9 +354,17 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
         <>
           <CameraPreview camera={camera} videoRef={videoRef} overlay={<Outline frame={frame} />} />
           {streaming && recognizer.status === 'ready' && (
-            <p role="status" aria-live="polite" className="min-h-5 text-sm text-zinc-300">
-              {liveHint(frame)}
-            </p>
+            <div className="flex flex-col gap-2">
+              <p role="status" aria-live="polite" className="min-h-5 text-sm text-zinc-300">
+                {liveHint(frame, camera.torch)}
+              </p>
+              {frame?.phase === 'read' && (
+                <button type="button" onClick={again} className={`${BUTTON_SECONDARY} self-start`}>
+                  Read this card again
+                </button>
+              )}
+              {debug && <LiveDebug frame={frame} rate={rate} />}
+            </div>
           )}
         </>
       )}

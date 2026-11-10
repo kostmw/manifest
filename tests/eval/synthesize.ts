@@ -57,6 +57,14 @@ export interface SynthParams {
   noise: number;
   jpegQuality: number;
   conditions: string[];
+  /**
+   * The card tipped away from the camera about its horizontal axis, in
+   * radians: positive puts the top edge farther away, as when a phone is
+   * tilted back from straight above the card. Absent in the standard sets.
+   */
+  tilt?: number;
+  /** A foil's rainbow sheen, in card coordinates. Absent in the standard sets. */
+  foil?: { angle: number; period: number; phase: number; strength: number };
 }
 
 const FRAMES = [
@@ -255,18 +263,36 @@ function blurRgba(image: RgbaImage, sigma: number): RgbaImage {
   return out;
 }
 
+/** Focal length as a share of the frame's long side: a phone's main camera sees about 70° across it. */
+const PHONE_FOCAL = 0.75;
+
+/** A foil's sheen: brighter, colour-shifted bands across the card, like light on a holographic finish. */
+function foilSheen(foil: NonNullable<SynthParams['foil']>, x: number, y: number, width: number, channel: number): number {
+  const u = (x * Math.cos(foil.angle) + y * Math.sin(foil.angle)) / (width * foil.period);
+  return 1 + foil.strength * (0.5 + 0.5 * Math.sin(2 * Math.PI * u + foil.phase + (channel * 2 * Math.PI) / 3));
+}
+
 /** Where the card's corners land in the frame, in reading order of the card itself. */
 export function placedCorners(params: SynthParams, card: { width: number; height: number }): Quad {
   const h = params.cardHeight * params.frame.height;
   const w = h * (card.width / card.height);
   const cos = Math.cos(params.rotation);
   const sin = Math.sin(params.rotation);
-  const local: Point[] = [
+  const flat: Point[] = [
     { x: -w / 2, y: -h / 2 },
     { x: w / 2, y: -h / 2 },
     { x: w / 2, y: h / 2 },
     { x: -w / 2, y: h / 2 },
   ];
+  // A pinhole camera with a phone's field of view (about 70° across the long side):
+  // tipping the card shortens it and makes its far edge narrower.
+  const focal = PHONE_FOCAL * Math.max(params.frame.width, params.frame.height);
+  const tilt = params.tilt ?? 0;
+  const local = flat.map((p) => {
+    const depth = -p.y * Math.sin(tilt);
+    const scale = focal / (focal + depth);
+    return { x: p.x * scale, y: p.y * Math.cos(tilt) * scale };
+  });
   return local.map((p, i) => {
     const jx = p.x + params.jitter[i]!.x * w;
     const jy = p.y + params.jitter[i]!.y * w;
@@ -304,7 +330,8 @@ export function renderSynthetic(card: RgbaImage, params: SynthParams, rng: Rng):
       const alpha = Math.max(0, Math.min(1, 0.5 + depth / cardPerPixel));
       if (alpha > 0) {
         for (let c = 0; c < 3; c++) {
-          frame.data[p4 + c] = frame.data[p4 + c]! * (1 - alpha) + bilinear(card, p.x, p.y, c) * alpha;
+          const sheen = params.foil ? foilSheen(params.foil, p.x, p.y, card.width, c) : 1;
+          frame.data[p4 + c] = frame.data[p4 + c]! * (1 - alpha) + bilinear(card, p.x, p.y, c) * sheen * alpha;
         }
       }
       if (params.sleeved) {
@@ -352,4 +379,85 @@ export function renderSynthetic(card: RgbaImage, params: SynthParams, rng: Rng):
     blurred.data[i * 4 + 3] = 255;
   }
   return { image: blurred, corners };
+}
+
+/**
+ * The same photo at `factor` times the resolution: what a phone camera gives
+ * when the frame isn't scaled down as far. Blur scales with it, so the image
+ * is equally sharp relative to its size; noise stays per pixel.
+ */
+export function scaleParams(params: SynthParams, factor: number): SynthParams {
+  return {
+    ...params,
+    frame: { width: Math.round(params.frame.width * factor), height: Math.round(params.frame.height * factor) },
+    center: { x: params.center.x * factor, y: params.center.y * factor },
+    blur: params.blur * factor,
+  };
+}
+
+/**
+ * Scenes for the `phone` set: how people actually hold a phone over a card.
+ * `plain` is an ordinary scene without the extreme conditions; `tilt` views
+ * the card 30–55° off straight-on (mostly with the title on the far edge,
+ * phone tilted back); `dim` is either a dark frame or one the camera has
+ * brightened, which is what a phone does in dim light: noisy and soft.
+ */
+export type PhoneScene = 'plain' | 'tilt' | 'dim';
+
+export function phoneParams(rng: Rng, aspect: number, scene: PhoneScene, foil: boolean): SynthParams {
+  const base = randomParams(rng, aspect);
+  // Upright or upside down only: sideways cards are a separate problem.
+  const turned = base.conditions.includes('upside-down');
+  const conditions = base.conditions.filter((c) => !['sideways', 'blur', 'low-light', 'glare', 'clean'].includes(c));
+  const params: SynthParams = {
+    ...base,
+    rotation: (uniform(rng, -8, 8) * Math.PI) / 180 + (turned ? Math.PI : 0),
+    blur: uniform(rng, 0, 0.7),
+    glare: base.glare && base.glare.strength < 0.4 ? base.glare : null,
+    brightness: uniform(rng, 0.85, 1.1),
+    conditions,
+  };
+  // The phone set's frames are portrait or landscape at live-camera size; the card fills a phone-like share.
+  const portrait = params.frame.height > params.frame.width;
+  params.cardHeight = portrait ? uniform(rng, 0.45, 0.65) : uniform(rng, 0.62, 0.85);
+
+  if (scene === 'tilt') {
+    const degrees = uniform(rng, 30, 55);
+    params.tilt = ((rng() < 0.75 ? 1 : -1) * degrees * Math.PI) / 180;
+    // Corner jitter on top of a real perspective would double-count it.
+    params.jitter = params.jitter.map((j) => ({ x: j.x * 0.3, y: j.y * 0.3 }));
+    conditions.push('tilt', degrees >= 42 ? 'tilt-steep' : 'tilt-moderate');
+  } else if (scene === 'dim') {
+    if (rng() < 0.5) {
+      params.brightness = uniform(rng, 0.18, 0.35);
+      params.noise = uniform(rng, 4, 8);
+      conditions.push('dim', 'dim-dark');
+    } else {
+      params.brightness = uniform(rng, 0.6, 0.8);
+      params.noise = uniform(rng, 10, 16);
+      params.blur = uniform(rng, 0.9, 1.6);
+      conditions.push('dim', 'dim-noisy');
+    }
+    params.jpegQuality = Math.round(uniform(rng, 70, 85));
+  } else {
+    conditions.push('plain');
+  }
+  if (foil) {
+    params.foil = { angle: uniform(rng, 0, Math.PI), period: uniform(rng, 0.5, 1.2), phase: uniform(rng, 0, 2 * Math.PI), strength: uniform(rng, 0.12, 0.3) };
+    conditions.push('foil');
+  }
+  // Keep the card inside the frame whatever was changed above.
+  const h = params.cardHeight * params.frame.height;
+  const w = h * aspect;
+  const c = Math.abs(Math.cos(params.rotation));
+  const s = Math.abs(Math.sin(params.rotation));
+  const bw = w * c + h * s;
+  const bh = w * s + h * c;
+  const shrink = Math.min(1, (params.frame.width * 0.9) / bw, (params.frame.height * 0.92) / bh);
+  params.cardHeight *= shrink;
+  params.center = {
+    x: Math.min(Math.max(params.center.x, (bw * shrink) / 2 + 8), params.frame.width - (bw * shrink) / 2 - 8),
+    y: Math.min(Math.max(params.center.y, (bh * shrink) / 2 + 8), params.frame.height - (bh * shrink) / 2 - 8),
+  };
+  return params;
 }

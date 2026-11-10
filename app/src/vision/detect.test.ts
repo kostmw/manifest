@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { detectCards } from './detect';
 import { createRgba } from './image';
-import { cardQuad, cornerError, makeCard, placeCard } from './testScene';
+import { cardQuad, cornerError, makeCard, placeCard, tiltedCardQuad } from './testScene';
 
 const ASPECT = 488 / 680;
 const FRAME = { width: 720, height: 960 };
@@ -14,6 +14,17 @@ describe('detectCards', () => {
     expect(card).toBeDefined();
     expect(cornerError(card!.corners, truth)).toBeLessThan(4);
     expect(card!.aspect).toBeCloseTo(ASPECT, 1);
+  });
+
+  it.each([0, 30, 50])('finds a card seen %i° off straight above, and says how far', (tilt) => {
+    // At 50° the outline is almost square: only the perspective shows it is a card.
+    const truth = tiltedCardQuad(FRAME, 440, tilt);
+    const frame = placeCard(makeCard(), FRAME, truth, [120, 140, 160]);
+    const [card] = detectCards(frame, { aspect: ASPECT });
+    expect(card).toBeDefined();
+    expect(cornerError(card!.corners, truth)).toBeLessThan(5);
+    expect(card!.aspect).toBeCloseTo(ASPECT, 1);
+    expect(Math.abs(card!.tilt - tilt)).toBeLessThan(5);
   });
 
   it('puts the short side on top, also for a card lying sideways', () => {

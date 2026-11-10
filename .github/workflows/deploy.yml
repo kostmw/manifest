@@ -42,6 +42,12 @@ jobs:
       - run: npm ci
       - id: pages
         uses: actions/configure-pages@v6
+      # Only used when there is no index artifact to download: the nightly build's fingerprints.
+      - uses: actions/cache/restore@v6
+        with:
+          path: .cache/fingerprints
+          key: fingerprints-mtg-v1-${{ github.run_id }}
+          restore-keys: fingerprints-mtg-v1-
       - name: Get the latest card index
         env:
           GH_TOKEN: ${{ github.token }}
@@ -50,8 +56,10 @@ jobs:
           if [ -n "$run_id" ] && gh run download "$run_id" --name index --dir data; then
             echo "Using the index from build-index run $run_id"
           else
+            # Downloading every card image here would hold up the deploy for hours, so this
+            # uses whatever fingerprints are cached; the nightly build fills in the rest.
             echo "No usable index artifact, so building one"
-            npm run index:build
+            npm run index:build -- --fingerprints cache-only
           fi
       - run: npm run build
         env:

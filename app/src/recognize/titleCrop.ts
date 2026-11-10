@@ -6,6 +6,8 @@
  */
 import { otsuThreshold, sobel } from '../vision/filters';
 import { createGray, cropGray, resizeGray, toGray, type Box, type GrayImage, type RgbaImage } from '../vision/image';
+import { warpQuad } from '../vision/rectify';
+import { boxCorners, type CardMapping } from './fingerprint';
 
 export interface TitleCrop {
   /** Black text on white, padded, ready for OCR. */
@@ -28,7 +30,7 @@ const TARGET_LINE_HEIGHT = 56;
 const PADDING = 12;
 
 /** Row-wise density of vertical strokes. Text has many; frame lines and flat bars have few. */
-function strokeProfile(gray: GrayImage): Float32Array {
+export function strokeProfile(gray: GrayImage): Float32Array {
   const { gx } = sobel(gray);
   const profile = new Float32Array(gray.height);
   for (let y = 0; y < gray.height; y++) {
@@ -62,16 +64,18 @@ export function findTextLine(profile: Float32Array, lineHeight: number, expected
 }
 
 /**
- * Otsu, then decides which side is text: in the middle rows, where the letters
- * are, ink is the minority even for a long bold name, while the strip's edges
- * can be either colour (frame lines, shadows). Text becomes 0, background 255.
+ * Otsu, then decides which side is text: in the middle rows (`middleRows` of
+ * the height), where the letters are, ink is the minority even for a long bold
+ * name, while the strip's edges can be either colour (frame lines, shadows).
+ * Text becomes 0, background 255.
  */
-export function binarizeLine(gray: GrayImage): { image: GrayImage; inverted: boolean } {
+export function binarizeLine(gray: GrayImage, middleRows = 0.5): { image: GrayImage; inverted: boolean } {
   const threshold = otsuThreshold(gray.data);
   const { width, height, data } = gray;
   let dark = 0;
   let counted = 0;
-  for (let y = Math.floor(height * 0.25); y < Math.ceil(height * 0.75); y++) {
+  const skip = (1 - middleRows) / 2;
+  for (let y = Math.floor(height * skip); y < Math.ceil(height * (1 - skip)); y++) {
     for (let x = 0; x < width; x++) {
       counted++;
       if (data[y * width + x]! < threshold) dark++;
@@ -118,7 +122,7 @@ export function strictThreshold(gray: GrayImage, inverted: boolean): GrayImage {
   return out;
 }
 
-function pad(image: GrayImage, amount: number): GrayImage {
+export function pad(image: GrayImage, amount: number): GrayImage {
   const out = createGray(image.width + amount * 2, image.height + amount * 2);
   out.data.fill(255);
   for (let y = 0; y < image.height; y++) {
@@ -137,26 +141,42 @@ export interface TitleRegion {
 }
 
 export function cropTitle(card: RgbaImage, region: TitleRegion): TitleCrop {
-  const band = cropGray(toGray(card), region.search);
-  const top = findTextLine(
-    strokeProfile(band),
-    region.lineHeight,
-    region.expectedCenterY - region.search.y,
-    region.lineHeight,
-  );
+  return cropTitleFromBand(cropGray(toGray(card), region.search), region, 1);
+}
+
+/** Pixels per card pixel worth reading the title at: beyond this, OCR gains nothing. */
+export const MAX_TITLE_DETAIL = TARGET_LINE_HEIGHT / 32;
+
+/**
+ * The title from the search band warped straight out of the photo at `scale`
+ * band pixels per card pixel. A photo often holds the card at two or three
+ * times canonical size, and rectifying to 488×680 first would throw that
+ * detail away; the title on the far edge of a tilted card needs all of it.
+ */
+export function cropTitleFromFrame(frame: RgbaImage, mapping: CardMapping, region: TitleRegion, scale: number): TitleCrop {
+  const { search } = region;
+  const size = { width: Math.round(search.width * scale), height: Math.round(search.height * scale) };
+  const band = toGray(warpQuad(frame, boxCorners(mapping, search), size));
+  return cropTitleFromBand(band, region, size.width / search.width);
+}
+
+/** Finds the title line in a search band holding `scale` pixels per card pixel. */
+function cropTitleFromBand(band: GrayImage, region: TitleRegion, scale: number): TitleCrop {
+  const lineHeight = region.lineHeight * scale;
+  const top = findTextLine(strokeProfile(band), Math.round(lineHeight), (region.expectedCenterY - region.search.y) * scale, lineHeight);
   // A little room above and below, so ascenders and descenders survive.
-  const margin = Math.round(region.lineHeight * 0.15);
+  const margin = Math.round(lineHeight * 0.15);
   const y0 = Math.max(0, top - margin);
-  const y1 = Math.min(band.height, top + region.lineHeight + margin);
+  const y1 = Math.min(band.height, top + Math.round(lineHeight) + margin);
   const line = cropGray(band, { x: 0, y: y0, width: band.width, height: y1 - y0 });
 
-  const scale = TARGET_LINE_HEIGHT / region.lineHeight;
-  const big = resizeGray(line, Math.round(line.width * scale), Math.round(line.height * scale));
+  const resize = TARGET_LINE_HEIGHT / lineHeight;
+  const big = resize === 1 ? line : resizeGray(line, Math.round(line.width * resize), Math.round(line.height * resize));
   const { image, inverted } = binarizeLine(big);
   return {
     image: pad(image, PADDING),
     alternatives: [pad(stretched(big, inverted), PADDING), pad(strictThreshold(big, inverted), PADDING)],
-    box: { x: region.search.x, y: region.search.y + y0, width: band.width, height: y1 - y0 },
+    box: { x: region.search.x, y: region.search.y + y0 / scale, width: band.width / scale, height: (y1 - y0) / scale },
     inverted,
   };
 }
