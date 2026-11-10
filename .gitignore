@@ -14,3 +14,5 @@ playwright-report/
 *.log
 .claude/
 .cache/
+# Tesseract's unpacked language data, if anything ever writes it outside .cache.
+*.traineddata

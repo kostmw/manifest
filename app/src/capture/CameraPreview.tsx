@@ -1,12 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, type ReactNode, type RefObject } from 'react';
 import { CAMERA_FAILURE_MESSAGES } from './camera';
-import { useCamera } from './useCamera';
+import type { useCamera } from './useCamera';
 
 const BUTTON = 'rounded-lg px-4 py-2.5 text-sm font-medium transition-colors';
 
-export function CameraPreview() {
-  const { state, start, stop } = useCamera();
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function CameraPreview({
+  camera,
+  videoRef,
+  overlay,
+}: {
+  camera: ReturnType<typeof useCamera>;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  /** Drawn over the live video, e.g. the outline of a detected card. */
+  overlay?: ReactNode;
+}) {
+  const { state, start, stop } = camera;
   const stream = state.status === 'live' ? state.stream : null;
 
   useEffect(() => {
@@ -16,7 +24,7 @@ export function CameraPreview() {
     return () => {
       video.srcObject = null;
     };
-  }, [stream]);
+  }, [stream, videoRef]);
 
   return (
     <section aria-label="Camera" className="flex flex-col gap-3">
@@ -29,6 +37,7 @@ export function CameraPreview() {
           playsInline
           className={`h-full w-full object-cover ${stream ? '' : 'hidden'}`}
         />
+        {stream && overlay}
         {!stream && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center">
             {state.status === 'failed' ? (

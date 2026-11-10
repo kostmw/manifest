@@ -87,7 +87,8 @@ export class NameIndex {
 
   constructor(dictionary: NameDictionary) {
     this.entries = dictionary.names.map((name) => ({ key: normalizeName(name), name }));
-    for (const [face, fullNames] of Object.entries(dictionary.faces)) {
+    // Printed alternate names behave like faces: they find the card, but its own name ranks first.
+    for (const [face, fullNames] of [...Object.entries(dictionary.faces), ...Object.entries(dictionary.aliases ?? {})]) {
       const key = normalizeName(face);
       for (const name of fullNames) this.entries.push({ key, name, face });
     }
@@ -147,19 +148,43 @@ export class NameIndex {
     return postings;
   }
 
-  /** Typos: shortlist by shared trigrams, then confirm with edit distance. */
-  private fuzzy(query: string): NameHit[] {
+  private byLength: Entry[][] | null = null;
+
+  /** Names and faces with `letters` ± `slack` letters, not counting spaces. For readings too short for trigrams. */
+  entriesNear(letters: number, slack: number): readonly { key: string; name: string; face?: string }[] {
+    if (!this.byLength) {
+      const buckets: Entry[][] = [];
+      for (const entry of this.entries) (buckets[entry.key.replace(/ /g, '').length] ??= []).push(entry);
+      this.byLength = buckets;
+    }
+    const found: Entry[] = [];
+    for (let length = Math.max(0, letters - slack); length <= letters + slack; length++) {
+      found.push(...(this.byLength[length] ?? []));
+    }
+    return found;
+  }
+
+  /**
+   * Names and faces sharing the most trigrams with an already-normalized key.
+   * The starting point for matching noisy text such as OCR output.
+   */
+  shortlist(key: string, size: number): readonly { key: string; name: string; face?: string }[] {
     const postings = this.getPostings();
     const overlap = new Map<number, number>();
-    for (const gram of trigrams(query)) {
+    for (const gram of trigrams(key)) {
       for (const index of postings.get(gram) ?? []) overlap.set(index, (overlap.get(index) ?? 0) + 1);
     }
-    const shortlist = [...overlap.entries()].sort((a, b) => b[1] - a[1]).slice(0, FUZZY_SHORTLIST);
+    return [...overlap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, size)
+      .map(([index]) => this.entries[index]!);
+  }
 
+  /** Typos: shortlist by shared trigrams, then confirm with edit distance. */
+  private fuzzy(query: string): NameHit[] {
     const limit = fuzzyLimit(query.length);
     const hits: NameHit[] = [];
-    for (const [index] of shortlist) {
-      const entry = this.entries[index]!;
+    for (const entry of this.shortlist(query, FUZZY_SHORTLIST)) {
       // Compare against the start of the name too, since the user may still be typing.
       const distance = Math.min(
         editDistance(query, entry.key, limit),

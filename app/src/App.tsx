@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CameraPreview } from './capture/CameraPreview';
+import { Scanner } from './capture/Scanner';
 import { AddCards } from './search/AddCards';
 import { BatchView } from './session/BatchView';
 import { useBatches } from './session/useBatches';
@@ -15,7 +15,7 @@ export function App() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'add', label: 'Add cards' },
     { id: 'batch', label: total > 0 ? `Batch (${total})` : 'Batch' },
-    { id: 'scan', label: 'Camera' },
+    { id: 'scan', label: 'Scan' },
   ];
 
   return (
@@ -53,15 +53,8 @@ export function App() {
         <div hidden={tab !== 'batch'}>
           <BatchView state={batches} onAddCards={() => setTab('add')} />
         </div>
-        {/* The camera is mounted only while visible, so that leaving this tab turns it off. */}
-        {tab === 'scan' && (
-          <>
-            <p className="text-sm text-zinc-400">
-              Card recognition isn't built yet, so this is only a preview. For now, add cards by name.
-            </p>
-            <CameraPreview />
-          </>
-        )}
+        {/* The scanner is mounted only while visible, so that leaving this tab turns the camera off. */}
+        {tab === 'scan' && <Scanner batch={batches.active} onSearchInstead={() => setTab('add')} />}
       </main>
       <LegalFooter />
     </div>
