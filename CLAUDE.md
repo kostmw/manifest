@@ -156,7 +156,7 @@ Export formatters are pure functions with snapshot tests.
 | ManaBox CSV | ✅ the 18-column form seen in 2026 | ☐ |
 | Deckbox CSV | ✅ the base 19 columns | ☐ |
 | Archidekt collection CSV | ✅ | ☐ For Collection → Import only, with the columns set by hand (no preset for its own layout). The deck importer rejects it, which the first real test confirmed (2026-11-09) |
-| Archidekt deck list | ✅ Archidekt's own deck text export | ☐ |
+| Archidekt deck list | ✅ Archidekt's own deck text export | ✅ In Archidekt's sandbox importer (no login), 11 cards were all found: foil, etched, double-faced, split, adventure, token, The List. Archidekt's export of the result matched Manifest's lines exactly (2026-11-09) |
 
 Known limits, all noted in the export UI: Deckbox has no etched finish, and its strict importer may reject some set names (token sets use Deckbox-only codes). Grouping a CSV by name leaves printing columns empty, and these sites' handling of that is unconfirmed.
 
