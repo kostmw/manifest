@@ -5,6 +5,7 @@
  */
 import { applyHomography, homography, type Point, type Quad } from './geometry';
 import { createRgba, type RgbaImage } from './image';
+import { PHONE_FOCAL_SHARE } from './perspective';
 
 export type Rgb = [number, number, number];
 
@@ -83,6 +84,27 @@ export function cardQuad(center: Point, height: number, angle = 0, aspect = 488 
     [w, h],
     [-w, h],
   ].map(([x, y]) => ({ x: center.x + x! * cos - y! * sin, y: center.y + x! * sin + y! * cos })) as Quad;
+}
+
+/**
+ * A card in the middle of the frame, seen by a phone camera tipped `tilt`
+ * degrees back from straight above it (the top edge farther away): `height`
+ * is how tall it would look straight on.
+ */
+export function tiltedCardQuad(frame: { width: number; height: number }, height: number, tilt: number, aspect = 488 / 680): Quad {
+  const focal = PHONE_FOCAL_SHARE * Math.max(frame.width, frame.height);
+  const t = (tilt * Math.PI) / 180;
+  const w = (height * aspect) / 2;
+  const h = height / 2;
+  return [
+    [-w, -h],
+    [w, -h],
+    [w, h],
+    [-w, h],
+  ].map(([x, y]) => {
+    const scale = focal / (focal - y! * Math.sin(t));
+    return { x: frame.width / 2 + x! * scale, y: frame.height / 2 + y! * Math.cos(t) * scale };
+  }) as Quad;
 }
 
 /** Largest corner distance between two quads, whichever corner each starts from. */

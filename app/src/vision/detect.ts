@@ -24,6 +24,7 @@ import {
   type Quad,
 } from './geometry';
 import { grayDownscaled, type GrayImage, type RgbaImage } from './image';
+import { cardPose } from './perspective';
 
 export interface DetectOptions {
   /** Card width ÷ height, upright. */
@@ -48,8 +49,10 @@ export interface CardDetection {
   score: number;
   /** Lowest share of any side that lies on an edge, 0–1. */
   edgeSupport: number;
-  /** Measured short side ÷ long side. */
+  /** Short side ÷ long side, with the perspective of a tilted view taken out. */
   aspect: number;
+  /** Degrees between the card's face and the camera's view (0: straight above it), assuming a phone camera. */
+  tilt: number;
   /** Card area ÷ frame area. */
   areaFraction: number;
 }
@@ -356,11 +359,15 @@ function edgeLevels(ridges: Float32Array): number[] {
   return levels.filter((level, i) => level >= 40 && levels.findIndex((other) => Math.abs(other - level) < level * 0.15) === i);
 }
 
+/** Degrees of tilt below which an outline's shape is taken as it is, and above which its pose is implausible. */
+const MIN_TILT = 15;
+const MAX_TILT = 70;
+
 function quadCandidates(
   edges: Uint8Array,
   gray: GrayImage,
   options: DetectOptions,
-): { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number }[] {
+): { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number; tilt: number }[] {
   const { width, height } = gray;
   const minAreaFraction = options.minAreaFraction ?? 0.03;
   const joined = dilate(edges, width, height, 1);
@@ -410,21 +417,37 @@ function quadCandidates(
     // Edge support is judged on the edges actually seen; the card's own edge, when found
     // beyond a dark border, is invisible to Canny by nature.
     const expanded = options.border ? expandDarkBorder(seen, gray, options.border, options.aspect) : null;
-    const ordered = expanded ? orderCardCorners(expanded) : seen;
+    let ordered = expanded ? orderCardCorners(expanded) : seen;
     const top = distance(ordered[0], ordered[1]);
     const right = distance(ordered[1], ordered[2]);
     const bottom = distance(ordered[2], ordered[3]);
     const left = distance(ordered[3], ordered[0]);
-    const ratio = (top + bottom) / (left + right);
+    const outline = (top + bottom) / (left + right);
+    // A card seen at an angle looks squatter than it is: judge its shape with the perspective
+    // taken out, so a phone tilted 30–60° still finds the card (and can be told to hold flatter).
+    // Nearly flat (under MIN_TILT), the correction is smaller than the noise in the corners, and
+    // beyond MAX_TILT the pose is implausible: then, and whenever the outline itself looks more
+    // like a card, the outline is used as it is.
+    const pose = outline > 0.3 && outline < 1.7 ? cardPose(ordered as Quad, { width, height }) : null;
+    let ratio = outline;
+    if (pose && pose.tilt >= MIN_TILT && pose.tilt <= MAX_TILT) {
+      // Seen steeply, the outline can be wider than tall: a long side was taken for the top.
+      const sideways = pose.aspect > 1;
+      const corrected = sideways ? 1 / pose.aspect : pose.aspect;
+      if (Math.abs(corrected - options.aspect) < Math.abs(outline - options.aspect)) {
+        ratio = corrected;
+        if (sideways) ordered = [ordered[1], ordered[2], ordered[3], ordered[0]] as typeof ordered;
+      }
+    }
     if (ratio < options.aspect * 0.7 || ratio > Math.min(1, options.aspect * 1.3)) {
-      reject('aspect', { ratio });
+      reject('aspect', { ratio, outline });
       continue;
     }
 
     const areaFraction = polygonArea(ordered) / frameArea;
     const aspectScore = Math.exp(-(((ratio - options.aspect) / 0.1) ** 2));
     const score = support.mean * aspectScore * Math.min(1, 0.6 + areaFraction * 2);
-    found.push({ corners: ordered, score, edgeSupport: support.weakest, aspect: ratio, areaFraction });
+    found.push({ corners: ordered, score, edgeSupport: support.weakest, aspect: ratio, areaFraction, tilt: pose && pose.tilt <= MAX_TILT ? pose.tilt : 0 });
   }
   return found;
 }

@@ -5,20 +5,68 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { PrintingList, PrintingRow, usePrintings, type Message } from '../search/printings';
 import type { Batch } from '../session/types';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
-import { QUALITY_HINTS } from '../vision/quality';
+import { debugEnabled, formatTimings } from '../ui/debug';
+import { ADVICE_HINTS, QUALITY_HINTS, type QualityAdvice } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
-import { useCamera } from './useCamera';
+import { useCamera, type Torch } from './useCamera';
 
 /** Time between live frames. Detection takes a fraction of it; OCR runs only on steady frames. */
 const FRAME_INTERVAL_MS = 120;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function liveHint(frame: FrameOutcome | null): string {
+/** Below this, a reading is a guess: the right name is among the candidates only about one time in four. */
+const UNREADABLE_BELOW = 0.5;
+
+function liveHint(frame: FrameOutcome | null, torch: Torch): string {
   if (!frame?.corners) return 'Place one card flat in view. A plain background that contrasts with the card works best.';
   const issue = frame.issues[0];
+  if (issue === 'too-dark' && torch.supported && !torch.on) return 'Too dark: turn on the flashlight, or add light.';
+  // Seen at a steep angle, the far edge is stretched when the card is straightened: it looks
+  // blurry however still the phone is.
+  if (issue === 'blurry' && frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (issue) return QUALITY_HINTS[issue];
-  return frame.steadyFrames >= 3 ? 'Reading…' : 'Hold still…';
+  if (frame.phase === 'read') return 'Done with this card. Take it away to scan the next one.';
+  if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
+  if (frame.phase !== 'reading') return 'Hold still…';
+  return frame.advice.includes('dim') && torch.supported && !torch.on ? 'Reading… More light would help: try the flashlight.' : 'Reading…';
+}
+
+/** What to try when a card couldn't be read, from what the quality gate noticed. */
+function unreadableHint(advice: QualityAdvice[]): string {
+  if (advice.includes('tilted') && advice.includes('dim')) return `${ADVICE_HINTS.tilted} ${ADVICE_HINTS.dim}`;
+  if (advice.includes('tilted')) return ADVICE_HINTS.tilted;
+  if (advice.includes('dim')) return `${ADVICE_HINTS.dim} Turn on a lamp or the flashlight.`;
+  return 'Try more light, or hold the phone flatter, straight above the card.';
+}
+
+/** Frames per second, smoothed. */
+function useFrameRate(frame: FrameOutcome | null): number {
+  const last = useRef<number | null>(null);
+  const [rate, setRate] = useState(0);
+  useEffect(() => {
+    if (!frame) return;
+    const now = performance.now();
+    if (last.current !== null) {
+      const instant = 1000 / Math.max(1, now - last.current);
+      setRate((previous) => (previous ? previous * 0.8 + instant * 0.2 : instant));
+    }
+    last.current = now;
+  }, [frame]);
+  return rate;
+}
+
+function LiveDebug({ frame, rate }: { frame: FrameOutcome | null; rate: number }) {
+  if (!frame) return null;
+  const metrics = frame.metrics;
+  return (
+    <p data-testid="debug-live" className="font-mono text-xs break-words text-zinc-500">
+      {frame.frame.width}×{frame.frame.height} · {rate.toFixed(1)} fps · {formatTimings(frame.timings)} ms
+      {metrics &&
+        ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}`}
+      {` · ${frame.phase}`}
+    </p>
+  );
 }
 
 function Outline({ frame }: { frame: FrameOutcome | null }) {
@@ -57,13 +105,18 @@ function matchNote(candidate: PrintingCandidate): string {
 
 function ResultPanel({
   result,
+  timings,
   batch,
+  debug,
   onDone,
   onReadAgain,
   onSearchInstead,
 }: {
   result: ScanResult;
+  /** The whole frame's timings, main thread included, for the debug readout. */
+  timings: Record<string, number>;
   batch: Batch | null;
+  debug: boolean;
   onDone: () => void;
   onReadAgain?: () => void;
   onSearchInstead: () => void;
@@ -87,17 +140,18 @@ function ResultPanel({
     if (sure && top && !identified) printings.load(top);
   }, [result]); // Once per result, not on every change of the lookup it starts.
 
-  const status = identified
-    ? sure
-      ? 'Recognized'
-      : result.nameConfidence >= 0.9
-        ? 'Recognized the card. Which printing is it?'
-        : 'Not sure. Is it one of these?'
-    : top
+  const unreadable = !top || (!sure && result.nameConfidence < UNREADABLE_BELOW);
+  const status = unreadable
+    ? "Couldn't read this card."
+    : identified
       ? sure
         ? 'Recognized'
-        : 'Not sure. Is it one of these?'
-      : "Couldn't read this card.";
+        : result.nameConfidence >= 0.9
+          ? 'Recognized the card. Which printing is it?'
+          : 'Not sure. Is it one of these?'
+      : sure
+        ? 'Recognized'
+        : 'Not sure. Is it one of these?';
 
   return (
     <section aria-label="Scan result" className="flex flex-col gap-3 rounded-xl bg-zinc-800/40 p-3">
@@ -110,6 +164,11 @@ function ResultPanel({
             <span>{status}</span>
             {top && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
           </p>
+          {unreadable && (
+            <p role="alert" className="text-sm text-amber-300">
+              {unreadableHint(result.advice)}
+            </p>
+          )}
           {result.titleText && (
             <p className="text-xs text-zinc-500">
               Title read as <span className="font-mono">“{result.titleText}”</span>
@@ -120,6 +179,7 @@ function ResultPanel({
               Collector line read as <span className="font-mono">“{result.collectorText}”</span>
             </p>
           )}
+          {unreadable && top && <p className="text-xs text-zinc-500">Closest guesses:</p>}
           <ul aria-label="Candidates" className="flex flex-col gap-1">
             {/* A sure printing needs no list of other names; its printings are below. */}
             {(identified && sure ? result.names.slice(0, 1) : result.names).map((name) => (
@@ -179,13 +239,18 @@ function ResultPanel({
         </button>
         {onReadAgain && (
           <button type="button" onClick={onReadAgain} className={BUTTON_SECONDARY}>
-            Read again
+            {unreadable ? 'Try again' : 'Read again'}
           </button>
         )}
         <button type="button" onClick={onSearchInstead} className={BUTTON_SECONDARY}>
           Search by name instead
         </button>
       </div>
+      {debug && (
+        <p data-testid="debug-result" className="font-mono text-xs break-words text-zinc-500">
+          {formatTimings(timings)} ms · confidence {result.confidence.toFixed(2)} (name {result.nameConfidence.toFixed(2)})
+        </p>
+      )}
     </section>
   );
 }
@@ -195,7 +260,9 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
   const camera = useCamera();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
-  const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo' } | null>(null);
+  const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo'; timings: Record<string, number> } | null>(null);
+  const [debug] = useState(() => debugEnabled());
+  const rate = useFrameRate(frame);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
   const streaming = camera.state.status === 'live';
   const { live, photo, again } = recognizer;
@@ -213,7 +280,7 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
           if (outcome) {
             setFrame(outcome);
             if (outcome.result) {
-              setResult({ scan: outcome.result, source: 'live' });
+              setResult({ scan: outcome.result, source: 'live', timings: outcome.timings });
               break;
             }
           }
@@ -237,7 +304,7 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
     try {
       const outcome = await photo(file);
       if (outcome?.result) {
-        setResult({ scan: outcome.result, source: 'photo' });
+        setResult({ scan: outcome.result, source: 'photo', timings: outcome.timings });
         setPhotoState('idle');
       } else {
         setPhotoState('no-card');
@@ -266,7 +333,9 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
       {result ? (
         <ResultPanel
           result={result.scan}
+          timings={result.timings}
           batch={batch}
+          debug={debug}
           onDone={() => {
             setResult(null);
             setFrame(null);
@@ -285,9 +354,17 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
         <>
           <CameraPreview camera={camera} videoRef={videoRef} overlay={<Outline frame={frame} />} />
           {streaming && recognizer.status === 'ready' && (
-            <p role="status" aria-live="polite" className="min-h-5 text-sm text-zinc-300">
-              {liveHint(frame)}
-            </p>
+            <div className="flex flex-col gap-2">
+              <p role="status" aria-live="polite" className="min-h-5 text-sm text-zinc-300">
+                {liveHint(frame, camera.torch)}
+              </p>
+              {frame?.phase === 'read' && (
+                <button type="button" onClick={again} className={`${BUTTON_SECONDARY} self-start`}>
+                  Read this card again
+                </button>
+              )}
+              {debug && <LiveDebug frame={frame} rate={rate} />}
+            </div>
           )}
         </>
       )}

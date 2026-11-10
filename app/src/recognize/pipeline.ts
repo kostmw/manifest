@@ -8,14 +8,16 @@ import type { CardRegions, CollectorReading, GameAdapter } from '../games/adapte
 import type { Catalog } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
 import { detectCards, type CardDetection } from '../vision/detect';
+import { distance } from '../vision/geometry';
 import type { GrayImage, RgbaImage } from '../vision/image';
 import { rotateRgba180 } from '../vision/image';
 import { assessQuality, DEFAULT_QUALITY, type QualityReport, type QualityThresholds } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
+import { cornersMapping, boxCorners, type CardMapping } from './fingerprint';
 import { identifyPrinting, type PrintingCandidate } from './identify';
 import type { NameIndex } from './nameSearch';
 import type { OcrEngine, OcrLine } from './ocr';
-import { cropTitle } from './titleCrop';
+import { cropTitle, cropTitleFromFrame, MAX_TITLE_DETAIL } from './titleCrop';
 import { matchTitle, type NameCandidate, type TitleMatch } from './titleMatch';
 
 export interface DecisionThresholds {
@@ -97,8 +99,10 @@ const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0
  * Reads the title, trying the crop's alternative renderings while the reading
  * is still poor. Upside-down attempts get fewer: they are rarely needed.
  */
-async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: boolean, enough: number) {
-  const crop = cropTitle(card, options.regions.title);
+async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: boolean, enough: number, source: TitleSource | null) {
+  const crop = source
+    ? cropTitleFromFrame(source.frame, rotated ? source.turned : source.upright, options.regions.title, source.scale)
+    : cropTitle(card, options.regions.title);
   const renderings = [crop.image, ...crop.alternatives.slice(0, rotated ? 1 : 2)];
   let best: { line: OcrLine; match: TitleMatch; image: GrayImage } | null = null;
   for (const image of renderings) {
@@ -123,6 +127,38 @@ export const detectOptions = (regions: CardRegions) => ({
 });
 
 const MAX_CANDIDATES = 2;
+/**
+ * Below this name confidence, the other outline that was read is identified
+ * too: when neither title reads, the first outline may be a card-shaped patch
+ * of background around the card, and only the artwork can tell.
+ */
+const OUTLINE_FALLBACK_BELOW = 0.5;
+/** Read the title from the frame itself once it holds this much more detail than the rectified card. */
+const FRAME_TITLE_MIN_DETAIL = 1.25;
+
+/** Where to read the title when the photo has more detail than the rectified card. */
+interface TitleSource {
+  frame: RgbaImage;
+  upright: CardMapping;
+  turned: CardMapping;
+  scale: number;
+}
+
+function titleSource(frame: RgbaImage, detection: CardDetection, regions: CardRegions): TitleSource | null {
+  const upright = cornersMapping(detection.corners, regions.size);
+  const [a, b, c, d] = detection.corners;
+  const turned = cornersMapping([c, d, a, b], regions.size);
+  if (!upright || !turned) return null;
+  // Frame pixels per card pixel along the title band, at its narrower end (the far edge of a tilted card).
+  const { search } = regions.title;
+  const detailAt = (mapping: CardMapping) => {
+    const band = boxCorners(mapping, search);
+    return Math.min(distance(band[0], band[1]), distance(band[3], band[2])) / search.width;
+  };
+  const detail = Math.min(detailAt(upright), detailAt(turned));
+  if (detail < FRAME_TITLE_MIN_DETAIL) return null;
+  return { frame, upright, turned, scale: Math.min(detail, MAX_TITLE_DETAIL) };
+}
 /**
  * A fallback (the card turned over, or the next quad) replaces the first try
  * only if it reads well. Two poor readings are both junk, and the first try is
@@ -152,9 +188,10 @@ async function readCandidate(
 
   // Corners are ordered assuming the card is the right way up; if the title
   // doesn't read well, it may be upside down.
-  let read = await readTitle(upright, options, false, decision.retryRotated);
+  const source = titleSource(frame, detection, options.regions);
+  let read = await readTitle(upright, options, false, decision.retryRotated, source);
   if (read.match.confidence < decision.retryRotated) {
-    const turned = await readTitle(rotateRgba180(upright), options, true, decision.retryRotated);
+    const turned = await readTitle(rotateRgba180(upright), options, true, decision.retryRotated, source);
     if (turned.match.confidence >= SWITCH_FLOOR && turned.match.confidence > read.match.confidence) read = turned;
   }
   lap('ocr');
@@ -181,49 +218,67 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
 
   // The first candidate is almost always the card. When its title doesn't read, the next one
   // (a card inside a card-shaped patch of background, say) gets one try.
-  let best: Awaited<ReturnType<typeof readCandidate>> | null = null;
+  type Attempt = Awaited<ReturnType<typeof readCandidate>>;
+  const attempts: Attempt[] = [];
+  let best: Attempt | null = null;
   for (const detection of detections.slice(0, MAX_CANDIDATES)) {
     const attempt = await readCandidate(frame, detection, options, decision, lap);
+    attempts.push(attempt);
     if (!best || (attempt.score >= SWITCH_FLOOR && attempt.score > best.score)) best = attempt;
     if (best.score >= decision.retryRotated || !attempt.read) break;
   }
-  const { detection, quality } = best!;
   if (!best!.read) {
-    return { decision: 'retake', detection, quality, title: null, ...EMPTY, timings };
+    return { decision: 'retake', detection: best!.detection, quality: best!.quality, title: null, ...EMPTY, timings };
   }
-  const { title, match, card } = best!.read;
-  const titleCandidates = match.candidates;
 
-  let names = titleCandidates.map((candidate) => candidate.name);
-  let nameConfidence = match.confidence;
-  let confidence = match.confidence;
-  let printings: PrintingCandidate[] = [];
-  let collector: CollectorReading | null = null;
-  let collectorCrops: GrayImage[] | undefined;
-  let upright = card;
-  if (options.printings) {
-    const corners = title.rotated ? ([detection.corners[2], detection.corners[3], detection.corners[0], detection.corners[1]] as const) : detection.corners;
-    const found = await identifyPrinting({
-      frame,
-      corners: [...corners] as CardDetection['corners'],
-      orientationKnown: match.confidence >= SWITCH_FLOOR,
-      title: match,
-      ...options.printings,
-      ocr: options.ocr,
-      keepImages: options.keepImages,
-      lap,
-    });
-    printings = found.candidates;
-    collector = found.collector;
-    collectorCrops = found.collectorCrops;
-    if (printings.length > 0) {
-      names = [...new Set([...printings.map((candidate) => candidate.printing.name), ...names])].slice(0, 5);
-      nameConfidence = found.nameConfidence;
-      confidence = found.confidence;
-      // The fingerprints found the card the other way up from the title's guess.
-      if (found.turned && options.keepImages) upright = rotateRgba180(card);
+  /** Names and printings for one read outline. */
+  const conclude = async (attempt: Attempt & { read: NonNullable<Attempt['read']> }) => {
+    const { detection, quality } = attempt;
+    const { title, match, card } = attempt.read;
+    const titleCandidates = match.candidates;
+    let names = titleCandidates.map((candidate) => candidate.name);
+    let nameConfidence = match.confidence;
+    let confidence = match.confidence;
+    let printings: PrintingCandidate[] = [];
+    let collector: CollectorReading | null = null;
+    let collectorCrops: GrayImage[] | undefined;
+    let upright = card;
+    if (options.printings) {
+      const corners = title.rotated ? ([detection.corners[2], detection.corners[3], detection.corners[0], detection.corners[1]] as const) : detection.corners;
+      const found = await identifyPrinting({
+        frame,
+        corners: [...corners] as CardDetection['corners'],
+        orientationKnown: match.confidence >= SWITCH_FLOOR,
+        title: match,
+        ...options.printings,
+        ocr: options.ocr,
+        keepImages: options.keepImages,
+        lap,
+      });
+      printings = found.candidates;
+      collector = found.collector;
+      collectorCrops = found.collectorCrops;
+      if (printings.length > 0) {
+        names = [...new Set([...printings.map((candidate) => candidate.printing.name), ...names])].slice(0, 5);
+        nameConfidence = found.nameConfidence;
+        confidence = found.confidence;
+        // The fingerprints found the card the other way up from the title's guess.
+        if (found.turned && options.keepImages) upright = rotateRgba180(card);
+      }
+    }
+    return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright };
+  };
+
+  let chosen = await conclude(best as Attempt & { read: NonNullable<Attempt['read']> });
+  // Neither title read and the chosen outline's artwork matches nothing: the card may be the other outline.
+  if (options.printings && chosen.nameConfidence < OUTLINE_FALLBACK_BELOW) {
+    for (const other of attempts) {
+      if (other === best || !other.read) continue;
+      const alternative = await conclude(other as Attempt & { read: NonNullable<Attempt['read']> });
+      if (alternative.confidence > chosen.confidence) chosen = alternative;
     }
   }
+  const { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright } = chosen;
 
   const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok ? 'accept' : 'review';
   return {

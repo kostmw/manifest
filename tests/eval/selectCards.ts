@@ -118,10 +118,15 @@ export function frontImage(card: ScryfallCard): string | undefined {
   return card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal;
 }
 
+/** A physical card of normal size with a real scan. */
+function isScannable(card: BulkCard): boolean {
+  if (card.digital || (card as { oversized?: boolean }).oversized) return false;
+  if (card.image_status === 'missing' || card.image_status === 'placeholder') return false;
+  return Boolean(frontImage(card));
+}
+
 export function classify(card: BulkCard): Stratum | null {
-  if (card.digital || (card as { oversized?: boolean }).oversized) return null;
-  if (card.image_status === 'missing' || card.image_status === 'placeholder') return null;
-  if (!frontImage(card)) return null;
+  if (!isScannable(card)) return null;
   return STRATA.find((stratum) => stratum.test(card)) ?? null;
 }
 
@@ -163,4 +168,63 @@ export async function selectEvalCards(bulkFile: string, seed = 'manifest-eval-1'
       .slice(0, stratum.count)
       .map((entry) => entry.card),
   );
+}
+
+export interface PhoneCard extends EvalCard {
+  /** Rendered with a foil sheen. */
+  foil: boolean;
+}
+
+/** How many of each standard stratum the `phone` set reuses (the first ones, so it is a fixed subset). */
+const PHONE_STRATA: Record<string, number> = { modern: 60, showcase: 30, token: 10, 'basic-land': 15 };
+const STAR_TREK_SETS = ['trk', 'trc', 'ttrk', 'ttrc'];
+
+/**
+ * The `phone` set's cards: a fixed subset of the eval cards, plus the kinds
+ * the owner's first phone tests failed on: Star Trek planets (a translucent
+ * title bar over busy art), the borderless Dominion Saboteur (light text on
+ * stained-glass art, scanned as a foil) and Star Trek tokens.
+ */
+export async function selectPhoneCards(bulkFile: string): Promise<PhoneCard[]> {
+  const chosen: PhoneCard[] = [];
+  for (const card of await selectEvalCards(bulkFile)) {
+    const taken = chosen.filter((c) => c.stratum === card.stratum).length;
+    if (taken >= (PHONE_STRATA[card.stratum] ?? 0)) continue;
+    // A third of the special treatments as foils: they are the cards most often printed foil.
+    chosen.push({ ...card, foil: card.stratum === 'showcase' && sampleKey('foil', card.id) % 3 === 0 });
+  }
+
+  const input = createReadStream(bulkFile);
+  const stream = bulkFile.endsWith('.gz') ? input.pipe(createGunzip()) : input;
+  const tokens = new Set<string>();
+  for await (const card of readJsonLines<BulkCard>(stream)) {
+    if (!STAR_TREK_SETS.includes(card.set) || !isScannable(card)) continue;
+    const typeLine = card.type_line ?? '';
+    const isToken = card.layout === 'token';
+    let tags: string[] | null = null;
+    if (isToken) {
+      if (tokens.has(card.name)) continue;
+      tokens.add(card.name);
+      tags = ['star-trek', 'token'];
+    } else if (typeLine.includes('Planet')) {
+      tags = ['star-trek', 'planet'];
+    } else if (card.name === 'Dominion Saboteur') {
+      tags = ['star-trek', card.border_color === 'borderless' ? 'borderless' : 'modern'];
+    }
+    if (!tags) continue;
+    chosen.push({
+      id: card.id,
+      name: card.name,
+      set: card.set,
+      number: card.collector_number,
+      lang: card.lang,
+      layout: card.layout,
+      frame: card.frame ?? '',
+      image: frontImage(card)!,
+      stratum: 'star-trek',
+      tags,
+      foil: card.border_color === 'borderless',
+    });
+  }
+  return chosen;
 }

@@ -6,6 +6,8 @@
  */
 import { otsuThreshold, sobel } from '../vision/filters';
 import { createGray, cropGray, resizeGray, toGray, type Box, type GrayImage, type RgbaImage } from '../vision/image';
+import { warpQuad } from '../vision/rectify';
+import { boxCorners, type CardMapping } from './fingerprint';
 
 export interface TitleCrop {
   /** Black text on white, padded, ready for OCR. */
@@ -139,26 +141,42 @@ export interface TitleRegion {
 }
 
 export function cropTitle(card: RgbaImage, region: TitleRegion): TitleCrop {
-  const band = cropGray(toGray(card), region.search);
-  const top = findTextLine(
-    strokeProfile(band),
-    region.lineHeight,
-    region.expectedCenterY - region.search.y,
-    region.lineHeight,
-  );
+  return cropTitleFromBand(cropGray(toGray(card), region.search), region, 1);
+}
+
+/** Pixels per card pixel worth reading the title at: beyond this, OCR gains nothing. */
+export const MAX_TITLE_DETAIL = TARGET_LINE_HEIGHT / 32;
+
+/**
+ * The title from the search band warped straight out of the photo at `scale`
+ * band pixels per card pixel. A photo often holds the card at two or three
+ * times canonical size, and rectifying to 488×680 first would throw that
+ * detail away; the title on the far edge of a tilted card needs all of it.
+ */
+export function cropTitleFromFrame(frame: RgbaImage, mapping: CardMapping, region: TitleRegion, scale: number): TitleCrop {
+  const { search } = region;
+  const size = { width: Math.round(search.width * scale), height: Math.round(search.height * scale) };
+  const band = toGray(warpQuad(frame, boxCorners(mapping, search), size));
+  return cropTitleFromBand(band, region, size.width / search.width);
+}
+
+/** Finds the title line in a search band holding `scale` pixels per card pixel. */
+function cropTitleFromBand(band: GrayImage, region: TitleRegion, scale: number): TitleCrop {
+  const lineHeight = region.lineHeight * scale;
+  const top = findTextLine(strokeProfile(band), Math.round(lineHeight), (region.expectedCenterY - region.search.y) * scale, lineHeight);
   // A little room above and below, so ascenders and descenders survive.
-  const margin = Math.round(region.lineHeight * 0.15);
+  const margin = Math.round(lineHeight * 0.15);
   const y0 = Math.max(0, top - margin);
-  const y1 = Math.min(band.height, top + region.lineHeight + margin);
+  const y1 = Math.min(band.height, top + Math.round(lineHeight) + margin);
   const line = cropGray(band, { x: 0, y: y0, width: band.width, height: y1 - y0 });
 
-  const scale = TARGET_LINE_HEIGHT / region.lineHeight;
-  const big = resizeGray(line, Math.round(line.width * scale), Math.round(line.height * scale));
+  const resize = TARGET_LINE_HEIGHT / lineHeight;
+  const big = resize === 1 ? line : resizeGray(line, Math.round(line.width * resize), Math.round(line.height * resize));
   const { image, inverted } = binarizeLine(big);
   return {
     image: pad(image, PADDING),
     alternatives: [pad(stretched(big, inverted), PADDING), pad(strictThreshold(big, inverted), PADDING)],
-    box: { x: region.search.x, y: region.search.y + y0, width: band.width, height: y1 - y0 },
+    box: { x: region.search.x, y: region.search.y + y0 / scale, width: band.width / scale, height: (y1 - y0) / scale },
     inverted,
   };
 }

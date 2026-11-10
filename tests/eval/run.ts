@@ -23,7 +23,7 @@ import { NameIndex } from '../../app/src/recognize/nameSearch';
 import { DEFAULT_DECISION, recognizeFrame } from '../../app/src/recognize/pipeline';
 import { createTesseractEngine } from '../../app/src/recognize/tesseract';
 import { grayToRgba, shrinkRgba } from '../../app/src/vision/image';
-import { realScanFixtures, syntheticFixtures, type Fixture, type SyntheticVariant } from './fixtures';
+import { realScanFixtures, SYNTHETIC_VARIANTS, syntheticFixtures, type Fixture, type SyntheticVariant } from './fixtures';
 import { readImage, writeJpeg } from './imageIo';
 import { fileIndexSource } from './indexSource';
 import {
@@ -70,7 +70,7 @@ if (!existsSync(namesPath)) {
 let fixtures: Fixture[] = [];
 if (values.only !== 'synthetic') fixtures.push(...(await realScanFixtures(dataDir)));
 if (values.only !== 'real') {
-  if (values.set !== 'standard' && values.set !== 'hires') throw new Error('--set must be standard or hires');
+  if (!(SYNTHETIC_VARIANTS as readonly string[]).includes(values.set!)) throw new Error(`--set must be one of ${SYNTHETIC_VARIANTS.join(', ')}`);
   fixtures.push(
     ...(await syntheticFixtures({ cacheDir: values.cache!, regenerate: values.regenerate!, log, variant: values.set as SyntheticVariant })),
   );

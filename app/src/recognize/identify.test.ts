@@ -7,7 +7,10 @@ import type { GameIndex, IndexFile, Printing } from '../games/types';
 import { orderCardCorners } from '../vision/geometry';
 import { artCard, cardQuad, placeCard, scryfallSmall as small } from '../vision/testScene';
 import { FINGERPRINT_BYTES, FINGERPRINT_VERSION, fingerprintCardImage } from './fingerprint';
+import type { CardDetection } from '../vision/detect';
 import { identifyPrinting, placedMapping, placementFor } from './identify';
+import { NameIndex } from './nameSearch';
+import { recognizeFrame } from './pipeline';
 import { COLLECTOR_CHARACTERS, type OcrEngine } from './ocr';
 import type { TitleMatch } from './titleMatch';
 
@@ -33,7 +36,7 @@ const NAMES = ['Opt', 'Sol Ring'];
 const ARTS = new Map(PRINTINGS.map(({ art }) => [art, artCard(art)]));
 
 /** A one-shard index held in memory, with fingerprints. */
-function memorySource(withFingerprints = true): IndexSource {
+function memorySource(withFingerprints = true, invertArt: (name: string) => boolean = () => false): IndexSource {
   const sorted = [...PRINTINGS].sort((a, b) => (a.printing.name < b.printing.name ? -1 : a.printing.name > b.printing.name ? 1 : a.printing.id < b.printing.id ? -1 : 1));
   const shardFile: IndexFile = { file: 'printings.mtg.00.json', bytes: 0, sha256: 'ab'.repeat(32) };
   const hashFile: IndexFile = { file: 'hashes.mtg.00.bin', bytes: 0, sha256: 'cd'.repeat(32) };
@@ -52,7 +55,11 @@ function memorySource(withFingerprints = true): IndexSource {
     version: FINGERPRINT_VERSION,
     rowBytes: FINGERPRINT_BYTES,
     printingsSha256: shardFile.sha256,
-    rows: sorted.map(({ art }) => fingerprintCardImage(small(ARTS.get(art)!), MTG_REGIONS)),
+    rows: sorted.map(({ art, printing }) => {
+      const row = fingerprintCardImage(small(ARTS.get(art)!), MTG_REGIONS);
+      // Every bit flipped: artwork as unlike this card's as artwork can be.
+      return invertArt(printing.name) ? row.map((byte) => 255 - byte) : row;
+    }),
   });
   const files: Record<string, unknown> = {
     [shardFile.file]: sorted.map(({ printing }) => printing),
@@ -84,10 +91,13 @@ function fakeOcr(collector: string[]): OcrEngine {
 const sure = (name: string): TitleMatch => ({ candidates: [{ name, distance: 0, similarity: 1 }], confidence: 1, reading: name });
 const junk: TitleMatch = { candidates: [], confidence: 0, reading: '' };
 
-async function identify(art: number, options: { title: TitleMatch; collector?: string[]; fingerprints?: boolean; angle?: number }) {
+async function identify(
+  art: number,
+  options: { title: TitleMatch; collector?: string[]; fingerprints?: boolean; angle?: number; invertArt?: (name: string) => boolean },
+) {
   const corners = cardQuad({ x: 400, y: 520 }, 820, options.angle ?? 0.05);
   const frame = placeCard(ARTS.get(art)!, { width: 800, height: 1040 }, corners, [60, 80, 70]);
-  const catalog = new Catalog(memorySource(options.fingerprints ?? true), FINGERPRINT_VERSION);
+  const catalog = new Catalog(memorySource(options.fingerprints ?? true, options.invertArt), FINGERPRINT_VERSION);
   const dictionary = { names: NAMES, faces: {} };
   return identifyPrinting({
     frame,
@@ -169,5 +179,47 @@ describe('collector index lookups', () => {
   it('are built from the same printings the index ships', () => {
     const index = new CollectorIndex(buildCollectorIndex(PRINTINGS.map((p) => p.printing), NAMES, '2014-07-01'), NAMES);
     expect(index.lookup('CMM', '0410')).toEqual(['Sol Ring']);
+  });
+});
+
+describe('identifyPrinting when the artwork contradicts the text', () => {
+  it("never trusts a sure title whose printings all have plainly other artwork (OCR can invent a real name)", async () => {
+    // The title "read" Sol Ring perfectly, but every Sol Ring in the index has utterly different art.
+    const result = await identify(1, { title: sure('Sol Ring'), invertArt: (name) => name === 'Sol Ring' });
+    const top = result.candidates[0]!;
+    expect(top.printing.name).toBe('Sol Ring');
+    expect(top.hashDistance).toBeGreaterThan(48);
+    expect(result.nameConfidence).toBeLessThanOrEqual(0.5);
+    expect(result.confidence).toBeLessThanOrEqual(0.5);
+  });
+
+  it('still trusts a sure title when the art is merely a poor match (glare, a misplaced outline)', async () => {
+    const result = await identify(1, { title: sure('Sol Ring') });
+    expect(result.candidates[0]?.printing.name).toBe('Sol Ring');
+    expect(result.nameConfidence).toBeGreaterThan(0.9);
+  });
+});
+
+describe('recognizeFrame with printings', () => {
+  const detection = (corners: CardDetection['corners']): CardDetection => ({ corners, score: 1, edgeSupport: 1, aspect: 0.72, areaFraction: 0.3, tilt: 0 });
+
+  it('finds the card by its artwork in the second outline when the first is background and no title reads', async () => {
+    const card = orderCardCorners(cardQuad({ x: 400, y: 520 }, 600, 0.05));
+    // A card-shaped patch of background around the card, which detection offers first.
+    const patch = orderCardCorners(cardQuad({ x: 400, y: 520 }, 900, 0.05));
+    const frame = placeCard(ARTS.get(1)!, { width: 800, height: 1040 }, card, [60, 80, 70]);
+    const catalog = new Catalog(memorySource(), FINGERPRINT_VERSION);
+    const dictionary = { names: NAMES, faces: {} };
+    const result = await recognizeFrame(frame, {
+      regions: MTG_REGIONS,
+      names: new NameIndex(dictionary),
+      ocr: fakeOcr([]),
+      readDespiteQuality: true,
+      detections: [detection(patch), detection(card)],
+      printings: { game: mtg, catalog, collectors: await catalog.collectors(dictionary) },
+    });
+    expect(result.printings[0]?.printing.id).toBe('c21-263');
+    expect(result.detection?.corners).toEqual(card);
+    expect(result.nameConfidence).toBeGreaterThan(0.5);
   });
 });

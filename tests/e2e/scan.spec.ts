@@ -105,3 +105,32 @@ test('explains what to do while no card is in view of the camera', async ({ page
   // Chromium's fake camera shows a test pattern, not a card.
   await expect(page.getByRole('status')).toContainText('Place one card flat in view');
 });
+
+test("says it couldn't read a card, with a hint and a way to search instead", async ({ page }) => {
+  // Gibberish for a title and no collector line: nothing to go on (the e2e index has no fingerprints).
+  await scanPhoto(page, { title: 'Xqzv Jwkp' });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByText("Couldn't read this card.")).toBeVisible({ timeout: 30_000 });
+  await expect(result.getByRole('alert')).toContainText(/light|flatter/);
+  await expect(result.getByRole('button', { name: 'Search by name instead' })).toBeVisible();
+  await expect(result.getByTestId('debug-result')).toHaveCount(0);
+});
+
+async function openScannerWithDebug(page: Page) {
+  await page.goto('./?debug=1');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
+  await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
+}
+
+test('shows per-stage timings for a photo with ?debug=1', async ({ page }) => {
+  await openScannerWithDebug(page);
+  await scanPhoto(page, { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } });
+  const timings = page.getByRole('region', { name: 'Scan result' }).getByTestId('debug-result');
+  await expect(timings).toContainText(/capture \d+ · pixels \d+ · detect \d+ .*ocr \d+.* wall \d+ ms/, { timeout: 30_000 });
+});
+
+test('shows live frame timings with ?debug=1', async ({ page }) => {
+  await openScannerWithDebug(page);
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByTestId('debug-live')).toContainText(/\d+×\d+ · [\d.]+ fps · capture \d+ · pixels \d+ · detect \d+/);
+});

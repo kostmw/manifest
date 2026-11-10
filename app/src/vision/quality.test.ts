@@ -4,7 +4,7 @@ import { gaussianBlur } from './filters';
 import { createGray, type RgbaImage } from './image';
 import { assessQuality } from './quality';
 import { warpQuad } from './rectify';
-import { cardQuad, makeCard, placeCard } from './testScene';
+import { cardQuad, makeCard, placeCard, tiltedCardQuad } from './testScene';
 
 const FRAME = { width: 720, height: 960 };
 const titleBox = MTG_REGIONS.title.search;
@@ -56,5 +56,20 @@ describe('assessQuality', () => {
   it('asks for light when the card is very dark', () => {
     const dim = (card: RgbaImage) => ({ ...card, data: card.data.map((v, i) => (i % 4 === 3 ? v : v * 0.15)) });
     expect(check(undefined, dim).issues).toContain('too-dark');
+  });
+
+  it('advises holding the phone flatter when the card is seen at a steep angle, without refusing it', () => {
+    expect(check().advice).toEqual([]);
+    const report = check(tiltedCardQuad(FRAME, 440, 50));
+    expect(report.metrics.tilt).toBeGreaterThan(45);
+    expect(report.advice).toContain('tilted');
+    expect(check(tiltedCardQuad(FRAME, 440, 20)).advice).not.toContain('tilted');
+  });
+
+  it('advises more light in dim light that is still bright enough to read', () => {
+    const dim = (card: RgbaImage) => ({ ...card, data: card.data.map((v, i) => (i % 4 === 3 ? v : v * 0.4)) });
+    const report = check(undefined, dim);
+    expect(report.issues).not.toContain('too-dark');
+    expect(report.advice).toContain('dim');
   });
 });

@@ -83,6 +83,14 @@ const GLOBAL_HITS = 12;
 const GLOBAL_MAX_DISTANCE = 26;
 /** This close, the artwork is a match. */
 const ART_MATCH = 14;
+/**
+ * Farther than this, the artwork is another card outright: unrelated
+ * fingerprints differ by about 64 of 128 bits, while a true match under glare
+ * or a misplaced outline stays under about 40.
+ */
+const ART_CONTRADICTS = 48;
+/** The most a name, or a printing, can be trusted when every printing of it has plainly other artwork. */
+const CONTRADICTED_CAP = 0.5;
 const TOP = 5;
 
 /** The real card's place in the detected outline's own coordinates, given where that outline lies on the card. */
@@ -358,12 +366,16 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const otherDistance = Math.min(...scored.filter((c) => c.printing.name !== topName).map((c) => c.hashDistance ?? Number.POSITIVE_INFINITY));
   const fromHash =
     nameDistance <= 12 && otherDistance - nameDistance >= 10 ? 0.85 : nameDistance <= 16 && otherDistance - nameDistance >= 6 ? 0.5 : 0;
-  const nameConfidence = 1 - (1 - fromTitle) * (1 - fromCollector) * (1 - fromHash);
+  // Every printing of the name has plainly other artwork: whatever the title or collector line
+  // said (OCR can make a real name out of texture), this card is not accepted unseen.
+  const otherArt = sameName.every((c) => c.hashDistance !== null && c.hashDistance > ART_CONTRADICTS);
+  const cap = otherArt ? CONTRADICTED_CAP : 1;
+  const nameConfidence = Math.min(cap, 1 - (1 - fromTitle) * (1 - fromCollector) * (1 - fromHash));
 
   // Which printing of that name: fingerprints and collector line only. Printings that look
   // the same split the share between them, so only the collector line can settle those.
   const evidence = sameName.map((c) => -(c.hashDistance ?? 24) / 3 + 3 * (c.collector?.score ?? 0));
-  const printingConfidence = sameName.length === 1 ? 1 : share(evidence, 0);
+  const printingConfidence = Math.min(cap, sameName.length === 1 ? 1 : share(evidence, 0));
 
   return {
     candidates: scored.slice(0, TOP),
