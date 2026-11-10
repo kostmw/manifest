@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('asks for the camera and shows a live preview', async ({ page }) => {
   await page.goto('./');
-  await page.getByRole('button', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await page.getByRole('button', { name: 'Start camera' }).click();
 
   const video = page.getByTestId('camera-video');
@@ -28,7 +28,7 @@ test('explains what to do when the camera is denied', async ({ page }) => {
       Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
   });
   await page.goto('./');
-  await page.getByRole('button', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await page.getByRole('button', { name: 'Start camera' }).click();
 
   await expect(page.getByRole('alert')).toContainText('Camera access is blocked');
@@ -45,7 +45,7 @@ test('turns the camera off when leaving the camera tab', async ({ page }) => {
     };
   });
   await page.goto('./');
-  await page.getByRole('button', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Scan', exact: true }).click();
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByRole('button', { name: 'Stop camera' })).toBeVisible();
 

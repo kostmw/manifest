@@ -25,6 +25,12 @@ export interface NameDictionary {
   names: string[];
   /** Each face of a multi-face card, mapped to the full names it belongs to. */
   faces: Record<string, string[]>;
+  /**
+   * Names printed on a card in place of its own (Universes Beyond and Godzilla
+   * series cards, some Secret Lairs), mapped to the full names. Optional, so an
+   * index built before they existed still loads.
+   */
+  aliases?: Record<string, string[]>;
 }
 
 export interface IndexFile {

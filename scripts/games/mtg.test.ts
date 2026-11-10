@@ -83,6 +83,24 @@ describe('buildNameDictionary', () => {
     expect(faces['Ice']).toEqual(['Fire // Ice']);
   });
 
+  it('maps printed alternate names to the card they stand for', () => {
+    const solitude: ScryfallCard = { ...card('Sol Ring'), name: 'Solitude', flavor_name: 'Yojimbo' };
+    const dracula: ScryfallCard = {
+      ...card('Sol Ring'),
+      name: 'Voldaren Bloodcaster // Bloodbat Summoner',
+      card_faces: [
+        { name: 'Voldaren Bloodcaster', flavor_name: 'Dracula, Lord of Blood' },
+        { name: 'Bloodbat Summoner', flavor_name: 'Dracula, Lord of Bats' },
+      ],
+    };
+    const simon: ScryfallCard = { ...card('Sol Ring'), name: 'Mathise, Surge Channeler', printed_name: 'Simon, Wild Magic Sorcerer' };
+    const { aliases, names } = buildNameDictionary([solitude, dracula, simon]);
+    expect(aliases?.['Yojimbo']).toEqual(['Solitude']);
+    expect(aliases?.['Simon, Wild Magic Sorcerer']).toEqual(['Mathise, Surge Channeler']);
+    expect(aliases?.['Dracula, Lord of Bats']).toEqual(['Voldaren Bloodcaster // Bloodbat Summoner']);
+    expect(names).not.toContain('Yojimbo');
+  });
+
   it('keeps every full name when two cards share a face', () => {
     const shared = (name: string): ScryfallCard => ({
       ...card('Sol Ring'),

@@ -17,6 +17,10 @@ const BULK_TYPE = 'default_cards';
 
 export interface ScryfallFace {
   name: string;
+  /** Printed in place of the name on some crossover cards. */
+  flavor_name?: string;
+  /** The name as printed, when it differs: another language, or a renamed reprint. */
+  printed_name?: string;
   type_line?: string;
   cmc?: number;
   image_uris?: { normal?: string };
@@ -32,6 +36,8 @@ export interface ScryfallCard {
   lang: string;
   layout: string;
   digital?: boolean;
+  flavor_name?: string;
+  printed_name?: string;
   rarity?: string;
   type_line?: string;
   color_identity?: string[];
@@ -84,24 +90,38 @@ export function toPrinting(card: ScryfallCard): Printing | null {
   };
 }
 
-export function buildNameDictionary(cards: Pick<ScryfallCard, 'name' | 'card_faces'>[]): NameDictionary {
+type NameSource = Pick<ScryfallCard, 'name' | 'card_faces' | 'flavor_name' | 'printed_name'>;
+
+function addTo(map: Map<string, Set<string>>, key: string, fullName: string): void {
+  const fullNames = map.get(key) ?? new Set<string>();
+  fullNames.add(fullName);
+  map.set(key, fullNames);
+}
+
+function sortedRecord(map: Map<string, Set<string>>): Record<string, string[]> {
+  return Object.fromEntries(
+    [...map.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, full]) => [key, [...full].sort()]),
+  );
+}
+
+export function buildNameDictionary(cards: NameSource[]): NameDictionary {
   const names = new Set<string>();
   const faces = new Map<string, Set<string>>();
+  const aliases = new Map<string, Set<string>>();
   for (const card of cards) {
     names.add(card.name);
+    // Whatever is printed on the card is what OCR and people will read.
+    for (const printed of [card.flavor_name, card.printed_name]) {
+      if (printed && printed !== card.name) addTo(aliases, printed, card.name);
+    }
     for (const face of card.card_faces ?? []) {
-      if (face.name === card.name) continue;
-      const fullNames = faces.get(face.name) ?? new Set<string>();
-      fullNames.add(card.name);
-      faces.set(face.name, fullNames);
+      if (face.name !== card.name) addTo(faces, face.name, card.name);
+      for (const printed of [face.flavor_name, face.printed_name]) {
+        if (printed && printed !== face.name && printed !== card.name) addTo(aliases, printed, card.name);
+      }
     }
   }
-  return {
-    names: [...names].sort(),
-    faces: Object.fromEntries(
-      [...faces.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([face, full]) => [face, [...full].sort()]),
-    ),
-  };
+  return { names: [...names].sort(), faces: sortedRecord(faces), aliases: sortedRecord(aliases) };
 }
 
 export async function* readJsonLines<T>(stream: ReadableType): AsyncGenerator<T> {
@@ -151,12 +171,17 @@ async function buildIndex(options: BuildOptions): Promise<BuiltGameData> {
     : await fetchBulkFile(options.cacheDir);
 
   const printings: Printing[] = [];
-  const physicalCards: Pick<ScryfallCard, 'name' | 'card_faces'>[] = [];
+  const physicalCards: NameSource[] = [];
   for await (const card of readJsonLines<ScryfallCard>(openJsonLines(path))) {
     const printing = toPrinting(card);
     if (!printing) continue;
     printings.push(printing);
-    physicalCards.push({ name: card.name, card_faces: card.card_faces });
+    physicalCards.push({
+      name: card.name,
+      card_faces: card.card_faces,
+      flavor_name: card.flavor_name,
+      printed_name: card.printed_name,
+    });
   }
 
   return {

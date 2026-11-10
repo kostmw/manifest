@@ -24,6 +24,7 @@ const index = new NameIndex({
     'Insectile Aberration': ['Delver of Secrets // Insectile Aberration'],
     'Delver of Secrets': ['Delver of Secrets // Insectile Aberration'],
   },
+  aliases: { 'Ring of Power': ['Sol Ring'] },
 });
 
 const names = (query: string, limit?: number) => index.search(query, limit).map((hit) => hit.name);
@@ -87,6 +88,11 @@ describe('NameIndex.search', () => {
   it('prefers a card with that exact name over a card with that face', () => {
     expect(names('ice')[0]).toBe('Ice');
     expect(names('ice')).toContain('Fire // Ice');
+  });
+
+  it('finds a card by the alternate name printed on it', () => {
+    const [hit] = index.search('ring of power');
+    expect(hit).toMatchObject({ name: 'Sol Ring', matchedFace: 'Ring of Power', tier: 'exact' });
   });
 
   it('lists each card once, even when several faces match', () => {

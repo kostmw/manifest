@@ -1,6 +1,6 @@
 import { detailedListFormat, markdownFormat, plainListFormat } from '../../export/lists';
 import type { ExportRow, ExtraColumn, LineStyle } from '../../export/types';
-import type { GameAdapter } from '../adapter';
+import type { CardRegions, GameAdapter } from '../adapter';
 import { archidektCsv, archidektDeckList, deckboxCsv, manaboxCsv, moxfieldCsv } from './exports';
 
 const FINISHES = [
@@ -31,6 +31,20 @@ const EXTRA_COLUMNS: readonly ExtraColumn[] = [
   { id: 'manaValue', label: 'MV', value: (printing) => String(printing.attrs?.manaValue ?? '') },
 ];
 
+/**
+ * Calibrated on Scryfall's 488×680 scans (the size the index's images use) of
+ * 1993, 1997, 2003 and 2015 frames, showcase, borderless and token cards. The
+ * title band is tall on purpose: the line is searched for inside it.
+ */
+export const MTG_REGIONS: CardRegions = {
+  size: { width: 488, height: 680 },
+  // 19–23 px of 488 on 1993–2015 frames; the bottom border is about twice that.
+  border: 0.042,
+  title: { search: { x: 26, y: 12, width: 436, height: 88 }, lineHeight: 32, expectedCenterY: 53 },
+  collector: { x: 20, y: 626, width: 230, height: 40 },
+  art: { x: 38, y: 76, width: 412, height: 302 },
+};
+
 export const mtg: GameAdapter = {
   id: 'mtg',
   displayName: 'Magic: The Gathering',
@@ -60,6 +74,7 @@ export const mtg: GameAdapter = {
   defaultCondition: 'NM',
   extraColumns: EXTRA_COLUMNS,
   formatExportLine: formatMtgExportLine,
+  regions: MTG_REGIONS,
   exportFormats: [
     plainListFormat(formatMtgExportLine),
     detailedListFormat(formatMtgExportLine),
