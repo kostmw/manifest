@@ -1,5 +1,16 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`Archidekt deck list > keeps finishes apart, merges conditions and languages, and uses both faces 1`] = `
+"1x Clue (tmh2) 14
+1x Delver of Secrets // Insectile Aberration (isd) 51
+1x Demonic Tutor (cmm) 509 *E*
+1x Fire // Ice (apc) 128
+1x Hogaak, Arisen Necropolis (mh1) 202
+1x Sol Ring (cmm) 410 *F*
+3x Sol Ring (cmm) 410
+"
+`;
+
 exports[`archidekt CSV shape > keeps the card in the file when grouped by name 1`] = `
 "Quantity,Name,Finish,Condition,Date Added,Language,Purchase Price,Tags,Edition Name,Edition Code,Multiverse Id,Scryfall ID,Collector Number
 1,Clue,Normal,NM,2026-05-15,EN,,,,,,,

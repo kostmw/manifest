@@ -142,7 +142,8 @@ All exports aggregate duplicates (grouped by printing or by name, selectable). E
 | **Detailed list** (`.txt`, Moxfield/Arena style) | `1 Sol Ring (CMM) 410`, with ` *F*` for foil and ` *E*` for etched foil |
 | **Markdown for AI** (`.md`) | Title, batch metadata, totals (cards, unique), a table `Qty \| Name \| Set \| # \| Finish \| Lang`, then a fenced plain-list block ready to paste. Optional columns: type line, color identity, mana value (from the index; makes AI deck help much better) |
 | **Moxfield collection CSV** | Verify column headers against a real Moxfield export before shipping |
-| **ManaBox CSV**, **Deckbox CSV**, **Archidekt** | Same: verify each against a real export/import before marking done |
+| **ManaBox CSV**, **Deckbox CSV**, **Archidekt collection CSV** | Same: verify each against a real export/import before marking done |
+| **Archidekt deck list** (`.txt`) | `1x Sol Ring (cmm) 410 *F*`, Archidekt's own deck text export: lowercase set, full `A // B` names, `*E*` for etched. Archidekt's deck importer takes only pasted text or a `.txt` upload, never a CSV. The CSV goes to its separate collection importer |
 
 Export formatters are pure functions with snapshot tests.
 
@@ -154,7 +155,8 @@ Export formatters are pure functions with snapshot tests.
 | Detailed list into Moxfield | ✅ `*F*`/`*E*` markers. Front-face names for DFCs are unconfirmed: a real export wrote one flip card as `A / B` | ☐ |
 | ManaBox CSV | ✅ the 18-column form seen in 2026 | ☐ |
 | Deckbox CSV | ✅ the base 19 columns | ☐ |
-| Archidekt CSV | ✅ | ☐ Archidekt reportedly has no import preset for its own layout |
+| Archidekt collection CSV | ✅ | ☐ For Collection → Import only, with the columns set by hand (no preset for its own layout). The deck importer rejects it, which the first real test confirmed (2026-11-09) |
+| Archidekt deck list | ✅ Archidekt's own deck text export | ☐ |
 
 Known limits, all noted in the export UI: Deckbox has no etched finish, and its strict importer may reject some set names (token sets use Deckbox-only codes). Grouping a CSV by name leaves printing columns empty, and these sites' handling of that is unconfirmed.
 

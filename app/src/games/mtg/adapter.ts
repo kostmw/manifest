@@ -1,7 +1,7 @@
 import { detailedListFormat, markdownFormat, plainListFormat } from '../../export/lists';
 import type { ExportRow, ExtraColumn, LineStyle } from '../../export/types';
 import type { GameAdapter } from '../adapter';
-import { archidektCsv, deckboxCsv, manaboxCsv, moxfieldCsv } from './exports';
+import { archidektCsv, archidektDeckList, deckboxCsv, manaboxCsv, moxfieldCsv } from './exports';
 
 const FINISHES = [
   { code: 'nonfoil', label: 'Nonfoil' },
@@ -71,6 +71,7 @@ export const mtg: GameAdapter = {
     moxfieldCsv,
     manaboxCsv,
     deckboxCsv,
+    archidektDeckList,
     archidektCsv,
   ],
 };

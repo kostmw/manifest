@@ -1,9 +1,10 @@
 import { toCsv } from '../../export/csv';
+import { renderLines } from '../../export/lists';
 import type { ExportFormat, ExportRow } from '../../export/types';
 
 /**
  * Column names and value spellings below come from real exports, kept in
- * tests/fixtures/formats and checked by exports.test.ts. Don't change them
+ * tests/fixtures/formats and checked by app/src/export/formats.test.ts. Don't change them
  * from memory: find a new sample first.
  */
 
@@ -247,8 +248,8 @@ export const deckboxCsv: ExportFormat = {
 export const archidektCsv: ExportFormat = {
   ...CSV,
   id: 'archidekt',
-  label: 'Archidekt CSV',
-  note: `Matches Archidekt's own export, but its importer has no preset for this layout. Either match the columns by hand when importing, or use the Moxfield or ManaBox file with Archidekt's preset for that site. ${NAME_GROUP_NOTE}`,
+  label: 'Archidekt collection CSV',
+  note: `For your Archidekt collection, not a deck: upload it under Collection, then Import. Archidekt has no preset for its own layout, so set the columns yourself (the Scryfall ID column alone is enough to find each card), or upload the ManaBox CSV with Archidekt's ManaBox preset instead. ${NAME_GROUP_NOTE}`,
   render: (rows) =>
     toCsv(
       [
@@ -282,4 +283,27 @@ export const archidektCsv: ExportFormat = {
         row.printing?.number ?? '',
       ]),
     ),
+};
+
+/**
+ * One line of Archidekt's own deck text export, e.g. `1x Animate Dead (pd3) 16 *F*`:
+ * lowercase set code, both faces of a double-faced card, `*E*` for etched.
+ */
+export function formatArchidektLine(row: ExportRow): string {
+  const line = `${row.qty}x ${row.name}`;
+  if (!row.printing) return line;
+  const marker = row.finish === 'foil' ? ' *F*' : row.finish === 'etched' ? ' *E*' : '';
+  return `${line} (${row.printing.set.toLowerCase()}) ${row.printing.number}${marker}`;
+}
+
+/** Archidekt's deck importer takes pasted text, or a .txt upload, never a CSV. */
+export const archidektDeckList: ExportFormat = {
+  id: 'archidekt-deck',
+  label: 'Archidekt deck list',
+  extension: 'txt',
+  mimeType: 'text/plain',
+  supportsGrouping: true,
+  supportsExtraColumns: false,
+  note: "For an Archidekt deck: in the deck, tap Import cards, then paste this list or upload the downloaded file. It uses Archidekt's own export format. Deck lists don't record language or condition.",
+  render: (rows) => renderLines(rows, 'detailed', formatArchidektLine).join('\n') + '\n',
 };

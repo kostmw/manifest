@@ -117,7 +117,12 @@ test('adds cards to a batch, and every export format shows them', async ({ page 
   await expect(preview).toContainText('Count,Tradelist Count,Name,Edition,Edition Code,Card Number');
   await expect(preview).toContainText('1,0,Demonic Tutor,Commander Masters,cmm,509,Near Mint,English,foil');
 
-  preview = await exportAs(page, /^Archidekt/);
+  preview = await exportAs(page, /^Archidekt deck list/);
+  await expect(preview).toContainText('2x Sol Ring (cmm) 410');
+  await expect(preview).toContainText('1x Sol Ring (cmm) 410 *F*');
+  await expect(preview).toContainText('1x Demonic Tutor (cmm) 509 *E*');
+
+  preview = await exportAs(page, /^Archidekt collection CSV/);
   await expect(preview).toContainText('Quantity,Name,Finish,Condition,Date Added,Language');
   await expect(preview).toContainText('1,Demonic Tutor,Etched,NM,');
 });
@@ -199,7 +204,7 @@ test('applies the batch defaults to new cards', async ({ page }) => {
 
   await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
   await openBatch(page);
-  const preview = await exportAs(page, /^Archidekt/);
+  const preview = await exportAs(page, /^Archidekt collection CSV/);
   await expect(preview).toContainText(/1,Sol Ring,Normal,HP,\d{4}-\d{2}-\d{2},JP,/);
 });
 

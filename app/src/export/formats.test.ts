@@ -243,6 +243,48 @@ describe('detailed list', () => {
   });
 });
 
+describe('Archidekt deck list', () => {
+  it("writes each card exactly as Archidekt's own deck export does, without its category", () => {
+    const real = readFileSync(`${FIXTURES}/archidekt-deck-export-excerpt.txt`, 'utf8').trim().split('\n');
+    const cards = [
+      { card: printing({ id: 'animate', name: 'Animate Dead', set: 'pd3', number: '16' }), finish: 'foil' },
+      { card: printing({ id: 'baba', name: 'Baba Lysaga, Night Witch', set: 'clb', number: '525' }), finish: 'etched' },
+      {
+        card: printing({
+          id: 'ikoria',
+          name: 'Invasion of Ikoria // Zilortha, Apex of Ikoria',
+          exportName: 'Invasion of Ikoria',
+          set: 'mom',
+          number: '190',
+        }),
+        finish: 'nonfoil',
+      },
+      { card: printing({ id: 'tree', name: 'Tree of Tales', set: 'plst', number: 'MRD-285' }), finish: 'nonfoil' },
+    ];
+    const mine = cards.map(({ card, finish }) => render('archidekt-deck', 'printing', [], [item(card, { finish })]));
+    expect(mine).toEqual(real.map((line) => `${line.replace(/ \[[^\]]*\]$/, '')}\n`));
+  });
+
+  it('keeps finishes apart, merges conditions and languages, and uses both faces', () => {
+    const output = render('archidekt-deck');
+    expect(output).toContain('3x Sol Ring (cmm) 410\n');
+    expect(output).toContain('1x Sol Ring (cmm) 410 *F*\n');
+    expect(output).toContain('1x Demonic Tutor (cmm) 509 *E*\n');
+    expect(output).toContain('1x Delver of Secrets // Insectile Aberration (isd) 51\n');
+    expect(output).toMatchSnapshot();
+  });
+
+  it('has only names and counts when grouped by name', () => {
+    const output = render('archidekt-deck', 'name');
+    expect(output).toContain('4x Sol Ring\n');
+    expect(output).not.toContain('(');
+  });
+
+  it("is a .txt file, the only kind Archidekt's deck upload accepts", () => {
+    expect(format('archidekt-deck').extension).toBe('txt');
+  });
+});
+
 describe('markdown for AI', () => {
   it('has title, metadata, totals, table and a fenced plain list', () => {
     const output = render('markdown');
@@ -470,6 +512,7 @@ describe('every format', () => {
       'moxfield',
       'manabox',
       'deckbox',
+      'archidekt-deck',
       'archidekt',
     ]);
   });
