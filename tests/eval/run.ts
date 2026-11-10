@@ -7,10 +7,11 @@
  *   npm run eval -- --only real        # just the owner's photos
  *   npm run eval -- --limit 50 --tag dfc
  *   npm run eval -- --regenerate       # rebuild the synthetic set
+ *   npm run eval -- --ocr-model dir    # compare another eng.traineddata.gz
  */
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { mtg } from '../../app/src/games/mtg/adapter';
 import type { NameDictionary } from '../../app/src/games/types';
@@ -43,6 +44,7 @@ const { values } = parseArgs({
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
     out: { type: 'string', default: '.cache/eval/report' },
+    'ocr-model': { type: 'string', default: 'node_modules/@tesseract.js-data/eng/4.0.0_best_int' },
   },
 });
 
@@ -69,11 +71,11 @@ if (fixtures.length === 0) {
 const dictionary = JSON.parse(await readFile(namesPath, 'utf8')) as NameDictionary;
 const names = new NameIndex(dictionary);
 names.shortlist('warm up', 1);
-await mkdir(join(values.cache!, 'tesseract'), { recursive: true });
-const ocr = await createTesseractEngine({
-  langPath: resolve('node_modules/@tesseract.js-data/eng/4.0.0_best_int'),
-  cachePath: resolve(values.cache!, 'tesseract'),
-});
+// One unpacked cache per model, or Tesseract would reuse whichever model it saw first.
+const modelDir = resolve(values['ocr-model']!);
+const modelCache = resolve(values.cache!, 'tesseract', basename(modelDir));
+await mkdir(modelCache, { recursive: true });
+const ocr = await createTesseractEngine({ langPath: modelDir, cachePath: modelCache });
 
 const outDir = values.out!;
 await rm(outDir, { recursive: true, force: true });
@@ -159,7 +161,7 @@ for (const row of sweep) {
 const notes = [
   'Top-1 printing accuracy is not measured yet: M2 identifies the name only; printings come with M3.',
   'Synthetic photos are rendered from the same Scryfall scans the index uses, so they are optimistic. Real scans are the ground truth.',
-  `Auto-accept threshold ${DEFAULT_DECISION.autoAccept}. Latency is measured in Node on this machine, not on a phone.`,
+  `Auto-accept threshold ${DEFAULT_DECISION.autoAccept}. OCR model: ${values['ocr-model']}. Latency is measured in Node on this machine, not on a phone.`,
 ];
 await writeFile(
   join(outDir, 'summary.json'),
