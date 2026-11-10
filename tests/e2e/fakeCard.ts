@@ -6,6 +6,8 @@
  */
 export interface FakeCardOptions {
   title: string;
+  /** A modern collector line at the bottom left: "R 0410" over "CMM • EN  ARTIST". */
+  collector?: { set: string; number: string; rarity?: string };
   /** Radians. */
   rotation?: number;
   /** Turn the card upside down. */
@@ -15,7 +17,7 @@ export interface FakeCardOptions {
 }
 
 export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
-  const { title, rotation = 0.06, flipped = false, width = 900, height = 1200 } = options;
+  const { title, collector, rotation = 0.06, flipped = false, width = 900, height = 1200 } = options;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -64,6 +66,12 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
   ctx.font = `${Math.round(20 * s)}px Georgia, "DejaVu Serif", serif`;
   ctx.fillText('Tap: Add two mana of', 50 * s, 462 * s);
   ctx.fillText('any one colour.', 50 * s, 490 * s);
+  if (collector) {
+    ctx.fillStyle = '#f2f2f2';
+    ctx.font = `bold ${Math.round(10 * s)}px Arial, "DejaVu Sans", Helvetica, sans-serif`;
+    ctx.fillText(`${collector.rarity ?? 'R'} ${collector.number.padStart(4, '0')}`, 30 * s, 655 * s);
+    ctx.fillText(`${collector.set} \u2022 EN   JANE DOE`, 30 * s, 668 * s);
+  }
   // A mana symbol at the end of the title bar.
   ctx.beginPath();
   ctx.arc(436 * s, 53 * s, 12 * s, 0, Math.PI * 2);

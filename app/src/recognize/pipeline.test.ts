@@ -29,7 +29,7 @@ describe('recognizeFrame', () => {
     const ocr = fakeOcr('Sol Ring');
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr, keepImages: true });
     expect(result.decision).toBe('accept');
-    expect(result.candidates[0]?.name).toBe('Sol Ring');
+    expect(result.names[0]).toBe('Sol Ring');
     expect(result.title).toMatchObject({ text: 'Sol Ring', rotated: false });
     expect(result.card).toMatchObject({ width: 488, height: 680 });
     expect(ocr.calls).toBe(1);
@@ -47,13 +47,13 @@ describe('recognizeFrame', () => {
     const ocr = fakeOcr('#~', '#~', '#~', 'Sol Ring');
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr });
     expect(result.title?.rotated).toBe(true);
-    expect(result.candidates[0]?.name).toBe('Sol Ring');
+    expect(result.names[0]).toBe('Sol Ring');
   });
 
   it('sends a doubtful reading to review rather than accepting it', async () => {
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('Lightning Bo') });
     expect(result.decision).toBe('review');
-    expect(result.candidates.map((c) => c.name)).toContain('Lightning Bolt');
+    expect(result.names).toContain('Lightning Bolt');
   });
 
   it("doesn't spend OCR on a frame that fails the quality gate in live mode", async () => {
@@ -68,7 +68,7 @@ describe('recognizeFrame', () => {
   it('still reads a poor photo when asked, but never auto-accepts it', async () => {
     const small = placeCard(makeCard(), FRAME, cardQuad({ x: 360, y: 480 }, 200), [110, 130, 150]);
     const result = await recognizeFrame(small, { regions: MTG_REGIONS, names, ocr: fakeOcr('Sol Ring'), readDespiteQuality: true });
-    expect(result.candidates[0]?.name).toBe('Sol Ring');
+    expect(result.names[0]).toBe('Sol Ring');
     expect(result.decision).toBe('review');
   });
 });

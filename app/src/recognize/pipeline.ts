@@ -1,14 +1,18 @@
 /**
  * Single-card recognition, end to end: detect → rectify → quality gate →
- * title OCR → fuzzy name. Pure apart from the OCR engine it is handed, so the
- * recognition worker and the Node eval run exactly the same code.
+ * title OCR → fuzzy name → exact printing (collector line and fingerprints,
+ * see identify.ts). Pure apart from the OCR engine and card index it is
+ * handed, so the recognition worker and the Node eval run exactly the same code.
  */
-import type { CardRegions } from '../games/adapter';
+import type { CardRegions, CollectorReading, GameAdapter } from '../games/adapter';
+import type { Catalog } from '../games/catalog';
+import type { CollectorIndex } from '../games/collectorIndex';
 import { detectCards, type CardDetection } from '../vision/detect';
 import type { GrayImage, RgbaImage } from '../vision/image';
 import { rotateRgba180 } from '../vision/image';
 import { assessQuality, DEFAULT_QUALITY, type QualityReport, type QualityThresholds } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
+import { identifyPrinting, type PrintingCandidate } from './identify';
 import type { NameIndex } from './nameSearch';
 import type { OcrEngine, OcrLine } from './ocr';
 import { cropTitle } from './titleCrop';
@@ -24,10 +28,18 @@ export interface DecisionThresholds {
 /** Placeholder until the eval tunes them; see CLAUDE.md "Stage 4: Decide". */
 export const DEFAULT_DECISION: DecisionThresholds = { autoAccept: 0.9, retryRotated: 0.85 };
 
+/** What exact-printing identification needs; without it, recognition stops at the name. */
+export interface PrintingSources {
+  game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior'>;
+  catalog: Catalog;
+  collectors: CollectorIndex | null;
+}
+
 export interface RecognizeOptions {
   regions: CardRegions;
   names: NameIndex;
   ocr: OcrEngine;
+  printings?: PrintingSources;
   quality?: QualityThresholds;
   decision?: DecisionThresholds;
   /**
@@ -59,15 +71,27 @@ export interface Recognition {
   detection: CardDetection | null;
   quality: QualityReport | null;
   title: TitleReading | null;
-  /** Best first, at most five. */
-  candidates: NameCandidate[];
-  /** 0–1, for the top candidate. */
+  /** Card names, best first, at most five: from the printings when they were identified, else from the title. */
+  names: string[];
+  /** The title reading's own name candidates, best first. */
+  titleCandidates: NameCandidate[];
+  /** Exact printings, best first, at most five. Empty without printing sources. */
+  printings: PrintingCandidate[];
+  /** 0–1, that names[0] is right. */
+  nameConfidence: number;
+  /** 0–1, that printings[0] is right (names[0] without printing sources). Auto-accept goes by this. */
   confidence: number;
+  /** What the collector line said, when it was read. */
+  collector: CollectorReading | null;
   /** Milliseconds per stage. */
   timings: Record<string, number>;
   /** The rectified card, upright, when keepImages is set. */
   card?: RgbaImage;
+  /** The collector line crops that were read, when keepImages is set. */
+  collectorCrops?: GrayImage[];
 }
+
+const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null };
 
 /**
  * Reads the title, trying the crop's alternative renderings while the reading
@@ -152,7 +176,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
   const detections = options.detections ?? detectCards(frame, detectOptions(options.regions));
   lap('detect');
   if (detections.length === 0) {
-    return { decision: 'no-card', detection: null, quality: null, title: null, candidates: [], confidence: 0, timings };
+    return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
   }
 
   // The first candidate is almost always the card. When its title doesn't read, the next one
@@ -165,21 +189,55 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
   }
   const { detection, quality } = best!;
   if (!best!.read) {
-    return { decision: 'retake', detection, quality, title: null, candidates: [], confidence: 0, timings };
+    return { decision: 'retake', detection, quality, title: null, ...EMPTY, timings };
   }
   const { title, match, card } = best!.read;
+  const titleCandidates = match.candidates;
 
-  const { candidates, confidence } = match;
-  const verdict: Decision =
-    candidates.length > 0 && confidence >= decision.autoAccept && quality.ok ? 'accept' : 'review';
+  let names = titleCandidates.map((candidate) => candidate.name);
+  let nameConfidence = match.confidence;
+  let confidence = match.confidence;
+  let printings: PrintingCandidate[] = [];
+  let collector: CollectorReading | null = null;
+  let collectorCrops: GrayImage[] | undefined;
+  let upright = card;
+  if (options.printings) {
+    const corners = title.rotated ? ([detection.corners[2], detection.corners[3], detection.corners[0], detection.corners[1]] as const) : detection.corners;
+    const found = await identifyPrinting({
+      frame,
+      corners: [...corners] as CardDetection['corners'],
+      orientationKnown: match.confidence >= SWITCH_FLOOR,
+      title: match,
+      ...options.printings,
+      ocr: options.ocr,
+      keepImages: options.keepImages,
+      lap,
+    });
+    printings = found.candidates;
+    collector = found.collector;
+    collectorCrops = found.collectorCrops;
+    if (printings.length > 0) {
+      names = [...new Set([...printings.map((candidate) => candidate.printing.name), ...names])].slice(0, 5);
+      nameConfidence = found.nameConfidence;
+      confidence = found.confidence;
+      // The fingerprints found the card the other way up from the title's guess.
+      if (found.turned && options.keepImages) upright = rotateRgba180(card);
+    }
+  }
+
+  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok ? 'accept' : 'review';
   return {
     decision: verdict,
     detection,
     quality,
     title,
-    candidates,
+    names,
+    titleCandidates,
+    printings,
+    nameConfidence,
     confidence,
+    collector,
     timings,
-    ...(options.keepImages ? { card } : {}),
+    ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),
   };
 }

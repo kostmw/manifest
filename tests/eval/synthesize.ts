@@ -353,3 +353,17 @@ export function renderSynthetic(card: RgbaImage, params: SynthParams, rng: Rng):
   }
   return { image: blurred, corners };
 }
+
+/**
+ * The same photo at `factor` times the resolution: what a phone camera gives
+ * when the frame isn't scaled down as far. Blur scales with it, so the image
+ * is equally sharp relative to its size; noise stays per pixel.
+ */
+export function scaleParams(params: SynthParams, factor: number): SynthParams {
+  return {
+    ...params,
+    frame: { width: Math.round(params.frame.width * factor), height: Math.round(params.frame.height * factor) },
+    center: { x: params.center.x * factor, y: params.center.y * factor },
+    blur: params.blur * factor,
+  };
+}

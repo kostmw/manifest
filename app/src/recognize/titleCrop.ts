@@ -28,7 +28,7 @@ const TARGET_LINE_HEIGHT = 56;
 const PADDING = 12;
 
 /** Row-wise density of vertical strokes. Text has many; frame lines and flat bars have few. */
-function strokeProfile(gray: GrayImage): Float32Array {
+export function strokeProfile(gray: GrayImage): Float32Array {
   const { gx } = sobel(gray);
   const profile = new Float32Array(gray.height);
   for (let y = 0; y < gray.height; y++) {
@@ -62,16 +62,18 @@ export function findTextLine(profile: Float32Array, lineHeight: number, expected
 }
 
 /**
- * Otsu, then decides which side is text: in the middle rows, where the letters
- * are, ink is the minority even for a long bold name, while the strip's edges
- * can be either colour (frame lines, shadows). Text becomes 0, background 255.
+ * Otsu, then decides which side is text: in the middle rows (`middleRows` of
+ * the height), where the letters are, ink is the minority even for a long bold
+ * name, while the strip's edges can be either colour (frame lines, shadows).
+ * Text becomes 0, background 255.
  */
-export function binarizeLine(gray: GrayImage): { image: GrayImage; inverted: boolean } {
+export function binarizeLine(gray: GrayImage, middleRows = 0.5): { image: GrayImage; inverted: boolean } {
   const threshold = otsuThreshold(gray.data);
   const { width, height, data } = gray;
   let dark = 0;
   let counted = 0;
-  for (let y = Math.floor(height * 0.25); y < Math.ceil(height * 0.75); y++) {
+  const skip = (1 - middleRows) / 2;
+  for (let y = Math.floor(height * skip); y < Math.ceil(height * (1 - skip)); y++) {
     for (let x = 0; x < width; x++) {
       counted++;
       if (data[y * width + x]! < threshold) dark++;
@@ -118,7 +120,7 @@ export function strictThreshold(gray: GrayImage, inverted: boolean): GrayImage {
   return out;
 }
 
-function pad(image: GrayImage, amount: number): GrayImage {
+export function pad(image: GrayImage, amount: number): GrayImage {
   const out = createGray(image.width + amount * 2, image.height + amount * 2);
   out.data.fill(255);
   for (let y = 0; y < image.height; y++) {

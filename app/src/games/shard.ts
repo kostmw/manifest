@@ -16,3 +16,8 @@ export function printingShardIndex(name: string, shardCount: number): number {
 export function printingShardFile(game: string, shard: number): string {
   return `printings.${game}.${String(shard).padStart(2, '0')}.json`;
 }
+
+/** Fingerprints for the printings in the shard of the same number; see hashShard.ts. */
+export function hashShardFile(game: string, shard: number): string {
+  return `hashes.${game}.${String(shard).padStart(2, '0')}.bin`;
+}

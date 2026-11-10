@@ -17,7 +17,7 @@ export default defineConfig({
   webServer: {
     // A small index of real cards, so these tests don't need Scryfall.
     command: [
-      'npx tsx scripts/build-index.ts --source tests/fixtures/scryfall-sample.jsonl --out .cache/e2e-index',
+      'npx tsx scripts/build-index.ts --source tests/fixtures/scryfall-sample.jsonl --out .cache/e2e-index --fingerprints none',
       'MANIFEST_DATA_DIR=.cache/e2e-index MANIFEST_REQUIRE_DATA=1 npm run build',
       'npm run preview -- --port 4173 --strictPort',
     ].join(' && '),

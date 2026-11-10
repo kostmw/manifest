@@ -43,8 +43,14 @@ export async function createTesseractEngine(paths: TesseractPaths): Promise<OcrE
     preserve_interword_spaces: '1',
   });
 
+  let whitelist = TITLE_CHARACTERS;
   return {
-    async readLine(image) {
+    async readLine(image, options) {
+      const characters = options?.characters ?? TITLE_CHARACTERS;
+      if (characters !== whitelist) {
+        await worker.setParameters({ tessedit_char_whitelist: characters });
+        whitelist = characters;
+      }
       // Raw bytes work in both builds; the type definitions only admit Node's Buffer.
       const { data } = await worker.recognize(encodePgm(image) as unknown as Buffer);
       return { text: data.text.replace(/\s+/g, ' ').trim(), confidence: data.confidence };

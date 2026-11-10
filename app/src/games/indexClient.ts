@@ -1,5 +1,9 @@
+import type { IndexSource } from './catalog';
+import { sortPrintings } from './catalog';
 import { printingShardFile, printingShardIndex } from './shard';
 import type { GameId, GameIndex, IndexFile, IndexManifest, NameDictionary, Printing } from './types';
+
+export { sortPrintings };
 
 const CACHE_NAME = 'manifest-index-v1';
 const BASE = `${import.meta.env.BASE_URL}data/`;
@@ -30,7 +34,9 @@ export function staleCacheEntries(cachedUrls: readonly string[], currentUrls: Re
 async function removeStaleEntries(cache: Cache, manifest: IndexManifest): Promise<void> {
   const current = new Set<string>();
   for (const game of Object.values(manifest.games)) {
-    for (const file of [game.names, ...game.shards]) current.add(versionedUrl(file));
+    for (const file of [game.names, ...game.shards, ...(game.hashes ?? []), ...(game.collectors ? [game.collectors] : [])]) {
+      current.add(versionedUrl(file));
+    }
   }
   const keys = await cache.keys();
   const stale = staleCacheEntries(keys.map((request) => request.url), current);
@@ -73,32 +79,33 @@ async function loadGameIndex(game: GameId): Promise<GameIndex> {
 }
 
 /** File names change content but never name, so the version in the URL decides what is cached. */
-async function fetchIndexFile<T>(file: IndexFile): Promise<T> {
+async function fetchIndexResponse(file: IndexFile): Promise<Response> {
   const url = versionedUrl(file);
   const cache = await openCache();
   const cached = await cache?.match(url);
-  if (cached) return (await cached.json()) as T;
+  if (cached) return cached;
 
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Couldn't download ${file.file} (HTTP ${response.status})`);
   if (cache) await cache.put(url, response.clone());
-  return (await response.json()) as T;
+  return response;
+}
+
+async function fetchIndexFile<T>(file: IndexFile): Promise<T> {
+  return (await (await fetchIndexResponse(file)).json()) as T;
+}
+
+/** The index as recognition reads it (see catalog.ts), fetched and cached like everything else. */
+export function browserIndexSource(game: GameId): IndexSource {
+  return {
+    gameIndex: () => loadGameIndex(game),
+    json: fetchIndexFile,
+    bytes: async (file) => new Uint8Array(await (await fetchIndexResponse(file)).arrayBuffer()),
+  };
 }
 
 export async function loadNameDictionary(game: GameId): Promise<NameDictionary> {
   return fetchIndexFile<NameDictionary>((await loadGameIndex(game)).names);
-}
-
-const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-
-/** Newest first, the printing someone is most likely holding. */
-export function sortPrintings(printings: readonly Printing[]): Printing[] {
-  return [...printings].sort(
-    (a, b) =>
-      (b.released ?? '').localeCompare(a.released ?? '') ||
-      collator.compare(a.set, b.set) ||
-      collator.compare(a.number, b.number),
-  );
 }
 
 export async function loadPrintings(game: GameId, name: string): Promise<Printing[]> {

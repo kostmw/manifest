@@ -44,6 +44,16 @@ export interface GameIndex {
   counts: { names: number; printings: number };
   names: IndexFile;
   shards: IndexFile[];
+  /**
+   * Visual fingerprints, one file per printings shard and in the same order
+   * (see hashShard.ts). Missing from indexes built without images; the app
+   * then recognizes by text alone.
+   */
+  hashes?: IndexFile[];
+  /** Which fingerprint algorithm built `hashes`; see recognize/fingerprint.ts. */
+  fingerprint?: { version: number; rowBytes: number; imageSize: string };
+  /** Set code → collector number → name, for reading a card by its collector line alone (collectorIndex.ts). */
+  collectors?: IndexFile;
 }
 
 export interface IndexManifest {

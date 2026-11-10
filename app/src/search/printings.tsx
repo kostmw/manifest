@@ -40,14 +40,19 @@ export function usePrintings(game: Batch['game']) {
   return { state, load, clear: () => setState({ status: 'idle' }) };
 }
 
-function PrintingRow({
+export function PrintingRow({
   printing,
   batch,
   onAdded,
+  note,
+  highlighted = false,
 }: {
   printing: Printing;
   batch: Batch;
   onAdded: (message: Message) => void;
+  /** A line under the set, e.g. why the scanner picked this printing. */
+  note?: string;
+  highlighted?: boolean;
 }) {
   const game = getGame(batch.game);
   const code = `${printing.set.toUpperCase()} ${printing.number}`;
@@ -64,7 +69,7 @@ function PrintingRow({
   };
 
   return (
-    <li className="flex gap-3 rounded-xl bg-zinc-800/60 p-2">
+    <li className={`flex gap-3 rounded-xl p-2 ${highlighted ? 'bg-zinc-700/70 ring-1 ring-emerald-400/60' : 'bg-zinc-800/60'}`}>
       {printing.image ? (
         <img
           src={thumbnailUrl(printing.image)}
@@ -78,13 +83,15 @@ function PrintingRow({
         <div className="h-[102px] w-[73px] flex-none rounded-md bg-zinc-800" />
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <div>
-          <p className="truncate text-sm font-medium">{printing.setName}</p>
+        <div className="min-w-0">
+          {note !== undefined && <p className="truncate text-sm font-medium">{printing.exportName ?? printing.name}</p>}
+          <p className={note !== undefined ? 'truncate text-xs text-zinc-300' : 'truncate text-sm font-medium'}>{printing.setName}</p>
           <p className="text-xs text-zinc-400">
             {code}
             {printing.released ? ` · ${printing.released.slice(0, 4)}` : ''}
             {printing.lang !== 'en' ? ` · ${printing.lang}` : ''}
           </p>
+          {note && <p className="text-xs text-zinc-500">{note}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           {printing.finishes.map((finish) => {

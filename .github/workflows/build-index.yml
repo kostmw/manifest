@@ -14,6 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 300
     permissions:
       contents: read
       actions: write # To start the deploy below.
@@ -24,6 +25,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Fingerprints are cached with the image version they came from, so a nightly build
+      # only downloads new or changed card images. The first build downloads all of them
+      # (about 110k small images, 1.5 hours at a polite 20 per second).
+      - uses: actions/cache@v6
+        with:
+          path: .cache/fingerprints
+          key: fingerprints-mtg-v1-${{ github.run_id }}
+          restore-keys: fingerprints-mtg-v1-
       - run: npm run index:build
       - uses: actions/upload-artifact@v7
         with:

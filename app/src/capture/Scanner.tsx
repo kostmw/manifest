@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import type { PrintingCandidate } from '../recognize/identify';
 import type { FrameOutcome, ScanResult } from '../recognize/recognize.worker';
 import { useRecognizer } from '../recognize/useRecognizer';
-import { PrintingList, usePrintings, type Message } from '../search/printings';
+import { PrintingList, PrintingRow, usePrintings, type Message } from '../search/printings';
 import type { Batch } from '../session/types';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
 import { QUALITY_HINTS } from '../vision/quality';
@@ -42,6 +43,18 @@ function Outline({ frame }: { frame: FrameOutcome | null }) {
   );
 }
 
+/** Why a printing was picked, in a few words. */
+function matchNote(candidate: PrintingCandidate): string {
+  const parts: string[] = [];
+  const collector = candidate.collector;
+  if (collector?.number === 'exact' && (collector.set === 'exact' || collector.set === 'close')) parts.push('collector number and set match');
+  else if (collector?.number === 'exact') parts.push('collector number matches');
+  else if (collector?.set === 'exact') parts.push('set matches');
+  if (candidate.hashDistance !== null && candidate.hashDistance <= 14) parts.push('artwork matches');
+  if (parts.length === 0 && candidate.title >= 0.8) parts.push('name matches');
+  return parts.join(', ');
+}
+
 function ResultPanel({
   result,
   batch,
@@ -58,8 +71,9 @@ function ResultPanel({
   const printings = usePrintings(batch?.game ?? 'mtg');
   const [message, setMessage] = useState<Message | null>(null);
   const [cardUrl, setCardUrl] = useState<string | null>(null);
-  const top = result.candidates[0];
+  const top = result.names[0];
   const sure = result.decision === 'accept';
+  const identified = result.printings.length > 0;
 
   useEffect(() => {
     if (!result.card) return;
@@ -68,10 +82,22 @@ function ResultPanel({
     return () => URL.revokeObjectURL(url);
   }, [result.card]);
 
-  // A confident read goes straight to its printings; an unsure one waits for a pick.
+  // Without exact printings, a confident read goes straight to all printings of its name.
   useEffect(() => {
-    if (sure && top) printings.load(top.name);
+    if (sure && top && !identified) printings.load(top);
   }, [result]); // Once per result, not on every change of the lookup it starts.
+
+  const status = identified
+    ? sure
+      ? 'Recognized'
+      : result.nameConfidence >= 0.9
+        ? 'Recognized the card. Which printing is it?'
+        : 'Not sure. Is it one of these?'
+    : top
+      ? sure
+        ? 'Recognized'
+        : 'Not sure. Is it one of these?'
+      : "Couldn't read this card.";
 
   return (
     <section aria-label="Scan result" className="flex flex-col gap-3 rounded-xl bg-zinc-800/40 p-3">
@@ -81,28 +107,34 @@ function ResultPanel({
         )}
         <div className="flex min-w-0 flex-col gap-2">
           <p className="text-sm text-zinc-400">
-            {top ? (sure ? 'Recognized' : 'Not sure. Is it one of these?') : "Couldn't read this card."}
+            <span>{status}</span>
+            {top && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
           </p>
           {result.titleText && (
             <p className="text-xs text-zinc-500">
               Title read as <span className="font-mono">“{result.titleText}”</span>
             </p>
           )}
+          {result.collectorText && (
+            <p className="text-xs break-all text-zinc-500">
+              Collector line read as <span className="font-mono">“{result.collectorText}”</span>
+            </p>
+          )}
           <ul aria-label="Candidates" className="flex flex-col gap-1">
-            {result.candidates.map((candidate, index) => (
-              <li key={candidate.name}>
+            {/* A sure printing needs no list of other names; its printings are below. */}
+            {(identified && sure ? result.names.slice(0, 1) : result.names).map((name) => (
+              <li key={name}>
                 <button
                   type="button"
-                  aria-label={`Choose ${candidate.name}`}
-                  onClick={() => printings.load(candidate.name)}
+                  aria-label={`Choose ${name}`}
+                  onClick={() => printings.load(name)}
                   className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm ${
-                    printings.state.status !== 'idle' && printings.state.name === candidate.name
+                    printings.state.status !== 'idle' && printings.state.name === name
                       ? 'bg-zinc-100 text-zinc-900'
                       : 'bg-zinc-800 hover:bg-zinc-700'
                   }`}
                 >
-                  {candidate.name}
-                  {index === 0 && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
+                  {name}
                 </button>
               </li>
             ))}
@@ -112,6 +144,24 @@ function ResultPanel({
       <p aria-live="polite" className={`min-h-5 text-sm ${message?.failed ? 'text-amber-300' : 'text-emerald-300'}`}>
         {message?.text}
       </p>
+      {identified && batch && printings.state.status === 'idle' && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-base font-semibold">{sure ? 'Best match' : 'Closest printings'}</h2>
+          <ul aria-label="Printing candidates" className="flex flex-col gap-2">
+            {result.printings.map((candidate, index) => (
+              <PrintingRow
+                key={candidate.printing.id}
+                printing={candidate.printing}
+                batch={batch}
+                onAdded={setMessage}
+                note={matchNote(candidate)}
+                highlighted={index === 0 && sure}
+              />
+            ))}
+          </ul>
+          <p className="text-xs text-zinc-500">Not here? Choose a name above to see all its printings.</p>
+        </div>
+      )}
       <PrintingList
         key={printings.state.status === 'idle' ? '' : printings.state.name}
         printings={printings}
@@ -119,6 +169,11 @@ function ResultPanel({
         onAdded={setMessage}
       />
       <div className="flex flex-wrap gap-2">
+        {identified && printings.state.status !== 'idle' && (
+          <button type="button" onClick={printings.clear} className={BUTTON_SECONDARY}>
+            Back to closest printings
+          </button>
+        )}
         <button type="button" onClick={onDone} className={BUTTON_PRIMARY}>
           Scan next card
         </button>

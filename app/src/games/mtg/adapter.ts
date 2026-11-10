@@ -1,6 +1,7 @@
 import { detailedListFormat, markdownFormat, plainListFormat } from '../../export/lists';
 import type { ExportRow, ExtraColumn, LineStyle } from '../../export/types';
 import type { CardRegions, GameAdapter } from '../adapter';
+import { matchMtgCollector, mtgPrintingPrior, parseMtgCollectorLine } from './collector';
 import { archidektCsv, archidektDeckList, deckboxCsv, manaboxCsv, moxfieldCsv } from './exports';
 
 const FINISHES = [
@@ -41,8 +42,16 @@ export const MTG_REGIONS: CardRegions = {
   // 19–23 px of 488 on 1993–2015 frames; the bottom border is about twice that.
   border: 0.042,
   title: { search: { x: 26, y: 12, width: 436, height: 88 }, lineHeight: 32, expectedCenterY: 53 },
-  collector: { x: 20, y: 626, width: 230, height: 40 },
+  // Two lines (number, then set • language • artist) at the bottom left since 2014; the
+  // 2003–2014 frames end the copyright line, at the same height, with the number.
+  collector: { search: { x: 16, y: 626, width: 300, height: 48 }, lineHeight: 9, maxLines: 2 },
   art: { x: 38, y: 76, width: 412, height: 302 },
+  // Measured on the synthetic eval set: on a dark mat, detection stops at the frame line
+  // (its bottom varies by frame, 610–660, so it's placed by aspect ratio); sleeves add ~2.8%.
+  outlines: [
+    { id: 'frame-line', box: { x: 24, y: 22, width: 440, height: 613 } },
+    { id: 'sleeve', box: { x: -13.5, y: -13.5, width: 515, height: 707 } },
+  ],
 };
 
 export const mtg: GameAdapter = {
@@ -75,6 +84,9 @@ export const mtg: GameAdapter = {
   extraColumns: EXTRA_COLUMNS,
   formatExportLine: formatMtgExportLine,
   regions: MTG_REGIONS,
+  parseCollectorLine: parseMtgCollectorLine,
+  matchCollector: matchMtgCollector,
+  printingPrior: mtgPrintingPrior,
   exportFormats: [
     plainListFormat(formatMtgExportLine),
     detailedListFormat(formatMtgExportLine),

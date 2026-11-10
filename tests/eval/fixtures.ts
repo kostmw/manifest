@@ -7,7 +7,7 @@ import type { Point } from '../../app/src/vision/geometry';
 import { cachedImagePath, fetchImages } from './fetchImages';
 import { encodeJpeg, readImage } from './imageIo';
 import { selectEvalCards } from './selectCards';
-import { createRng, randomParams, renderSynthetic, seedFrom } from './synthesize';
+import { createRng, randomParams, renderSynthetic, scaleParams, seedFrom } from './synthesize';
 
 export interface Fixture {
   path: string;
@@ -74,15 +74,35 @@ export function latestBulkFile(cacheDir = '.cache/bulk'): string | null {
   return files.length ? join(cacheDir, files.at(-1)!) : null;
 }
 
-/** Builds the synthetic set once (deterministic) and reuses it from .cache afterwards. */
-export async function syntheticFixtures(options: { cacheDir: string; regenerate: boolean; log: (m: string) => void }): Promise<Fixture[]> {
-  const dir = join(options.cacheDir, 'synthetic');
+/**
+ * The synthetic sets. `standard` renders all 320 eval cards from Scryfall's
+ * 488×680 `normal` scans into phone-sized frames (720×1280 and the like), the
+ * set every milestone has been measured on. `hires` renders the 150 modern
+ * cards from the 672×936 `large` scans into frames twice as big, closer to a
+ * full-resolution phone photo: collector-line text is about twice as tall.
+ */
+export type SyntheticVariant = 'standard' | 'hires';
+
+const VARIANTS: Record<SyntheticVariant, { dir: string; imageDir: string; size: string; scale: number; strata: string[] | null }> = {
+  standard: { dir: 'synthetic', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null },
+  hires: { dir: 'synthetic-hires', imageDir: 'scryfall-large', size: 'large', scale: 2, strata: ['modern'] },
+};
+
+/** Builds a synthetic set once (deterministic) and reuses it from .cache afterwards. */
+export async function syntheticFixtures(options: {
+  cacheDir: string;
+  regenerate: boolean;
+  log: (m: string) => void;
+  variant?: SyntheticVariant;
+}): Promise<Fixture[]> {
+  const variant = VARIANTS[options.variant ?? 'standard'];
+  const dir = join(options.cacheDir, variant.dir);
   const labelsPath = join(dir, 'labels.json');
   if (!options.regenerate && existsSync(labelsPath)) {
     const labels = JSON.parse(await readFile(labelsPath, 'utf8')) as Record<string, SyntheticLabel>;
     return Object.entries(labels).map(([file, label]) => ({
       path: join(dir, file),
-      file: `synthetic/${file}`,
+      file: `${variant.dir}/${file}`,
       expectedName: label.name,
       expectedId: label.id,
       tags: label.tags,
@@ -93,8 +113,10 @@ export async function syntheticFixtures(options: { cacheDir: string; regenerate:
   const bulk = latestBulkFile();
   if (!bulk) throw new Error('No Scryfall bulk file in .cache/bulk. Run npm run index:build first.');
   options.log('Choosing eval cards…');
-  const cards = await selectEvalCards(bulk);
-  const imageDir = join(options.cacheDir, 'scryfall');
+  const cards = (await selectEvalCards(bulk))
+    .filter((card) => !variant.strata || variant.strata.includes(card.stratum))
+    .map((card) => ({ ...card, image: card.image.replace('/normal/', `/${variant.size}/`) }));
+  const imageDir = join(options.cacheDir, variant.imageDir);
   await fetchImages(cards, imageDir, options.log);
 
   await mkdir(dir, { recursive: true });
@@ -102,8 +124,9 @@ export async function syntheticFixtures(options: { cacheDir: string; regenerate:
   const labels: Record<string, SyntheticLabel> = {};
   for (const [index, card] of cards.entries()) {
     const source = await readImage(cachedImagePath(imageDir, card.id));
+    // The same seed as the standard set, so each card gets the same scene, only sharper.
     const rng = createRng(seedFrom(card.id));
-    const params = randomParams(rng, source.width / source.height);
+    const params = scaleParams(randomParams(rng, source.width / source.height), variant.scale);
     const { image, corners } = renderSynthetic(source, params, rng);
     // Saved at a phone-like JPEG quality, so compression artefacts are part of the test.
     const bytes = encodeJpeg(image, params.jpegQuality);
@@ -112,7 +135,7 @@ export async function syntheticFixtures(options: { cacheDir: string; regenerate:
     labels[file] = {
       id: card.id,
       name: card.name,
-      tags: ['synthetic', ...card.tags, ...params.conditions],
+      tags: ['synthetic', ...(variant.scale > 1 ? ['hires'] : []), ...card.tags, ...params.conditions],
       corners: corners.map(({ x, y }) => ({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 })),
     };
     if ((index + 1) % 50 === 0) options.log(`  ${index + 1}/${cards.length}`);

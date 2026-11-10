@@ -5,7 +5,9 @@
  * the rectified card for the review UI.
  */
 import { expose } from 'comlink';
-import { loadNameDictionary } from '../games/indexClient';
+import { Catalog } from '../games/catalog';
+import type { CollectorIndex } from '../games/collectorIndex';
+import { browserIndexSource, loadNameDictionary } from '../games/indexClient';
 import { getGame } from '../games/registry';
 import type { GameId } from '../games/types';
 import { detectCards } from '../vision/detect';
@@ -13,20 +15,29 @@ import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
 import { assessQuality, type QualityIssue } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
+import { FINGERPRINT_VERSION } from './fingerprint';
+import type { PrintingCandidate } from './identify';
 import { LiveSession } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
 import { detectOptions, recognizeFrame, type Decision, type Recognition } from './pipeline';
 import { createTesseractEngine } from './tesseract';
-import type { NameCandidate } from './titleMatch';
 
 declare const __OCR_DIR__: string;
 
 export interface ScanResult {
   decision: Decision;
-  candidates: NameCandidate[];
+  /** Card names, best first, at most five. */
+  names: string[];
+  /** Exact printings, best first, at most five. */
+  printings: PrintingCandidate[];
+  /** 0–1, that names[0] is right. */
+  nameConfidence: number;
+  /** 0–1, that printings[0] is right: what auto-accept goes by. */
   confidence: number;
   titleText: string;
+  /** The collector line as OCR read it. */
+  collectorText: string;
   /** The rectified card, upright, as a JPEG. */
   card: Blob | null;
   timings: Record<string, number>;
@@ -43,14 +54,20 @@ export interface FrameOutcome {
   result: ScanResult | null;
 }
 
-/** Live frames are capped by the camera constraints; photos are scaled down to this. */
-const PHOTO_MAX_SIDE = 2000;
+/**
+ * Live frames are capped by the camera constraints; photos are scaled down to
+ * this. Detection works on a small copy anyway; the full size is kept for the
+ * collector line, whose text is only a few pixels tall at lower resolutions.
+ */
+const PHOTO_MAX_SIDE = 3000;
 /** wasm-feature-detect's SIMD probe. */
 const SIMD_PROBE = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]);
 
 let game: GameId | null = null;
 let names: NameIndex | null = null;
 let ocr: OcrEngine | null = null;
+let catalog: Catalog | null = null;
+let collectors: CollectorIndex | null = null;
 const live = new LiveSession();
 
 function pixels(bitmap: ImageBitmap, maxSide: number): RgbaImage {
@@ -73,16 +90,20 @@ async function toJpeg(image: RgbaImage): Promise<Blob> {
 }
 
 function ready() {
-  if (!game || !names || !ocr) throw new Error('The recognizer is not loaded yet');
-  return { regions: getGame(game).regions, names, ocr };
+  if (!game || !names || !ocr || !catalog) throw new Error('The recognizer is not loaded yet');
+  const adapter = getGame(game);
+  return { regions: adapter.regions, names, ocr, printings: { game: adapter, catalog, collectors } };
 }
 
 async function toResult(recognition: Recognition): Promise<ScanResult> {
   return {
     decision: recognition.decision,
-    candidates: recognition.candidates,
+    names: recognition.names,
+    printings: recognition.printings,
+    nameConfidence: recognition.nameConfidence,
     confidence: recognition.confidence,
     titleText: recognition.title?.text ?? '',
+    collectorText: recognition.collector?.text ?? '',
     card: recognition.card ? await toJpeg(recognition.card) : null,
     timings: recognition.timings,
   };
@@ -93,6 +114,7 @@ const api = {
     if (game === gameId && names && ocr) return;
     const base = new URL(`${import.meta.env.BASE_URL}${__OCR_DIR__}/`, self.location.origin).href;
     const core = WebAssembly.validate(SIMD_PROBE) ? 'tesseract-core-simd-lstm.js' : 'tesseract-core-lstm.js';
+    const nextCatalog = new Catalog(browserIndexSource(gameId), FINGERPRINT_VERSION);
     const [dictionary, engine] = await Promise.all([
       loadNameDictionary(gameId),
       createTesseractEngine({
@@ -103,10 +125,17 @@ const api = {
         cachePath: __OCR_DIR__,
       }),
     ]);
+    // Collector lookups are a fallback; scanning works without them.
+    const nextCollectors = await nextCatalog.collectors(dictionary).catch(() => null);
     await ocr?.dispose();
     names = new NameIndex(dictionary);
     ocr = engine;
+    catalog = nextCatalog;
+    collectors = nextCollectors;
     game = gameId;
+    // Every fingerprint (about 1.8 MB, cached), for cards whose title can't be read. Not awaited:
+    // the first scans don't need it, and a failure only means text-only recognition.
+    void nextCatalog.fingerprintTable().catch(() => null);
   },
 
   /** One live camera frame. Reads the card once it has been steady for a few frames. */
