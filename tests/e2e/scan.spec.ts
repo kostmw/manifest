@@ -7,10 +7,16 @@ test.beforeEach(async ({ page }) => {
   // Thumbnails come from Scryfall's CDN. These tests shouldn't depend on it, or hit it.
   await page.route('https://cards.scryfall.io/**', (route) => route.abort());
   await page.goto('./');
+  await openScanner(page);
+});
+
+async function openScanner(page: Page) {
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
   // The card reader is ready once the photo button works.
   await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
-});
+}
+
+const nav = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
 
 async function scanPhoto(page: Page, options: FakeCardOptions) {
   const dataUrl = await page.evaluate(drawFakeCard, options);
@@ -18,59 +24,66 @@ async function scanPhoto(page: Page, options: FakeCardOptions) {
   await page.getByLabel('Scan a photo').setInputFiles({ name: 'card.png', mimeType: 'image/png', buffer });
 }
 
-test('reads a card and its exact printing from a photo, and adds it to the batch', async ({ page }) => {
-  await scanPhoto(page, { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } });
+const SOL_RING = { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } };
 
-  const result = page.getByRole('region', { name: 'Scan result' });
-  await expect(result).toBeVisible({ timeout: 30_000 });
-  await expect(result.getByText('Recognized', { exact: true })).toBeVisible();
-  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName(
-    'Choose Sol Ring',
-  );
-  await expect(result.getByText(/Collector line read as/)).toBeVisible();
-  // The sample index has two printings of Sol Ring; the collector line picks one.
-  const best = result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first();
-  await expect(best).toContainText('CMM 410');
+test('adds a confidently read card straight to the batch, and undoes it in one tap', async ({ page }) => {
+  await scanPhoto(page, SOL_RING);
 
-  await best.getByRole('button', { name: 'Add CMM 410 Nonfoil' }).click();
-  await expect(page.getByText(/^Added Sol Ring/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Batch (1)' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Added Sol Ring · CMM 410' })).toBeVisible({ timeout: 30_000 });
+  await expect(nav(page).getByRole('button', { name: 'Batch (1)' })).toBeVisible();
+  await expect(page.getByTestId('scan-counter')).toHaveText('1');
+  const strip = page.getByRole('list', { name: 'Last cards scanned' });
+  await expect(strip.getByRole('button', { name: 'Sol Ring, CMM 410, added' })).toBeVisible();
+  // No confirm step: nothing waits for review.
+  await expect(page.getByRole('region', { name: 'Scan result' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Scan next card' }).click();
-  await expect(result).toBeHidden();
+  await strip.getByRole('button', { name: 'Undo Sol Ring' }).click();
+  await expect(nav(page).getByRole('button', { name: 'Batch', exact: true })).toBeVisible();
+  await expect(page.getByTestId('scan-counter')).toHaveText('0');
+  await expect(strip).toHaveCount(0);
+});
+
+test('adds the batch’s foil finish to a confidently read card', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scan settings' }).getByLabel('All foil').check();
+  await scanPhoto(page, SOL_RING);
+  await expect(page.getByRole('status').filter({ hasText: 'Added Sol Ring · CMM 410' })).toBeVisible({ timeout: 30_000 });
+  await nav(page).getByRole('button', { name: 'Batch (1)' }).click();
+  await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
 });
 
 test('reads a card that is upside down, collector line included', async ({ page }) => {
   await scanPhoto(page, { title: 'Demonic Tutor', collector: { set: 'CMM', number: '509', rarity: 'M' }, flipped: true, rotation: -0.1 });
-  const result = page.getByRole('region', { name: 'Scan result' });
-  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName(
-    'Choose Demonic Tutor',
-    { timeout: 30_000 },
-  );
-  await expect(result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first()).toContainText('CMM 509');
+  await expect(page.getByRole('status').filter({ hasText: 'Added Demonic Tutor · CMM 509' })).toBeVisible({ timeout: 30_000 });
+  // That printing only comes etched.
+  await nav(page).getByRole('button', { name: 'Batch (1)' }).click();
+  await expect(page.getByRole('combobox', { name: 'Finish of Demonic Tutor' })).toHaveValue('etched');
 });
 
-test('finds a card by its collector line when the title is unreadable', async ({ page }) => {
+test('finds a card by its collector line when the title is unreadable, and asks to check it', async ({ page }) => {
   await scanPhoto(page, { title: 'Xqzv Jwkp', collector: { set: 'CMM', number: '703', rarity: 'U' } });
   const result = page.getByRole('region', { name: 'Scan result' });
-  await expect(result.getByRole('list', { name: 'Printing candidates' }).getByRole('listitem').first()).toContainText(
-    'CMM 703',
-    { timeout: 30_000 },
-  );
-  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName('Choose Sol Ring');
+  await expect(result.getByRole('list', { name: 'Candidates' }).getByRole('button').first()).toHaveAccessibleName('Pick Sol Ring, CMM 703', {
+    timeout: 30_000,
+  });
+  await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
+  await result.getByRole('button', { name: /^Add CMM 703/ }).click();
+  await expect(result).toHaveCount(0);
+  await expect(nav(page).getByRole('button', { name: 'Batch (1)' })).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Review', exact: true })).toBeVisible();
 });
 
 test('shows every printing of a name on request', async ({ page }) => {
   await scanPhoto(page, { title: 'Lightning Bolt' });
   const result = page.getByRole('region', { name: 'Scan result' });
-  await expect(result.getByRole('list', { name: 'Printing candidates' })).toBeVisible({ timeout: 30_000 });
   // Two printings and no collector line: the scanner can't tell which.
-  await expect(result.getByText('Recognized the card. Which printing is it?')).toBeVisible();
-  await result.getByRole('button', { name: 'Choose Lightning Bolt' }).click();
+  await expect(result.getByText('Recognized the card. Which printing is it?')).toBeVisible({ timeout: 30_000 });
+  await result.getByRole('button', { name: 'All printings of Lightning Bolt' }).click();
   await expect(page.getByRole('heading', { name: /^Lightning Bolt/ })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Printings' }).getByRole('listitem')).toHaveCount(2);
-  await result.getByRole('button', { name: 'Back to closest printings' }).click();
-  await expect(result.getByRole('list', { name: 'Printing candidates' })).toBeVisible();
+  await result.getByRole('button', { name: 'Use M11 149' }).click();
+  await expect(result.getByText('Chosen: Lightning Bolt (M11 149)')).toBeVisible();
+  await result.getByRole('button', { name: /^Add M11 149/ }).click();
+  await expect(nav(page).getByRole('button', { name: 'Batch (1)' })).toBeVisible();
 });
 
 test('lets the user pick when the reading is unsure', async ({ page }) => {
@@ -78,8 +91,9 @@ test('lets the user pick when the reading is unsure', async ({ page }) => {
   await scanPhoto(page, { title: 'Hogaak, Arsen Necrop' });
   const result = page.getByRole('region', { name: 'Scan result' });
   await expect(result.getByText('Not sure. Is it one of these?')).toBeVisible({ timeout: 30_000 });
-  await result.getByRole('button', { name: 'Choose Hogaak, Arisen Necropolis' }).click();
-  await expect(page.getByRole('heading', { name: /^Hogaak, Arisen Necropolis/ })).toBeVisible();
+  await result.getByRole('button', { name: 'Pick Hogaak, Arisen Necropolis, MH1 202' }).click();
+  await result.getByRole('button', { name: 'Add MH1 202' }).click();
+  await expect(nav(page).getByRole('button', { name: 'Batch (1)' })).toBeVisible();
 });
 
 test('says so when a photo has no card in it', async ({ page }) => {
@@ -103,30 +117,94 @@ test('says so when a photo has no card in it', async ({ page }) => {
 test('explains what to do while no card is in view of the camera', async ({ page }) => {
   await page.getByRole('button', { name: 'Start camera' }).click();
   // Chromium's fake camera shows a test pattern, not a card.
-  await expect(page.getByRole('status')).toContainText('Place one card flat in view');
+  await expect(page.getByRole('status').filter({ hasText: 'Slide a card into view' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sound on' })).toBeVisible();
 });
 
-test("says it couldn't read a card, with a hint and a way to search instead", async ({ page }) => {
+test("says it couldn't read a card, with a hint, and keeps it for review", async ({ page }) => {
   // Gibberish for a title and no collector line: nothing to go on (the e2e index has no fingerprints).
   await scanPhoto(page, { title: 'Xqzv Jwkp' });
   const result = page.getByRole('region', { name: 'Scan result' });
   await expect(result.getByText("Couldn't read this card.")).toBeVisible({ timeout: 30_000 });
   await expect(result.getByRole('alert')).toContainText(/light|flatter/);
-  await expect(result.getByRole('button', { name: 'Search by name instead' })).toBeVisible();
+  await expect(result.getByRole('button', { name: /^Search by name/ })).toBeVisible();
   await expect(result.getByTestId('debug-result')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: "Couldn't read that one: it's waiting in Review" })).toBeVisible();
+  await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
+  await expect(result).toHaveCount(0);
+  await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
+});
+
+test('works through the review queue with the keyboard', async ({ page }) => {
+  await scanPhoto(page, { title: 'Lightning Bolt' });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result).toBeVisible({ timeout: 30_000 });
+  await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
+
+  await nav(page).getByRole('button', { name: 'Review (1)' }).click();
+  await expect(page.getByTestId('review-position')).toHaveText('1 of 1 to review');
+  const card = page.getByRole('region', { name: 'Card to review' });
+  await expect(card.getByRole('img', { name: 'The card as scanned' })).toBeVisible();
+  const candidates = card.getByRole('list', { name: 'Candidates' }).getByRole('button');
+  await expect(candidates).toHaveCount(2);
+  await expect(candidates.first()).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.press('2');
+  await expect(candidates.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('f');
+  await expect(card.getByLabel('Foil')).toBeChecked();
+  await page.keyboard.press('+');
+  await expect(card.getByLabel('Quantity')).toHaveText('2');
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByText('All done: nothing left to review.')).toBeVisible();
+  await nav(page).getByRole('button', { name: 'Batch (2)' }).click();
+  await expect(page.getByLabel(/^Quantity of Lightning Bolt/)).toHaveText('2');
+});
+
+test('applies one choice to every similar card waiting for review', async ({ page }) => {
+  for (const rotation of [0.05, -0.04, 0.02]) {
+    await scanPhoto(page, { title: 'Lightning Bolt', rotation });
+    const result = page.getByRole('region', { name: 'Scan result' });
+    await expect(result).toBeVisible({ timeout: 30_000 });
+    await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
+  }
+  await nav(page).getByRole('button', { name: 'Review (3)' }).click();
+  const card = page.getByRole('region', { name: 'Card to review' });
+  await card.getByRole('button', { name: 'Pick Lightning Bolt, M11 149' }).click();
+  await card.getByRole('button', { name: 'Use M11 149 for all 3 Lightning Bolt' }).click();
+  await expect(page.getByText('All done: nothing left to review.')).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Batch (3)' })).toBeVisible();
+});
+
+test('locks the batch to a set, which settles look-alike printings', async ({ page }) => {
+  const settings = page.getByRole('region', { name: 'Scan settings' });
+  await settings.getByRole('button', { name: 'Sets: any' }).click();
+  await settings.getByRole('combobox', { name: 'Add a set' }).fill('m11');
+  await settings.getByRole('option', { name: /^M11 · Magic 2011/ }).click();
+  await expect(settings.getByRole('list', { name: 'Locked sets' })).toContainText('M11');
+  await settings.getByRole('button', { name: 'Done' }).click();
+  await expect(settings.getByRole('button', { name: 'Sets: M11' })).toBeVisible();
+
+  // Without the lock this card waits for review (two printings); with it, only one competes.
+  await scanPhoto(page, { title: 'Lightning Bolt' });
+  await expect(page.getByRole('status').filter({ hasText: 'Added Lightning Bolt · M11 149' })).toBeVisible({ timeout: 30_000 });
+
+  // A card from another set waits for review, flagged.
+  await scanPhoto(page, SOL_RING);
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByText("This card isn't from the locked sets (M11). Is it one of these?")).toBeVisible({ timeout: 30_000 });
 });
 
 async function openScannerWithDebug(page: Page) {
   await page.goto('./?debug=1');
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
-  await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
+  await openScanner(page);
 }
 
 test('shows per-stage timings for a photo with ?debug=1', async ({ page }) => {
   await openScannerWithDebug(page);
-  await scanPhoto(page, { title: 'Sol Ring', collector: { set: 'CMM', number: '410', rarity: 'U' } });
-  const timings = page.getByRole('region', { name: 'Scan result' }).getByTestId('debug-result');
-  await expect(timings).toContainText(/capture \d+ · pixels \d+ · detect \d+ .*ocr \d+.* wall \d+ ms/, { timeout: 30_000 });
+  await scanPhoto(page, SOL_RING);
+  await expect(page.getByTestId('debug-result')).toContainText(/capture \d+ · pixels \d+ · detect \d+ .*ocr \d+.* wall \d+ ms/, { timeout: 30_000 });
 });
 
 test('shows live frame timings with ?debug=1', async ({ page }) => {
@@ -136,15 +214,14 @@ test('shows live frame timings with ?debug=1', async ({ page }) => {
 });
 
 test('turns the timings on and off from inside the app', async ({ page }) => {
-  await page.getByText('Testing', { exact: true }).click();
+  await page.getByText('Sound and testing', { exact: true }).click();
   await page.getByLabel('Show timings').check();
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByTestId('debug-live')).toBeVisible();
   // Remembered, like ?debug=1.
   await page.reload();
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
-  await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
-  await page.getByText('Testing', { exact: true }).click();
+  await openScanner(page);
+  await page.getByText('Sound and testing', { exact: true }).click();
   await expect(page.getByLabel('Show timings')).toBeChecked();
   await page.getByLabel('Show timings').uncheck();
   await page.getByRole('button', { name: 'Start camera' }).click();

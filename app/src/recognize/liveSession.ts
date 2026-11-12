@@ -37,6 +37,12 @@ export const NEW_CARD_DISTANCE = 24;
  * where it was read. Nudging a card moves it less.
  */
 export const DISTURBED_SHARE = 0.1;
+/**
+ * Frames in a row that must show the card gone or moved before it counts as
+ * disturbed. Detection sometimes misses a card for one frame, or takes its art
+ * box for the card; a hand putting a card down takes far longer than that.
+ */
+export const DISTURBED_FRAMES = 2;
 
 export function signatureDistance(a: Uint32Array, b: Uint32Array): number {
   let sum = 0;
@@ -45,18 +51,21 @@ export function signatureDistance(a: Uint32Array, b: Uint32Array): number {
 }
 
 /**
- * Live-mode bookkeeping. A card is read once it has been steady for a few
- * frames, and then not again until another card takes its place (placed on
- * top, or after this one leaves the frame), or the user asks for another try.
- * A card whose reads keep failing is given up on after a few tries, so live
- * mode never sits on "Reading" forever.
+ * Live-mode bookkeeping for continuous scanning: the camera keeps watching
+ * while cards are slid in one at a time or stacked. A card is read once it has
+ * been steady for a few frames, and then not again until another card takes
+ * its place, or the user asks for another try. A card whose reads keep failing
+ * is given up on after a few tries, so live mode never sits on "Reading".
  *
  * Cards are usually stacked: the next one is put on top of the last, so the
- * frame never empties. A different card shows as a different fingerprint. An
- * identical copy looks the same, so it counts only once the user has said a
- * next card is coming (`arm`, from "Scan next card") and something has
- * disturbed the view since: two copies count as two, a card that just lies
- * there or is nudged counts once.
+ * frame never empties.
+ * - A different card shows as a different fingerprint, and is read as soon as it is steady.
+ * - An identical copy looks the same, so it counts only once something has
+ *   disturbed the view: the card left view or was covered, or its outline moved
+ *   well away, for a few frames in a row. Then it settles again.
+ * So two copies count as two, while a card that just lies there, or is nudged,
+ * counts once.
+ * - A card that leaves view for a while is forgotten: whatever comes next is new.
  */
 export class LiveSession {
   private readonly tracker: StabilityTracker;
@@ -65,8 +74,9 @@ export class LiveSession {
   private failures = 0;
   private readSignature: Uint32Array | null = null;
   private readCorners: Quad | null = null;
+  /** Frames in a row in which the card read last was gone or moved away. */
+  private disturbedRun = 0;
   private disturbed = false;
-  private armed = false;
 
   constructor(
     private readonly stability: StabilityOptions = DEFAULT_STABILITY,
@@ -80,16 +90,22 @@ export class LiveSession {
   next(corners: Quad | null): LiveStep {
     if (!corners) {
       this.missing += 1;
-      if (this.read) this.disturbed = true;
+      this.noteDisturbance(true);
       if (this.missing >= this.emptyFrames) this.forget();
       this.tracker.update(null);
       return { steadyFrames: 0, recognize: false, phase: this.read ? 'read' : 'empty', checkCard: false };
     }
     this.missing = 0;
     const { steadyFrames, stable } = this.tracker.update(corners);
-    if (this.read && this.readCorners && moved(this.readCorners, corners) > DISTURBED_SHARE) this.disturbed = true;
+    this.noteDisturbance(this.readCorners !== null && moved(this.readCorners, corners) > DISTURBED_SHARE);
     const phase: LivePhase = this.read ? 'read' : steadyFrames >= this.stability.frames - 1 ? 'reading' : 'settling';
     return { steadyFrames, recognize: stable && !this.read, phase, checkCard: stable && this.read };
+  }
+
+  private noteDisturbance(away: boolean): void {
+    if (!this.read) return;
+    this.disturbedRun = away ? this.disturbedRun + 1 : 0;
+    if (this.disturbedRun >= DISTURBED_FRAMES) this.disturbed = true;
   }
 
   /**
@@ -100,8 +116,7 @@ export class LiveSession {
   changed(signature: Uint32Array | null): boolean {
     if (!this.read) return true;
     const different = signature !== null && this.readSignature !== null && signatureDistance(signature, this.readSignature) > NEW_CARD_DISTANCE;
-    const copy = this.armed && this.disturbed;
-    if (!different && !copy) return false;
+    if (!different && !this.disturbed) return false;
     this.read = false;
     this.failures = 0;
     return true;
@@ -113,8 +128,8 @@ export class LiveSession {
     this.failures = 0;
     this.readSignature = signature;
     this.readCorners = corners;
+    this.disturbedRun = 0;
     this.disturbed = false;
-    this.armed = false;
   }
 
   /**
@@ -128,16 +143,11 @@ export class LiveSession {
     return true;
   }
 
-  /** "Scan next card": the next card placed counts, even an identical copy of the last. */
-  arm(): void {
-    this.armed = true;
-  }
-
   /** Read the card in view again. */
   again(): void {
     this.read = false;
     this.failures = 0;
-    this.armed = false;
+    this.disturbedRun = 0;
     this.disturbed = false;
     this.tracker.reset();
   }
@@ -148,8 +158,8 @@ export class LiveSession {
     this.failures = 0;
     this.readSignature = null;
     this.readCorners = null;
+    this.disturbedRun = 0;
     this.disturbed = false;
-    this.armed = false;
   }
 }
 

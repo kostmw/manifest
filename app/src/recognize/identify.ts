@@ -56,6 +56,8 @@ export interface PrintingIdentification {
   turned: boolean;
   /** The collector line crops that were read, when keepImages is set. */
   collectorCrops?: GrayImage[];
+  /** With a set lock: the top candidate's name has no printing in the locked sets. */
+  outsideLock: boolean;
 }
 
 export interface IdentifyInput {
@@ -69,6 +71,12 @@ export interface IdentifyInput {
   catalog: Catalog;
   collectors: CollectorIndex | null;
   ocr: OcrEngine;
+  /**
+   * The batch is locked to these sets (the data source's codes): a name's
+   * printings from other sets are left out whenever it has one in them, and a
+   * name with none in them ranks a little lower and is flagged `outsideLock`.
+   */
+  lockSets?: readonly string[];
   keepImages?: boolean;
   lap?: (stage: string) => void;
 }
@@ -92,6 +100,14 @@ const ART_CONTRADICTS = 48;
 /** The most a name, or a printing, can be trusted when every printing of it has plainly other artwork. */
 const CONTRADICTED_CAP = 0.5;
 const TOP = 5;
+/**
+ * Score taken off a name with no printing in the batch's locked sets: enough
+ * to settle a near tie in favour of a card from those sets, not to bury a card
+ * that plainly is something else (it is shown, flagged, for review).
+ */
+const OUTSIDE_LOCK_PENALTY = 0.3;
+/** A collector number names at most this many cards across the locked sets before it is ignored. */
+const LOCKED_NUMBER_NAMES = 3;
 
 /** The real card's place in the detected outline's own coordinates, given where that outline lies on the card. */
 export function placementFor(outline: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }): CardPlacement {
@@ -255,6 +271,8 @@ function share(scores: readonly number[], index: number): number {
 
 export async function identifyPrinting(input: IdentifyInput): Promise<PrintingIdentification> {
   const { frame, game, catalog, title } = input;
+  const locked = (input.lockSets ?? []).filter(Boolean).map((set) => set.toLowerCase());
+  const lock = locked.length > 0 ? new Set(locked) : null;
   const { regions } = game;
   const size = regions.size;
   const lap = input.lap ?? (() => {});
@@ -382,6 +400,15 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       measure();
     }
   }
+  // Locked to a few sets, the number alone can name the card when the set code didn't read.
+  if (collector && input.collectors && lock && collector.numbers.length && !collector.looseNumbers) {
+    const names = new Set<string>();
+    for (const set of lock) for (const number of collector.numbers.slice(0, 2)) for (const name of input.collectors.lookup(set, number)) names.add(name);
+    if (names.size > 0 && names.size <= LOCKED_NUMBER_NAMES) {
+      await addNames([...names], 'collector');
+      measure();
+    }
+  }
 
   // Score every printing in the pool. When the artwork clearly matches some printing, a
   // printing whose art plainly doesn't gets no credit from the collector line: a misread number
@@ -390,7 +417,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const artSettled = Math.min(...[...distances.values()].map((d) => d.distance), Number.POSITIVE_INFINITY) <= ART_MATCH;
   const contradicted = (distance: number | null) => artSettled && distance !== null && distance > GLOBAL_MAX_DISTANCE;
   const scored: PrintingCandidate[] = [];
-  for (const [name, { entries, sources }] of pool) {
+  const outsideNames = new Set<string>();
+  for (const [name, { entries: all, sources }] of pool) {
+    // With a set lock, only the name's printings from the locked sets compete, when it has any.
+    const locked = lock ? all.filter((entry) => lock.has(entry.printing.set)) : all;
+    if (lock && locked.length === 0 && all.length > 0) outsideNames.add(name);
+    const entries = locked.length > 0 ? locked : all;
+    const penalty = outsideNames.has(name) ? OUTSIDE_LOCK_PENALTY : 0;
     for (const { printing } of entries) {
       const hashDistance = distances.get(printing.id)?.distance ?? null;
       const read = collector ? game.matchCollector(collector, printing) : null;
@@ -402,7 +435,8 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
           WEIGHTS.title * titleScore +
           WEIGHTS.hash * hashEvidence(hashDistance) +
           WEIGHTS.collector * (match?.score ?? 0) +
-          game.printingPrior(printing),
+          game.printingPrior(printing) -
+          penalty,
         title: titleScore,
         hashDistance,
         collector: match,
@@ -413,7 +447,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   scored.sort((a, b) => b.score - a.score || (b.printing.released ?? '').localeCompare(a.printing.released ?? ''));
   const top = scored[0];
   if (!top) {
-    return { candidates: [], confidence: 0, nameConfidence: 0, printingConfidence: 0, collector, outline: used.outline, turned: used.turned };
+    return { candidates: [], confidence: 0, nameConfidence: 0, printingConfidence: 0, collector, outline: used.outline, turned: used.turned, outsideLock: false };
   }
 
   // How sure the name is: each signal on its own, combined as if independent.
@@ -456,6 +490,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     collector,
     outline: used.outline,
     turned: used.turned,
+    outsideLock: outsideNames.has(topName),
     ...(input.keepImages ? { collectorCrops: crops } : {}),
   };
 }

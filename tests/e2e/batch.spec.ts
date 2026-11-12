@@ -272,3 +272,77 @@ test('starts a fresh batch after the last one is deleted', async ({ page }) => {
   await page.getByRole('button', { name: 'Delete batch' }).click();
   await expect(page.getByText('This batch is empty.')).toBeVisible();
 });
+
+test('changes the printing of a card in the batch', async ({ page }) => {
+  await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Foil');
+  await openBatch(page);
+  await page.getByRole('button', { name: 'Change printing of Sol Ring' }).click();
+  const picker = page.getByRole('region', { name: 'Choose a printing' });
+  await expect(picker.getByRole('list', { name: 'Printings' }).getByRole('listitem')).toHaveCount(2);
+  await picker.getByRole('button', { name: 'Use CMM 703' }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByText('CMM 703 · Commander Masters')).toBeVisible();
+  // The finish is kept, since the new printing comes in foil too.
+  await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
+
+  // Or another card altogether, found by name.
+  await page.getByRole('button', { name: 'Change printing of Sol Ring' }).click();
+  await picker.getByRole('combobox', { name: 'Search another card' }).fill('lightning bolt');
+  await picker.getByRole('option', { name: 'Lightning Bolt', exact: true }).click();
+  await picker.getByRole('button', { name: 'Use M11 149' }).click();
+  await expect(page.getByText('M11 149 · Magic 2011')).toBeVisible();
+  await expect(page.getByTestId('batch-total')).toHaveText('1 card');
+});
+
+test('merges one batch into another', async ({ page }) => {
+  await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
+  await openBatch(page);
+  await page.getByRole('button', { name: 'New batch' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Add cards' }).click();
+  await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
+  await add(page, 'lightning bolt', 'Lightning Bolt', 'Add M11 149 Nonfoil');
+  await openBatch(page);
+  await expect(page.getByTestId('batch-total')).toHaveText('2 cards');
+
+  await page.getByText('Merge, back up, restore').click();
+  await page.getByRole('combobox', { name: 'Merge another batch into this one' }).selectOption({ label: 'My first batch' });
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+  await expect(page.getByText('Merged “My first batch” into “Batch 2”.')).toBeVisible();
+  await expect(page.getByTestId('batch-total')).toHaveText('3 cards');
+  await expect(page.getByLabel('Quantity of Sol Ring')).toHaveText('2');
+  await expect(page.getByRole('combobox', { name: 'Current batch' }).locator('option')).toHaveCount(1);
+});
+
+test('backs up every batch to a file and restores it after the data is gone', async ({ page }) => {
+  await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Foil');
+  await openBatch(page);
+  await openSettings(page);
+  await page.getByRole('textbox', { name: 'Batch name' }).fill('Box 3');
+  await page.getByRole('textbox', { name: 'Batch name' }).blur();
+  await page.getByText('Merge, back up, restore').click();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download backup' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^manifest-backup-\d{4}-\d{2}-\d{2}\.json$/);
+  const backup = await readFile((await download.path())!, 'utf8');
+  expect(JSON.parse(backup)).toMatchObject({ format: 'manifest-backup', version: 1, batches: [{ name: 'Box 3', items: [{ qty: 1, finish: 'foil' }] }] });
+
+  // Storage cleared: deleting the only batch leaves a fresh empty one.
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Delete batch' }).click();
+  await expect(page.getByText('This batch is empty.')).toBeVisible();
+
+  await page.getByText('Merge, back up, restore').click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByLabel('Restore from backup').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+  await expect(page.getByText('Restored 1 batch, 1 card and 0 to review.')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Current batch' }).selectOption({ label: 'Box 3' });
+  await expect(page.getByTestId('batch-total')).toHaveText('1 card');
+  await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
+});
+
+test('refuses a file that is not a backup', async ({ page }) => {
+  await openBatch(page);
+  await page.getByText('Merge, back up, restore').click();
+  await page.getByLabel('Restore from backup').setInputFiles({ name: 'list.json', mimeType: 'application/json', buffer: Buffer.from('{"cards":[]}') });
+  await expect(page.getByRole('alert')).toContainText("This file isn't a Manifest backup.");
+});

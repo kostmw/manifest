@@ -111,9 +111,8 @@ describe('LiveSession with cards stacked on top of each other', () => {
     expect(signatureDistance(cardA, cardB)).toBeGreaterThan(24);
   });
 
-  it('reads a different card put on top after "Scan next card" (scenario A)', () => {
+  it('reads a different card put on top as soon as it is steady', () => {
     const session = afterReading();
-    session.arm();
     // A hand covers the card for a frame while the next one goes down.
     session.next(null);
     const step = settle(session, 304);
@@ -122,53 +121,60 @@ describe('LiveSession with cards stacked on top of each other', () => {
     expect(session.next(at(304))).toMatchObject({ recognize: true, phase: 'reading' });
   });
 
-  it('reads a different card put on top before "Scan next card" (scenario B)', () => {
+  it('reads a different card put down exactly in place, with nothing seen in between', () => {
     const session = afterReading();
-    // The result was on screen while the card went down, so no frames saw it happen.
-    session.arm();
     expect(settle(session, 300).checkCard).toBe(true);
     expect(session.changed(cardB)).toBe(true);
   });
 
-  it('counts an identical copy put on top after "Scan next card" as a second card', () => {
+  it('counts an identical copy put on top as a second card once the hand has covered the first', () => {
     const session = afterReading();
-    session.arm();
+    session.next(null);
     session.next(null);
     settle(session, 302);
+    expect(session.changed(cardAAgain)).toBe(true);
+    session.markRead(cardAAgain, at(302));
+    // And a third.
+    session.next(null);
+    session.next(null);
+    settle(session, 301);
     expect(session.changed(cardAAgain)).toBe(true);
   });
 
   it('notices a copy put down without the card ever leaving view, if the outline jumped', () => {
     const session = afterReading();
-    session.arm();
     // The new copy lands well away from where the last one was read.
     session.next(at(380));
     settle(session, 380);
     expect(session.changed(cardAAgain)).toBe(true);
   });
 
-  it("doesn't read the same card twice when it just lies there after \"Scan next card\"", () => {
+  it("doesn't count a card again after a one-frame glitch in detection", () => {
     const session = afterReading();
-    session.arm();
+    // Missed for one frame…
+    session.next(null);
+    settle(session, 300);
+    expect(session.changed(cardAAgain)).toBe(false);
+    // …or its art box taken for the card for one frame.
+    session.next(cardQuad({ x: 300, y: 240 }, 220));
+    settle(session, 300);
+    expect(session.changed(cardAAgain)).toBe(false);
+  });
+
+  it("doesn't read the same card twice when it just lies there", () => {
+    const session = afterReading();
     expect(settle(session, 300).checkCard).toBe(true);
     expect(session.changed(cardAAgain)).toBe(false);
     expect(session.next(at(300))).toMatchObject({ recognize: false, phase: 'read' });
+    for (let i = 0; i < 20; i++) session.next(at(300 + (i % 3)));
+    expect(session.changed(cardAAgain)).toBe(false);
   });
 
   it("doesn't read the same card twice when it is nudged", () => {
     const session = afterReading();
-    session.arm();
     settle(session, 312);
+    settle(session, 316);
     expect(session.changed(cardAAgain)).toBe(false);
-  });
-
-  it("doesn't count a disturbed card again unless a next card was announced", () => {
-    const session = afterReading();
-    session.next(null);
-    settle(session, 300);
-    expect(session.changed(cardAAgain)).toBe(false);
-    // A different card is always new.
-    expect(session.changed(cardB)).toBe(true);
   });
 
   it('treats a card read after leaving the frame as new, whatever it looks like', () => {

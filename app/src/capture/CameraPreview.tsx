@@ -8,11 +8,17 @@ export function CameraPreview({
   camera,
   videoRef,
   overlay,
+  controls,
+  onStart,
 }: {
   camera: ReturnType<typeof useCamera>;
   videoRef: RefObject<HTMLVideoElement | null>;
   /** Drawn over the live video, e.g. the outline of a detected card. */
   overlay?: ReactNode;
+  /** More buttons beside Stop camera and Flashlight while the camera runs. */
+  controls?: ReactNode;
+  /** Called inside the Start camera tap, e.g. to unlock sound. */
+  onStart?: () => void;
 }) {
   const { state, start, stop, torch, setTorchOn } = camera;
   const stream = state.status === 'live' ? state.stream : null;
@@ -28,7 +34,8 @@ export function CameraPreview({
 
   return (
     <section aria-label="Camera" className="flex flex-col gap-3">
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-black sm:aspect-video">
+      {/* Short until the camera runs, so whatever is below (a photo's result) stays in view. */}
+      <div className={`relative w-full overflow-hidden rounded-xl bg-black ${stream ? 'aspect-[3/4] sm:aspect-video' : 'h-56'}`}>
         <video
           ref={videoRef}
           data-testid="camera-video"
@@ -51,7 +58,10 @@ export function CameraPreview({
             )}
             <button
               type="button"
-              onClick={() => void start()}
+              onClick={() => {
+                onStart?.();
+                void start();
+              }}
               disabled={state.status === 'requesting'}
               className={`${BUTTON} bg-amber-400 text-zinc-950 hover:bg-amber-300 disabled:opacity-60`}
             >
@@ -79,6 +89,7 @@ export function CameraPreview({
               {torch.on ? 'Flashlight on' : 'Flashlight'}
             </button>
           )}
+          {controls}
         </div>
       )}
     </section>

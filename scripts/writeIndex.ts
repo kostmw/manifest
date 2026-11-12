@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildCollectorIndex } from '../app/src/games/collectorIndex';
 import { encodeHashShard } from '../app/src/games/hashShard';
+import { buildSetList } from '../app/src/games/sets';
 import { hashShardFile, printingShardFile, printingShardIndex } from '../app/src/games/shard';
 import { MAX_ASSET_BYTES, type GameId, type GameIndex, type IndexFile, type IndexManifest } from '../app/src/games/types';
 import type { BuiltGameData } from './games/types';
@@ -51,7 +52,8 @@ export async function writeGameIndex(
       existing.startsWith(`printings.${game}.`) ||
       existing.startsWith(`hashes.${game}.`) ||
       existing === `names.${game}.json` ||
-      existing === `collectors.${game}.json`
+      existing === `collectors.${game}.json` ||
+      existing === `sets.${game}.json`
     ) {
       await rm(join(outDir, existing));
     }
@@ -70,6 +72,8 @@ export async function writeGameIndex(
     `collectors.${game}.json`,
     buildCollectorIndex(data.printings, data.names.names, COLLECTOR_LINES_SINCE),
   );
+
+  const sets = await writeIndexFile(outDir, `sets.${game}.json`, buildSetList(data.printings));
 
   // Row i of a hash shard is printing i of the printings shard written above.
   const hashes = fingerprints
@@ -95,6 +99,7 @@ export async function writeGameIndex(
     names,
     shards,
     collectors,
+    sets,
     ...(hashes && fingerprints
       ? { hashes, fingerprint: { version: fingerprints.version, rowBytes: fingerprints.rowBytes, imageSize: fingerprints.imageSize } }
       : {}),

@@ -50,6 +50,8 @@ export interface ScanResult {
   gaveUp: boolean;
   /** No outline was clear, so the card was found by looking at the middle of the photo. */
   guessedOutline: boolean;
+  /** The batch is locked to some sets, and the best name has no printing in them. */
+  outsideLock: boolean;
 }
 
 export interface FrameOutcome {
@@ -85,6 +87,8 @@ let names: NameIndex | null = null;
 let ocr: OcrEngine | null = null;
 let catalog: Catalog | null = null;
 let collectors: CollectorIndex | null = null;
+/** The batch's set lock; empty for any set. */
+let lockSets: string[] = [];
 const live = new LiveSession();
 
 function pixels(bitmap: ImageBitmap, maxSide: number): RgbaImage {
@@ -115,7 +119,7 @@ function cardSignature(frame: RgbaImage, corners: Quad, regions: ReturnType<type
 function ready() {
   if (!game || !names || !ocr || !catalog) throw new Error('The recognizer is not loaded yet');
   const adapter = getGame(game);
-  return { regions: adapter.regions, names, ocr, printings: { game: adapter, catalog, collectors } };
+  return { regions: adapter.regions, names, ocr, printings: { game: adapter, catalog, collectors, lockSets } };
 }
 
 async function toResult(recognition: Recognition, started: number, gaveUp = false): Promise<ScanResult> {
@@ -134,6 +138,7 @@ async function toResult(recognition: Recognition, started: number, gaveUp = fals
     advice: recognition.quality?.advice ?? [],
     gaveUp,
     guessedOutline: recognition.guessedOutline,
+    outsideLock: recognition.outsideLock,
   };
 }
 
@@ -153,6 +158,7 @@ function unreadable(card: RgbaImage, advice: QualityAdvice[], timings: Record<st
     timings,
     card,
     guessedOutline: false,
+    outsideLock: false,
   };
 }
 
@@ -260,9 +266,9 @@ const api = {
     live.again();
   },
 
-  /** "Scan next card": the next card placed in view is read, even an identical copy of the last. */
-  arm(): void {
-    live.arm();
+  /** The batch's set lock, for every read from now on. Empty for any set. */
+  setLock(sets: string[]): void {
+    lockSets = [...sets];
   },
 
   /** A still photo: always read, since it can't be retaken the way a live frame can. */

@@ -8,6 +8,27 @@ export type SearchStatus = 'loading' | 'ready' | 'error';
 
 const RESULT_LIMIT = 10;
 
+/**
+ * One name-search worker per game, shared by every search box (Add cards,
+ * review, changing a printing), so the name list is loaded once.
+ */
+const workers = new Map<GameId, Promise<Remote<NameSearchWorker>>>();
+
+function nameSearchWorker(game: GameId): Promise<Remote<NameSearchWorker>> {
+  let found = workers.get(game);
+  if (!found) {
+    const worker = new Worker(new URL('./nameSearch.worker.ts', import.meta.url), { type: 'module' });
+    const remote = wrap<NameSearchWorker>(worker);
+    found = remote.load(game).then(() => remote);
+    found.catch(() => {
+      workers.delete(game);
+      worker.terminate();
+    });
+    workers.set(game, found);
+  }
+  return found;
+}
+
 export function useNameSearch(game: GameId) {
   const [status, setStatus] = useState<SearchStatus>('loading');
   const [results, setResults] = useState<NameHit[]>([]);
@@ -16,13 +37,10 @@ export function useNameSearch(game: GameId) {
   const latestQuery = useRef(0);
 
   useEffect(() => {
-    const worker = new Worker(new URL('./nameSearch.worker.ts', import.meta.url), { type: 'module' });
-    const remote = wrap<NameSearchWorker>(worker);
     let cancelled = false;
-
     setStatus('loading');
-    remote.load(game).then(
-      () => {
+    nameSearchWorker(game).then(
+      (remote) => {
         if (cancelled) return;
         remoteRef.current = remote;
         setStatus('ready');
@@ -31,11 +49,9 @@ export function useNameSearch(game: GameId) {
         if (!cancelled) setStatus('error');
       },
     );
-
     return () => {
       cancelled = true;
       remoteRef.current = null;
-      worker.terminate();
     };
   }, [game, attempt]);
 

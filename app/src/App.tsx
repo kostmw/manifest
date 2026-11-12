@@ -1,21 +1,25 @@
 import { useState } from 'react';
 import { Scanner } from './capture/Scanner';
+import { ReviewQueue } from './review/ReviewQueue';
 import { AddCards } from './search/AddCards';
 import { BatchView } from './session/BatchView';
 import { useBatches } from './session/useBatches';
 import { LegalFooter } from './ui/LegalFooter';
 import { UpdateBanner } from './ui/UpdateBanner';
 
-type Tab = 'add' | 'batch' | 'scan';
+type Tab = 'add' | 'batch' | 'review' | 'scan';
 
 export function App() {
   const [tab, setTab] = useState<Tab>('add');
+  /** The scanned card to show first when the review queue opens from the scanner. */
+  const [reviewStart, setReviewStart] = useState<string | null>(null);
   const batches = useBatches();
   const total = batches.items.reduce((sum, item) => sum + item.qty, 0);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'add', label: 'Add cards' },
     { id: 'batch', label: total > 0 ? `Batch (${total})` : 'Batch' },
+    { id: 'review', label: batches.reviewCount > 0 ? `Review (${batches.reviewCount})` : 'Review' },
     { id: 'scan', label: 'Scan' },
   ];
 
@@ -31,8 +35,11 @@ export function App() {
             key={id}
             type="button"
             aria-current={tab === id ? 'page' : undefined}
-            onClick={() => setTab(id)}
-            className={`min-h-11 flex-1 rounded-lg px-2 text-sm font-medium transition-colors ${
+            onClick={() => {
+              setReviewStart(null);
+              setTab(id);
+            }}
+            className={`min-h-11 min-w-0 flex-1 truncate rounded-lg px-1.5 text-sm font-medium transition-colors ${
               tab === id ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
             }`}
           >
@@ -54,8 +61,20 @@ export function App() {
         <div hidden={tab !== 'batch'}>
           <BatchView state={batches} onAddCards={() => setTab('add')} />
         </div>
+        {/* Mounted only while visible, so that its single-key shortcuts can't fire from another tab. */}
+        {tab === 'review' && batches.active && <ReviewQueue batch={batches.active} startAt={reviewStart} onScan={() => setTab('scan')} />}
         {/* The scanner is mounted only while visible, so that leaving this tab turns the camera off. */}
-        {tab === 'scan' && <Scanner batch={batches.active} onSearchInstead={() => setTab('add')} />}
+        {tab === 'scan' && (
+          <Scanner
+            batch={batches.active}
+            cardCount={total}
+            reviewCount={batches.reviewCount}
+            onOpenReview={(reviewId) => {
+              setReviewStart(reviewId ?? null);
+              setTab('review');
+            }}
+          />
+        )}
       </main>
       <LegalFooter />
       <UpdateBanner />

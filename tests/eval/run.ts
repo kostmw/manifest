@@ -10,6 +10,8 @@
  *   npm run eval -- --ocr-model dir    # compare another eng.traineddata.gz
  *   npm run eval -- --names-only       # stop at the name, as M2 did (a baseline)
  *   npm run eval -- --set hires        # the sharper synthetic set (modern cards at 2× resolution)
+ *   npm run eval -- --lock true-set    # every card scanned into a batch locked to its own set (M4's set lock)
+ *   npm run eval -- --lock other-set   # …or to a set it isn't from: nothing may be auto-accepted
  */
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -51,6 +53,7 @@ const { values } = parseArgs({
     regenerate: { type: 'boolean', default: false },
     'names-only': { type: 'boolean', default: false },
     set: { type: 'string', default: 'standard' },
+    lock: { type: 'string', default: 'none' },
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
     out: { type: 'string', default: '.cache/eval/report' },
@@ -96,6 +99,19 @@ const printingSources = values['names-only']
   ? undefined
   : { game: mtg, catalog, collectors: await catalog.collectors(dictionary) };
 if (printingSources && !(await catalog.hasFingerprints())) log('Note: this index has no fingerprints, so printings are found by text alone.');
+if (!['none', 'true-set', 'other-set'].includes(values.lock!)) throw new Error('--lock must be none, true-set or other-set');
+if (values.lock !== 'none' && !printingSources) throw new Error('--lock needs printings: drop --names-only');
+
+/** The batch's set lock for a card, as --lock asks: its own set, or one it isn't from. */
+async function lockFor(fixture: Fixture): Promise<string[] | undefined> {
+  if (values.lock === 'none') return undefined;
+  const expected = await expectedPrinting(fixture);
+  if (!expected) return undefined;
+  if (values.lock === 'true-set') return [expected.set];
+  const printings = await catalog.printings(fixture.expectedName);
+  // A modern set it isn't in (basic lands are in nearly every set, hence the long list).
+  return [['neo', 'dmu', 'woe', 'mkm', 'lea'].find((set) => !printings.some((entry) => entry.printing.set === set)) ?? 'zzz'];
+}
 
 /** The labelled printing, for reports and per-signal scoring. */
 async function expectedPrinting(fixture: Fixture): Promise<Printing | null> {
@@ -115,6 +131,7 @@ const stageTimes: Record<string, number[]> = {};
 const failures: GalleryItem[] = [];
 for (const [index, fixture] of fixtures.entries()) {
   const frame = await readImage(fixture.path);
+  const lockSets = await lockFor(fixture);
   const result = await recognizeFrame(frame, {
     regions: mtg.regions,
     names,
@@ -123,7 +140,7 @@ for (const [index, fixture] of fixtures.entries()) {
     // The eval's photos stand for the app's photo scans, which look for a centred card when no outline is clear.
     centerFallback: true,
     keepImages: true,
-    ...(printingSources ? { printings: printingSources } : {}),
+    ...(printingSources ? { printings: { ...printingSources, ...(lockSets ? { lockSets } : {}) } } : {}),
   });
   const expected = printingSources ? await expectedPrinting(fixture) : null;
   const collectorFit = expected && result.collector ? mtg.matchCollector(result.collector, expected) : null;
@@ -249,6 +266,8 @@ const notes = [
     : 'Names only (--names-only): printings were not identified, as in M2.',
   'Synthetic photos are rendered from the same Scryfall scans the index uses, so they are optimistic. Real scans are the ground truth.',
   `Auto-accept threshold ${DEFAULT_DECISION.autoAccept}. OCR model: ${values['ocr-model']}. Latency is measured in Node on this machine, not on a phone.`,
+  ...(values.lock === 'true-set' ? ["Set lock (--lock true-set): each card was scanned into a batch locked to the card's own set."] : []),
+  ...(values.lock === 'other-set' ? ["Set lock (--lock other-set): each card was scanned into a batch locked to a set it isn't from; none may be auto-accepted."] : []),
 ];
 await writeFile(
   join(outDir, 'summary.json'),

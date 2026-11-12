@@ -44,12 +44,15 @@ export function PrintingRow({
   printing,
   batch,
   onAdded,
+  onChoose,
   note,
   highlighted = false,
 }: {
   printing: Printing;
   batch: Batch;
-  onAdded: (message: Message) => void;
+  onAdded?: (message: Message) => void;
+  /** Offer one "Use" button that hands the printing back, instead of adding it to the batch. */
+  onChoose?: (printing: Printing) => void;
   /** A line under the set, e.g. why the scanner picked this printing. */
   note?: string;
   highlighted?: boolean;
@@ -62,9 +65,9 @@ export function PrintingRow({
     try {
       await addCard(batch, printing, { finish });
       const suffix = finish === 'nonfoil' ? '' : ` ${finishLabel.toLowerCase()}`;
-      onAdded({ text: `Added ${name} (${code})${suffix} to ${batch.name}`, failed: false });
+      onAdded?.({ text: `Added ${name} (${code})${suffix} to ${batch.name}`, failed: false });
     } catch {
-      onAdded({ text: `Couldn't save ${name}. Your browser's storage may be full.`, failed: true });
+      onAdded?.({ text: `Couldn't save ${name}. Your browser's storage may be full.`, failed: true });
     }
   };
 
@@ -94,7 +97,12 @@ export function PrintingRow({
           {note && <p className="text-xs text-zinc-500">{note}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
-          {printing.finishes.map((finish) => {
+          {onChoose ? (
+            <button type="button" aria-label={`Use ${code}`} onClick={() => onChoose(printing)} className={BUTTON_PRIMARY}>
+              Use this printing
+            </button>
+          ) : null}
+          {!onChoose && printing.finishes.map((finish) => {
             const label = game.finishes.find((choice) => choice.code === finish)?.label ?? finish;
             return (
               <button
@@ -119,10 +127,13 @@ export function PrintingList({
   printings,
   batch,
   onAdded,
+  onChoose,
 }: {
   printings: ReturnType<typeof usePrintings>;
   batch: Batch | null;
-  onAdded: (message: Message) => void;
+  onAdded?: (message: Message) => void;
+  /** Hand the chosen printing back instead of adding it to the batch. */
+  onChoose?: (printing: Printing) => void;
 }) {
   const [setFilter, setSetFilter] = useState('');
   const { state } = printings;
@@ -167,7 +178,7 @@ export function PrintingList({
           )}
           <ul aria-label="Printings" className="flex flex-col gap-2">
             {shown.map((printing) => (
-              <PrintingRow key={printing.id} printing={printing} batch={batch} onAdded={onAdded} />
+              <PrintingRow key={printing.id} printing={printing} batch={batch} onAdded={onAdded} onChoose={onChoose} />
             ))}
           </ul>
           {shown.length === 0 && <p className="text-sm text-zinc-400">No printings match that filter.</p>}

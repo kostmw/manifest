@@ -14,10 +14,19 @@ export interface FakeCardOptions {
   flipped?: boolean;
   width?: number;
   height?: number;
+  /** Card width as a multiple of 488 pixels. */
+  scale?: number;
+  /** Where the card's centre is, from the middle of the picture, in pixels. */
+  offset?: { x: number; y: number };
+  /** The artwork's two gradient colours: different art gives a different fingerprint. */
+  art?: [string, string];
+  /** Just the table, no card. */
+  noCard?: boolean;
 }
 
 export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
-  const { title, collector, rotation = 0.06, flipped = false, width = 900, height = 1200 } = options;
+  const { title, collector, rotation = 0.06, flipped = false, width = 900, height = 1200, scale = 1.15, offset = { x: 0, y: 0 } } = options;
+  const [artFrom, artTo] = options.art ?? ['#5a7aa0', '#2a3040'];
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -31,11 +40,13 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
     ctx.fillRect(0, y, width, 3);
   }
 
-  const cardW = 488 * 1.15;
-  const cardH = 680 * 1.15;
+  if (options.noCard) return canvas.toDataURL('image/png');
+
+  const cardW = 488 * scale;
+  const cardH = 680 * scale;
   const s = cardW / 488;
   ctx.save();
-  ctx.translate(width / 2, height / 2);
+  ctx.translate(width / 2 + offset.x, height / 2 + offset.y);
   ctx.rotate(rotation + (flipped ? Math.PI : 0));
   ctx.translate(-cardW / 2, -cardH / 2);
 
@@ -50,8 +61,8 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
   rounded(30, 34, 428, 38, 8, '#efe7d4'); // title bar
   rounded(38, 80, 412, 296, 2, '#3d4d63'); // art
   const art = ctx.createLinearGradient(38 * s, 80 * s, 450 * s, 376 * s);
-  art.addColorStop(0, '#5a7aa0');
-  art.addColorStop(1, '#2a3040');
+  art.addColorStop(0, artFrom);
+  art.addColorStop(1, artTo);
   ctx.fillStyle = art;
   ctx.fillRect(40 * s, 82 * s, 408 * s, 292 * s);
   rounded(30, 382, 428, 34, 8, '#efe7d4'); // type line
