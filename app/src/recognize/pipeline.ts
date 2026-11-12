@@ -36,6 +36,8 @@ export interface PrintingSources {
   game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior'>;
   catalog: Catalog;
   collectors: CollectorIndex | null;
+  /** The batch's set lock (see identify.ts); a card from outside it is never auto-accepted. */
+  lockSets?: readonly string[];
 }
 
 export interface RecognizeOptions {
@@ -101,9 +103,11 @@ export interface Recognition {
   collectorCrops?: GrayImage[];
   /** The card's outline was a guess at the card in the middle of the photo (see centerFallback). */
   guessedOutline: boolean;
+  /** With a set lock: the best name has no printing in the locked sets. */
+  outsideLock: boolean;
 }
 
-const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null, guessedOutline: false };
+const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null, guessedOutline: false, outsideLock: false };
 
 /**
  * Reads the title, trying the crop's alternative renderings while the reading
@@ -296,6 +300,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     let printings: PrintingCandidate[] = [];
     let collector: CollectorReading | null = null;
     let collectorCrops: GrayImage[] | undefined;
+    let outsideLock = false;
     let upright = card;
     if (options.printings) {
       const corners = title.rotated ? ([detection.corners[2], detection.corners[3], detection.corners[0], detection.corners[1]] as const) : detection.corners;
@@ -312,6 +317,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
       printings = found.candidates;
       collector = found.collector;
       collectorCrops = found.collectorCrops;
+      outsideLock = found.outsideLock;
       if (printings.length > 0) {
         names = [...new Set([...printings.map((candidate) => candidate.printing.name), ...names])].slice(0, 5);
         nameConfidence = found.nameConfidence;
@@ -320,7 +326,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
         if (found.turned && options.keepImages) upright = rotateRgba180(card);
       }
     }
-    return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright };
+    return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock };
   };
 
   let chosen = await conclude(best as Attempt & { read: NonNullable<Attempt['read']> });
@@ -348,9 +354,9 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
   if (nothingFound && chosen.nameConfidence < CENTER_MIN_NAME) {
     return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
   }
-  const { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright } = chosen;
+  const { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock } = chosen;
 
-  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed ? 'accept' : 'review';
+  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed && !outsideLock ? 'accept' : 'review';
   return {
     decision: verdict,
     detection,
@@ -364,6 +370,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     collector,
     timings,
     guessedOutline: guessed,
+    outsideLock,
     ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),
   };
 }

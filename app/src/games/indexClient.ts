@@ -1,4 +1,5 @@
 import type { IndexSource } from './catalog';
+import type { SetInfo } from './sets';
 import { sortPrintings } from './catalog';
 import { printingShardFile, printingShardIndex } from './shard';
 import type { GameId, GameIndex, IndexFile, IndexManifest, NameDictionary, Printing } from './types';
@@ -34,7 +35,7 @@ export function staleCacheEntries(cachedUrls: readonly string[], currentUrls: Re
 async function removeStaleEntries(cache: Cache, manifest: IndexManifest): Promise<void> {
   const current = new Set<string>();
   for (const game of Object.values(manifest.games)) {
-    for (const file of [game.names, ...game.shards, ...(game.hashes ?? []), ...(game.collectors ? [game.collectors] : [])]) {
+    for (const file of [game.names, ...game.shards, ...(game.hashes ?? []), ...(game.collectors ? [game.collectors] : []), ...(game.sets ? [game.sets] : [])]) {
       current.add(versionedUrl(file));
     }
   }
@@ -116,6 +117,12 @@ export async function loadPrintings(game: GameId, name: string): Promise<Printin
   if (file?.file !== expected) throw new Error(`The card index is missing ${expected}`);
   const shard = await fetchIndexFile<Printing[]>(file);
   return sortPrintings(shard.filter((printing) => printing.name === name));
+}
+
+/** Every set, newest first. Null for an index built before set lists existed. */
+export async function loadSets(game: GameId): Promise<SetInfo[] | null> {
+  const index = await loadGameIndex(game);
+  return index.sets ? fetchIndexFile<SetInfo[]>(index.sets) : null;
 }
 
 /** Lighter image for lists. The index stores `normal` URLs, and Scryfall's sizes differ only in this path part. */

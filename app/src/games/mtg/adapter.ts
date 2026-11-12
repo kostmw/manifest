@@ -1,6 +1,7 @@
 import { detailedListFormat, markdownFormat, plainListFormat } from '../../export/lists';
 import type { ExportRow, ExtraColumn, LineStyle } from '../../export/types';
 import type { CardRegions, GameAdapter } from '../adapter';
+import type { Printing } from '../types';
 import { matchMtgCollector, mtgPrintingPrior, parseMtgCollectorLine } from './collector';
 import { archidektCsv, archidektDeckList, deckboxCsv, manaboxCsv, moxfieldCsv } from './exports';
 
@@ -54,6 +55,13 @@ export const MTG_REGIONS: CardRegions = {
   ],
 };
 
+/** Nonfoil unless asked for foil; foil, then etched, when asked (or when there is no nonfoil). */
+export function mtgDefaultFinish(printing: Pick<Printing, 'finishes'>, foil: boolean): string {
+  const { finishes } = printing;
+  if (!foil && finishes.includes('nonfoil')) return 'nonfoil';
+  return finishes.find((finish) => finish === 'foil') ?? finishes.find((finish) => finish === 'etched') ?? finishes[0] ?? 'nonfoil';
+}
+
 export const mtg: GameAdapter = {
   id: 'mtg',
   displayName: 'Magic: The Gathering',
@@ -87,6 +95,8 @@ export const mtg: GameAdapter = {
   parseCollectorLine: parseMtgCollectorLine,
   matchCollector: matchMtgCollector,
   printingPrior: mtgPrintingPrior,
+  defaultFinish: mtgDefaultFinish,
+  isFoil: (finish) => finish === 'foil' || finish === 'etched',
   exportFormats: [
     plainListFormat(formatMtgExportLine),
     detailedListFormat(formatMtgExportLine),

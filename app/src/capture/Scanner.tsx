@@ -1,43 +1,39 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import type { PrintingCandidate } from '../recognize/identify';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { FrameOutcome, ScanResult } from '../recognize/recognize.worker';
 import { useRecognizer } from '../recognize/useRecognizer';
-import { PrintingList, PrintingRow, usePrintings, type Message } from '../search/printings';
-import type { Batch } from '../session/types';
-import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
+import { printingCode } from '../review/explain';
+import { ReviewCard } from '../review/ReviewCard';
+import { intake, UNREADABLE_BELOW } from '../session/intake';
+import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
-import { ADVICE_HINTS, QUALITY_HINTS, type QualityAdvice } from '../vision/quality';
+import { canVibrate, cue, setSoundMode, soundMode, unlockAudio, type SoundMode } from '../ui/feedback';
+import { BUTTON_SECONDARY } from '../ui/styles';
+import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
+import { pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
+import { ScanSettings } from './ScanSettings';
 import { useCamera, type Torch } from './useCamera';
+import { useWakeLock } from './useWakeLock';
 
 /** Time between live frames. Detection takes a fraction of it; OCR runs only on steady frames. */
 const FRAME_INTERVAL_MS = 120;
+/** How long the last card's name stays in the big status line before the live hint returns. */
+const LAST_CARD_MS = 4000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Below this, a reading is a guess: the right name is among the candidates only about one time in four. */
-const UNREADABLE_BELOW = 0.5;
-
 function liveHint(frame: FrameOutcome | null, torch: Torch): string {
-  if (!frame?.corners) return 'Place one card flat in view. A plain background that contrasts with the card works best.';
+  if (!frame?.corners) return 'Slide a card into view. A plain background that contrasts with the cards works best.';
   const issue = frame.issues[0];
   if (issue === 'too-dark' && torch.supported && !torch.on) return 'Too dark: turn on the flashlight, or add light.';
   // Seen at a steep angle, the far edge is stretched when the card is straightened: it looks
   // blurry however still the phone is.
   if (issue === 'blurry' && frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (issue) return QUALITY_HINTS[issue];
-  if (frame.phase === 'read') return 'Done with this card. Put the next one on top, or take this one away.';
+  if (frame.phase === 'read') return 'Next card: put it on top, or take this one away.';
   if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (frame.phase !== 'reading') return 'Hold still…';
   return frame.advice.includes('dim') && torch.supported && !torch.on ? 'Reading… More light would help: try the flashlight.' : 'Reading…';
-}
-
-/** What to try when a card couldn't be read, from what the quality gate noticed. */
-function unreadableHint(advice: QualityAdvice[]): string {
-  if (advice.includes('tilted') && advice.includes('dim')) return `${ADVICE_HINTS.tilted} ${ADVICE_HINTS.dim}`;
-  if (advice.includes('tilted')) return ADVICE_HINTS.tilted;
-  if (advice.includes('dim')) return `${ADVICE_HINTS.dim} Turn on a lamp or the flashlight.`;
-  return 'Try more light, or hold the phone flatter, straight above the card.';
 }
 
 /** Frames per second, smoothed. */
@@ -56,16 +52,27 @@ function useFrameRate(frame: FrameOutcome | null): number {
   return rate;
 }
 
-function LiveDebug({ frame, rate }: { frame: FrameOutcome | null; rate: number }) {
+/** Cards per minute over the last few scans, for the debug readout. */
+function scanRate(recent: readonly RecentScan[]): number | null {
+  if (recent.length < 3) return null;
+  const span = recent[0]!.at - recent[recent.length - 1]!.at;
+  return span > 0 ? ((recent.length - 1) / span) * 60_000 : null;
+}
+
+function LiveDebug({ frame, rate, read, recent }: { frame: FrameOutcome | null; rate: number; read: Record<string, number> | null; recent: readonly RecentScan[] }) {
   if (!frame) return null;
   const metrics = frame.metrics;
+  const perMinute = scanRate(recent);
   return (
-    <p data-testid="debug-live" className="font-mono text-xs break-words text-zinc-500">
-      {frame.frame.width}×{frame.frame.height} · {rate.toFixed(1)} fps · {formatTimings(frame.timings)} ms
-      {metrics &&
-        ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}`}
-      {` · ${frame.phase}`}
-    </p>
+    <div data-testid="debug-live" className="font-mono text-xs break-words text-zinc-500">
+      <p>
+        {frame.frame.width}×{frame.frame.height} · {rate.toFixed(1)} fps · {formatTimings(frame.timings)} ms
+        {metrics &&
+          ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}`}
+        {` · ${frame.phase}`}
+      </p>
+      {read && <p data-testid="debug-read">last read: {formatTimings(read)} ms{perMinute ? ` · ${perMinute.toFixed(0)} cards/min` : ''}</p>}
+    </div>
   );
 }
 
@@ -83,7 +90,7 @@ function Outline({ frame }: { frame: FrameOutcome | null }) {
       <polygon
         points={frame.corners.map((p) => `${p.x},${p.y}`).join(' ')}
         fill="none"
-        stroke={good ? '#34d399' : '#fbbf24'}
+        stroke={frame.phase === 'read' ? '#a1a1aa' : good ? '#34d399' : '#fbbf24'}
         strokeWidth={Math.max(frame.frame.width, frame.frame.height) / 200}
         strokeLinejoin="round"
       />
@@ -91,188 +98,148 @@ function Outline({ frame }: { frame: FrameOutcome | null }) {
   );
 }
 
-/** Why a printing was picked, in a few words. */
-function matchNote(candidate: PrintingCandidate): string {
-  const parts: string[] = [];
-  const collector = candidate.collector;
-  if (collector?.number === 'exact' && (collector.set === 'exact' || collector.set === 'close')) parts.push('collector number and set match');
-  else if (collector?.number === 'exact') parts.push('collector number matches');
-  else if (collector?.set === 'exact') parts.push('set matches');
-  if (candidate.hashDistance !== null && candidate.hashDistance <= 14) parts.push('artwork matches');
-  if (parts.length === 0 && candidate.title >= 0.8) parts.push('name matches');
-  return parts.join(', ');
-}
-
-function ResultPanel({
-  result,
-  timings,
-  batch,
-  debug,
-  onDone,
-  onReadAgain,
-  onSearchInstead,
-}: {
-  result: ScanResult;
-  /** The whole frame's timings, main thread included, for the debug readout. */
-  timings: Record<string, number>;
-  batch: Batch | null;
-  debug: boolean;
-  onDone: () => void;
-  onReadAgain?: () => void;
-  onSearchInstead: () => void;
-}) {
-  const printings = usePrintings(batch?.game ?? 'mtg');
-  const [message, setMessage] = useState<Message | null>(null);
-  const [cardUrl, setCardUrl] = useState<string | null>(null);
-  const top = result.names[0];
-  const sure = result.decision === 'accept';
-  const identified = result.printings.length > 0;
-
-  useEffect(() => {
-    if (!result.card) return;
-    const url = URL.createObjectURL(result.card);
-    setCardUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [result.card]);
-
-  // Without exact printings, a confident read goes straight to all printings of its name.
-  useEffect(() => {
-    if (sure && top && !identified) printings.load(top);
-  }, [result]); // Once per result, not on every change of the lookup it starts.
-
-  const unreadable = !top || (!sure && result.nameConfidence < UNREADABLE_BELOW);
-  const status = unreadable
-    ? "Couldn't read this card."
-    : identified
-      ? sure
-        ? 'Recognized'
-        : result.nameConfidence >= 0.9
-          ? 'Recognized the card. Which printing is it?'
-          : 'Not sure. Is it one of these?'
-      : sure
-        ? 'Recognized'
-        : 'Not sure. Is it one of these?';
-
+/** A coloured ring that flashes over the camera: green when a card is added, amber when it needs review. */
+function Flash({ flash }: { flash: { kind: RecentScan['kind']; key: number } | null }) {
+  if (!flash) return null;
   return (
-    <section aria-label="Scan result" className="flex flex-col gap-3 rounded-xl bg-zinc-800/40 p-3">
-      <div className="flex gap-3">
-        {cardUrl && (
-          <img src={cardUrl} alt="The card as scanned" width={122} height={170} className="h-[170px] w-[122px] flex-none rounded-md" />
-        )}
-        <div className="flex min-w-0 flex-col gap-2">
-          <p className="text-sm text-zinc-400">
-            <span>{status}</span>
-            {top && <span className="ml-2 text-xs text-zinc-500">{Math.round(result.confidence * 100)}%</span>}
-          </p>
-          {unreadable && (
-            <p role="alert" className="text-sm text-amber-300">
-              {unreadableHint(result.advice)}
-            </p>
-          )}
-          {result.guessedOutline && (
-            <p className="text-xs text-zinc-500">The card's edges weren't clear, so this was read from the middle of the photo.</p>
-          )}
-          {result.titleText && (
-            <p className="text-xs text-zinc-500">
-              Title read as <span className="font-mono">“{result.titleText}”</span>
-            </p>
-          )}
-          {result.collectorText && (
-            <p className="text-xs break-all text-zinc-500">
-              Collector line read as <span className="font-mono">“{result.collectorText}”</span>
-            </p>
-          )}
-          {unreadable && top && <p className="text-xs text-zinc-500">Closest guesses:</p>}
-          <ul aria-label="Candidates" className="flex flex-col gap-1">
-            {/* A sure printing needs no list of other names; its printings are below. */}
-            {(identified && sure ? result.names.slice(0, 1) : result.names).map((name) => (
-              <li key={name}>
-                <button
-                  type="button"
-                  aria-label={`Choose ${name}`}
-                  onClick={() => printings.load(name)}
-                  className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm ${
-                    printings.state.status !== 'idle' && printings.state.name === name
-                      ? 'bg-zinc-100 text-zinc-900'
-                      : 'bg-zinc-800 hover:bg-zinc-700'
-                  }`}
-                >
-                  {name}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <p aria-live="polite" className={`min-h-5 text-sm ${message?.failed ? 'text-amber-300' : 'text-emerald-300'}`}>
-        {message?.text}
-      </p>
-      {identified && batch && printings.state.status === 'idle' && (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-base font-semibold">{sure ? 'Best match' : 'Closest printings'}</h2>
-          <ul aria-label="Printing candidates" className="flex flex-col gap-2">
-            {result.printings.map((candidate, index) => (
-              <PrintingRow
-                key={candidate.printing.id}
-                printing={candidate.printing}
-                batch={batch}
-                onAdded={setMessage}
-                note={matchNote(candidate)}
-                highlighted={index === 0 && sure}
-              />
-            ))}
-          </ul>
-          <p className="text-xs text-zinc-500">Not here? Choose a name above to see all its printings.</p>
-        </div>
-      )}
-      <PrintingList
-        key={printings.state.status === 'idle' ? '' : printings.state.name}
-        printings={printings}
-        batch={batch}
-        onAdded={setMessage}
-      />
-      <div className="flex flex-wrap gap-2">
-        {identified && printings.state.status !== 'idle' && (
-          <button type="button" onClick={printings.clear} className={BUTTON_SECONDARY}>
-            Back to closest printings
-          </button>
-        )}
-        <button type="button" onClick={onDone} className={BUTTON_PRIMARY}>
-          Scan next card
-        </button>
-        {onReadAgain && (
-          <button type="button" onClick={onReadAgain} className={BUTTON_SECONDARY}>
-            {unreadable ? 'Try again' : 'Read again'}
-          </button>
-        )}
-        <button type="button" onClick={onSearchInstead} className={BUTTON_SECONDARY}>
-          Search by name instead
-        </button>
-      </div>
-      {debug && (
-        <p data-testid="debug-result" className="font-mono text-xs break-words text-zinc-500">
-          {formatTimings(timings)} ms · confidence {result.confidence.toFixed(2)} (name {result.nameConfidence.toFixed(2)})
-        </p>
-      )}
-    </section>
+    <div
+      key={flash.key}
+      aria-hidden="true"
+      data-testid="scan-flash"
+      className={`scan-flash pointer-events-none absolute inset-0 rounded-xl ring-[10px] ring-inset ${flash.kind === 'added' ? 'ring-emerald-400' : 'ring-amber-400'}`}
+    />
   );
 }
 
-export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSearchInstead: () => void }) {
-  const recognizer = useRecognizer(batch?.game ?? 'mtg');
+function RecentStrip({
+  recent,
+  onUndo,
+  onOpenReview,
+}: {
+  recent: readonly RecentScan[];
+  onUndo: (entry: RecentScan) => void;
+  onOpenReview: (reviewId?: string) => void;
+}) {
+  if (recent.length === 0) return null;
+  return (
+    <ol aria-label="Last cards scanned" className="grid grid-cols-5 gap-2">
+      {recent.map((entry) => {
+        const label = entry.name ?? 'Unreadable card';
+        return (
+          <li key={entry.id} className="flex min-w-0 flex-col gap-1">
+            <button
+              type="button"
+              onClick={entry.kind === 'review' ? () => onOpenReview(entry.reviewId) : undefined}
+              aria-label={entry.kind === 'review' ? `Review ${label}` : `${label}${entry.code ? `, ${entry.code}` : ''}, added`}
+              className={`relative overflow-hidden rounded-md ring-2 ${entry.kind === 'added' ? 'ring-emerald-500/70' : 'ring-amber-400/80'}`}
+            >
+              {entry.thumb ? (
+                <img src={entry.thumb} alt="" className="aspect-[488/680] w-full bg-zinc-800 object-cover" />
+              ) : (
+                <span className="block aspect-[488/680] w-full bg-zinc-800" />
+              )}
+              <span
+                className={`absolute top-1 right-1 flex size-5 items-center justify-center rounded-full text-xs font-bold ${
+                  entry.kind === 'added' ? 'bg-emerald-400 text-zinc-950' : 'bg-amber-400 text-zinc-950'
+                }`}
+              >
+                {entry.kind === 'added' ? '✓' : '?'}
+              </span>
+            </button>
+            <p className="truncate text-[11px] leading-tight text-zinc-300" title={label}>
+              {label}
+            </p>
+            <button
+              type="button"
+              aria-label={`Undo ${label}`}
+              onClick={() => onUndo(entry)}
+              className="min-h-9 rounded-md bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700"
+            >
+              Undo
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+const SOUND_LABELS: Record<SoundMode, string> = { off: 'Sound off', on: 'Sound on', always: 'Sound on, even in silent mode' };
+
+export function Scanner({
+  batch,
+  cardCount,
+  reviewCount,
+  onOpenReview,
+}: {
+  batch: Batch | null;
+  /** Cards in the batch, for the counter. */
+  cardCount: number;
+  /** Scanned cards in the batch waiting for review. */
+  reviewCount: number;
+  /** Go to the review queue, at this card when given. */
+  onOpenReview: (reviewId?: string) => void;
+}) {
+  const recognizer = useRecognizer(batch?.game ?? 'mtg', batch?.settings.lockSets ?? []);
   const camera = useCamera();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
-  const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo'; timings: Record<string, number> } | null>(null);
+  const [lastRead, setLastRead] = useState<Record<string, number> | null>(null);
+  const [last, setLast] = useState<{ entry: RecentScan } | null>(null);
+  const [flash, setFlash] = useState<{ kind: RecentScan['kind']; key: number } | null>(null);
+  const [photoReview, setPhotoReview] = useState<{ review: ReviewItem; debug: string } | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [debug, setDebug] = useState(() => debugEnabled());
   const [sharper, setSharper] = useState(() => cameraResolution() === 1080);
+  const [sound, setSound] = useState<SoundMode>(() => soundMode());
+  // Bumped when the last card's line should give way to the live hint again.
+  const [, setTick] = useState(0);
   const rate = useFrameRate(frame);
+  const recent = useRecentScans(batch?.id ?? null);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
   const streaming = camera.state.status === 'live';
-  const { live, photo, again, arm } = recognizer;
+  useWakeLock(streaming);
+  const { live, photo, again } = recognizer;
+  const photoReviewRef = useRef<HTMLElement>(null);
+  const photoReviewId = photoReview?.review.id;
+  // Bring a photo's review into view once, when it appears.
+  useEffect(() => {
+    if (photoReviewId) photoReviewRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [photoReviewId]);
+  // The loop outlives renders; it reads the batch (and its settings) from here.
+  const batchRef = useRef(batch);
+  batchRef.current = batch;
+
+  /** Files a scanned card: into the batch or the review queue, with sound, vibration and a flash. */
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo') => {
+    const target = batchRef.current;
+    if (!target) return null;
+    try {
+      const outcome = await intake(target, scan, source);
+      const best = scan.printings[0]?.printing;
+      const sure = scan.nameConfidence >= UNREADABLE_BELOW;
+      const entry = pushRecent({
+        batchId: target.id,
+        kind: outcome.kind === 'added' ? 'added' : 'review',
+        source,
+        name: outcome.kind === 'added' ? (outcome.printing.exportName ?? outcome.printing.name) : sure ? (scan.names[0] ?? null) : null,
+        code: outcome.kind === 'added' ? printingCode(outcome.printing) : best && sure ? printingCode(best) : null,
+        ...(outcome.kind === 'added' ? { itemId: outcome.itemId } : { reviewId: outcome.review.id }),
+        card: scan.card,
+      });
+      setLast({ entry });
+      setFlash((previous) => ({ kind: entry.kind, key: (previous?.key ?? 0) + 1 }));
+      setSaveFailed(false);
+      cue(entry.kind);
+      return outcome;
+    } catch {
+      setSaveFailed(true);
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
-    if (recognizer.status !== 'ready' || !streaming || result || photoState === 'reading') return;
+    if (recognizer.status !== 'ready' || !streaming || photoState === 'reading') return;
     let stopped = false;
     void (async () => {
       while (!stopped) {
@@ -283,9 +250,10 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
           if (stopped) break;
           if (outcome) {
             setFrame(outcome);
+            // The camera keeps watching: a read card is filed, and the next one is looked for at once.
             if (outcome.result) {
-              setResult({ scan: outcome.result, source: 'live', timings: outcome.timings });
-              break;
+              setLastRead(outcome.timings);
+              void file(outcome.result, 'live');
             }
           }
         } catch {
@@ -297,18 +265,33 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
     return () => {
       stopped = true;
     };
-  }, [recognizer.status, streaming, result, photoState, live]);
+  }, [recognizer.status, streaming, photoState, live, file]);
+
+  // The big status line shows the last card for a few seconds, then the live hint again.
+  useEffect(() => {
+    if (!last) return;
+    const timer = setTimeout(() => setTick((tick) => tick + 1), LAST_CARD_MS + 50);
+    return () => clearTimeout(timer);
+  }, [last]);
 
   const onPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const chosen = event.target.files?.[0];
     event.target.value = '';
-    if (!file) return;
-    setResult(null);
+    if (!chosen) return;
+    unlockAudio();
+    setPhotoReview(null);
     setPhotoState('reading');
     try {
-      const outcome = await photo(file);
+      const outcome = await photo(chosen);
       if (outcome?.result) {
-        setResult({ scan: outcome.result, source: 'photo', timings: outcome.timings });
+        setLastRead(outcome.timings);
+        const filed = await file(outcome.result, 'photo');
+        if (filed?.kind === 'review') {
+          setPhotoReview({
+            review: filed.review,
+            debug: `${formatTimings(outcome.timings)} ms · confidence ${outcome.result.confidence.toFixed(2)} (name ${outcome.result.nameConfidence.toFixed(2)})`,
+          });
+        }
         setPhotoState('idle');
       } else {
         setPhotoState('no-card');
@@ -318,8 +301,27 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
     }
   };
 
+  const undo = (entry: RecentScan) => {
+    if (photoReview && entry.reviewId === photoReview.review.id) setPhotoReview(null);
+    if (last?.entry.id === entry.id) setLast(null);
+    void undoRecent(entry).catch(() => setSaveFailed(true));
+  };
+
+  /** "Wrong? Read again": take the last live card back out and read the card in view afresh. */
+  const readAgain = () => {
+    const newest = recent[0];
+    if (newest?.source === 'live') undo(newest);
+    again();
+  };
+
+  const showingLast = last && last.entry.batchId === batch?.id && performance.now() - last.entry.at < LAST_CARD_MS;
+  const total = cardCount + reviewCount;
+  const newestLive = recent[0]?.source === 'live' ? recent[0] : null;
+
   return (
-    <div className="flex flex-col gap-4">
+    // Any tap here may unlock sound: browsers only allow audio that a tap started. A touch counts
+    // as one when it ends (pointerup), not when it starts.
+    <div className="flex flex-col gap-3" onPointerUp={unlockAudio} onKeyDown={unlockAudio}>
       {recognizer.status === 'loading' && (
         <p role="status" className="text-sm text-zinc-400">
           Getting the card reader ready. The first time, this downloads about 3 MB.
@@ -334,46 +336,79 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
         </div>
       )}
 
-      {result ? (
-        <ResultPanel
-          result={result.scan}
-          timings={result.timings}
-          batch={batch}
-          debug={debug}
-          onDone={() => {
-            // The next card put down is read, on top of this one or in its place, even an identical copy.
-            if (result.source === 'live') arm();
-            setResult(null);
-            setFrame(null);
-          }}
-          onReadAgain={
-            result.source === 'live'
-              ? () => {
-                  again();
-                  setResult(null);
-                }
-              : undefined
-          }
-          onSearchInstead={onSearchInstead}
-        />
-      ) : (
-        <>
-          <CameraPreview camera={camera} videoRef={videoRef} overlay={<Outline frame={frame} />} />
-          {streaming && recognizer.status === 'ready' && (
-            <div className="flex flex-col gap-2">
-              <p role="status" aria-live="polite" className="min-h-5 text-sm text-zinc-300">
-                {liveHint(frame, camera.torch)}
-              </p>
-              {frame?.phase === 'read' && (
-                <button type="button" onClick={again} className={`${BUTTON_SECONDARY} self-start`}>
-                  Read this card again
-                </button>
-              )}
-              {debug && <LiveDebug frame={frame} rate={rate} />}
-            </div>
-          )}
-        </>
+      {batch && <ScanSettings batch={batch} />}
+
+      <div className="flex items-end gap-3">
+        <p className="flex items-baseline gap-2">
+          <span data-testid="scan-counter" className={`text-5xl font-bold tabular-nums ${flash ? 'scan-bump' : ''}`} key={flash?.key}>
+            {total}
+          </span>
+          <span className="text-sm text-zinc-400">
+            card{total === 1 ? '' : 's'} in {batch?.name ?? 'this batch'}
+          </span>
+        </p>
+        {reviewCount > 0 && (
+          <button type="button" onClick={() => onOpenReview()} className="ml-auto min-h-11 rounded-lg bg-amber-400/15 px-3 text-sm font-medium text-amber-300 hover:bg-amber-400/25">
+            {reviewCount} to review ›
+          </button>
+        )}
+      </div>
+
+      <CameraPreview
+        camera={camera}
+        videoRef={videoRef}
+        onStart={unlockAudio}
+        overlay={
+          <>
+            <Outline frame={frame} />
+            <Flash flash={flash} />
+          </>
+        }
+        controls={
+          <button
+            type="button"
+            aria-label={SOUND_LABELS[sound]}
+            onClick={() => {
+              const next: SoundMode = sound === 'off' ? 'on' : 'off';
+              setSoundMode(next);
+              setSound(next);
+              unlockAudio();
+            }}
+            className={`${BUTTON_SECONDARY}`}
+          >
+            {sound === 'off' ? 'Sound off' : 'Sound on'}
+          </button>
+        }
+      />
+
+      <div className="flex min-h-16 flex-col gap-1" role="status" aria-live="polite">
+        {showingLast ? (
+          <p className={`text-xl font-semibold ${last.entry.kind === 'added' ? 'text-emerald-300' : 'text-amber-300'}`}>
+            {last.entry.kind === 'added'
+              ? `Added ${last.entry.name}${last.entry.code ? ` · ${last.entry.code}` : ''}`
+              : last.entry.name
+                ? `Check later: ${last.entry.name}?`
+                : "Couldn't read that one: it's waiting in Review"}
+          </p>
+        ) : (
+          streaming && recognizer.status === 'ready' && <p className="text-base text-zinc-200">{liveHint(frame, camera.torch)}</p>
+        )}
+        {showingLast && streaming && <p className="text-sm text-zinc-400">{liveHint(frame, camera.torch)}</p>}
+      </div>
+      {saveFailed && (
+        <p role="alert" className="text-sm text-amber-300">
+          Couldn't save the last card. Your browser's storage may be full or blocked.
+        </p>
       )}
+      {!batch && <p className="text-sm text-amber-300">Cards can't be saved until on-device storage works.</p>}
+
+      <RecentStrip recent={recent} onUndo={undo} onOpenReview={onOpenReview} />
+      {streaming && newestLive && frame?.phase === 'read' && (
+        <button type="button" onClick={readAgain} className={`${BUTTON_SECONDARY} self-start`}>
+          Wrong? Read this card again
+        </button>
+      )}
+      {streaming && debug && <LiveDebug frame={frame} rate={rate} read={lastRead} recent={recent} />}
 
       <div className="flex flex-col gap-2">
         <label className={`${BUTTON_SECONDARY} self-start ${recognizer.status === 'ready' ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
@@ -399,12 +434,66 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
             That file couldn't be read as an image.
           </p>
         )}
+        {!photoReview && debug && lastRead && !streaming && (
+          <p data-testid="debug-result" className="font-mono text-xs break-words text-zinc-500">
+            {formatTimings(lastRead)} ms
+          </p>
+        )}
       </div>
+
+      {photoReview && batch && (
+        <section
+          aria-label="Scan result"
+          ref={photoReviewRef}
+          className="flex scroll-mt-16 flex-col gap-3 rounded-xl bg-zinc-800/40 p-3"
+        >
+          <ReviewCard
+            batch={batch}
+            review={photoReview.review}
+            pending={[]}
+            keyboard={false}
+            onResolved={() => {
+              const entry = recent.find((candidate) => candidate.reviewId === photoReview.review.id);
+              if (entry) removeRecent(entry.id);
+              setPhotoReview(null);
+            }}
+          />
+          <button type="button" onClick={() => setPhotoReview(null)} className={`${BUTTON_SECONDARY} self-start`}>
+            Later: keep it in Review
+          </button>
+          {debug && (
+            <p data-testid="debug-result" className="font-mono text-xs break-words text-zinc-500">
+              {photoReview.debug}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* For phone tests: a home-screen app has no address bar for ?debug=1. */}
       <details className="text-xs text-zinc-500">
-        <summary className="cursor-pointer select-none">Testing</summary>
-        <div className="mt-2 flex flex-col gap-2">
+        <summary className="flex min-h-11 cursor-pointer items-center select-none">Sound and testing</summary>
+        <div className="mt-1 flex flex-col gap-2">
+          <label className="flex min-h-11 items-center gap-2">
+            Sound
+            <select
+              value={sound}
+              onChange={(event) => {
+                const next = event.target.value as SoundMode;
+                setSoundMode(next);
+                setSound(next);
+                unlockAudio();
+              }}
+              className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
+            >
+              <option value="on">On (the silent switch mutes it)</option>
+              <option value="always">On, even in silent mode (pauses music)</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <p>
+            A high beep means the card was added; two lower notes mean it waits for review.
+            {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
+          </p>
           <label className="flex min-h-11 items-center gap-2">
             <input
               type="checkbox"

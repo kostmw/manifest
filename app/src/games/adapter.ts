@@ -90,4 +90,12 @@ export interface GameAdapter {
    * printings that look and read the same.
    */
   printingPrior: (printing: Pick<Printing, 'set' | 'number'>) => number;
+  /**
+   * The finish a scanned card is added with: the plain one when the printing
+   * has it, or a foil one when the batch says every card is foil (or the
+   * printing only comes that way).
+   */
+  defaultFinish: (printing: Pick<Printing, 'finishes'>, foil: boolean) => string;
+  /** Whether a finish is one of the foil kinds, for the "everything is foil" setting and the F key. */
+  isFoil: (finish: string) => boolean;
 }

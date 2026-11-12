@@ -54,6 +54,8 @@ export interface GameIndex {
   fingerprint?: { version: number; rowBytes: number; imageSize: string };
   /** Set code → collector number → name, for reading a card by its collector line alone (collectorIndex.ts). */
   collectors?: IndexFile;
+  /** Every set's code, name and release date, for locking a batch to sets (sets.ts). Missing from indexes built before M4. */
+  sets?: IndexFile;
 }
 
 export interface IndexManifest {

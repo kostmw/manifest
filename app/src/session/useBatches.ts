@@ -28,6 +28,7 @@ export function useBatches() {
   const batches = useLiveQuery(() => db.batches.orderBy('createdAt').reverse().toArray(), []);
   const active = batches?.find((batch) => batch.id === activeId) ?? batches?.[0] ?? null;
   const items = useLiveQuery(() => (active ? getItems(active.id) : []), [active?.id]);
+  const reviewCount = useLiveQuery(() => (active ? db.reviews.where('batchId').equals(active.id).count() : 0), [active?.id]);
 
   // Runs on load, and after the last batch is deleted, so there's always one to add to. It also runs
   // before the query answers on purpose: when the database can't open, a live query never answers
@@ -42,7 +43,7 @@ export function useBatches() {
     writeStoredId(id);
   }, []);
 
-  return { batches: batches ?? [], active, items: items ?? [], selectBatch, storageFailed };
+  return { batches: batches ?? [], active, items: items ?? [], reviewCount: reviewCount ?? 0, selectBatch, storageFailed };
 }
 
 export type BatchesState = ReturnType<typeof useBatches>;

@@ -93,7 +93,14 @@ const junk: TitleMatch = { candidates: [], confidence: 0, reading: '' };
 
 async function identify(
   art: number,
-  options: { title: TitleMatch; collector?: string[]; fingerprints?: boolean; angle?: number; invertArt?: (name: string) => boolean },
+  options: {
+    title: TitleMatch;
+    collector?: string[];
+    fingerprints?: boolean;
+    angle?: number;
+    invertArt?: (name: string) => boolean;
+    lockSets?: string[];
+  },
 ) {
   const corners = cardQuad({ x: 400, y: 520 }, 820, options.angle ?? 0.05);
   const frame = placeCard(ARTS.get(art)!, { width: 800, height: 1040 }, corners, [60, 80, 70]);
@@ -109,6 +116,7 @@ async function identify(
     catalog,
     collectors: await catalog.collectors(dictionary),
     ocr: fakeOcr(options.collector ?? []),
+    ...(options.lockSets ? { lockSets: options.lockSets } : {}),
   });
 }
 
@@ -158,6 +166,37 @@ describe('identifyPrinting', () => {
     const result = await identify(9, { title: junk, angle: Math.PI + 0.05 });
     expect(result.candidates[0]?.printing.name).toBe('Opt');
     expect(result.turned).toBe(true);
+  });
+});
+
+describe('identifyPrinting with the batch locked to sets', () => {
+  it('settles printings with the same art when only one of them is in the locked sets', async () => {
+    const unlocked = await identify(2, { title: sure('Sol Ring') });
+    expect(unlocked.printingConfidence).toBeLessThan(0.6);
+    // Another set entirely: only CMM's two printings are left, which still look alike.
+    const cmm = await identify(2, { title: sure('Sol Ring'), lockSets: ['cmm'] });
+    expect(cmm.candidates.every((c) => c.printing.set === 'cmm' || c.printing.name !== 'Sol Ring')).toBe(true);
+    expect(cmm.outsideLock).toBe(false);
+    // Locked to C21, only its printing competes.
+    const c21 = await identify(1, { title: sure('Sol Ring'), lockSets: ['C21'] });
+    expect(c21.candidates.filter((c) => c.printing.name === 'Sol Ring').map((c) => c.printing.id)).toEqual(['c21-263']);
+    expect(c21.printingConfidence).toBe(1);
+    expect(c21.outsideLock).toBe(false);
+  });
+
+  it('flags a card that has no printing in the locked sets, and keeps all its printings', async () => {
+    const result = await identify(1, { title: sure('Sol Ring'), lockSets: ['dom'] });
+    expect(result.candidates[0]?.printing.name).toBe('Sol Ring');
+    expect(result.outsideLock).toBe(true);
+    expect(result.candidates.filter((c) => c.printing.name === 'Sol Ring')).toHaveLength(3);
+  });
+
+  it('names a card by its collector number alone within the locked sets, when the set code is unreadable', async () => {
+    const unlocked = await identify(1, { title: junk, fingerprints: false, collector: ['263/300 U', ''] });
+    expect(unlocked.candidates).toEqual([]);
+    const locked = await identify(1, { title: junk, fingerprints: false, collector: ['263/300 U', ''], lockSets: ['c21'] });
+    expect(locked.candidates[0]?.printing.id).toBe('c21-263');
+    expect(locked.candidates[0]?.sources).toEqual(['collector']);
   });
 });
 
