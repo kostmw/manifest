@@ -222,4 +222,25 @@ describe('recognizeFrame with printings', () => {
     expect(result.detection?.corners).toEqual(card);
     expect(result.nameConfidence).toBeGreaterThan(0.5);
   });
+
+  it('finds a card with no outline by looking at the middle of the photo, without auto-accepting it', async () => {
+    const card = orderCardCorners(cardQuad({ x: 400, y: 520 }, 700, 0));
+    const frame = placeCard(ARTS.get(1)!, { width: 800, height: 1040 }, card, [60, 80, 70]);
+    const catalog = new Catalog(memorySource(), FINGERPRINT_VERSION);
+    const dictionary = { names: NAMES, faces: {} };
+    const options = {
+      regions: MTG_REGIONS,
+      names: new NameIndex(dictionary),
+      ocr: fakeOcr([]),
+      readDespiteQuality: true,
+      // As if detection had found no outline at all.
+      detections: [],
+      printings: { game: mtg, catalog, collectors: await catalog.collectors(dictionary) },
+    };
+    expect((await recognizeFrame(frame, options)).decision).toBe('no-card');
+    const result = await recognizeFrame(frame, { ...options, centerFallback: true });
+    expect(result.guessedOutline).toBe(true);
+    expect(result.printings[0]?.printing.id).toBe('c21-263');
+    expect(result.decision).toBe('review');
+  });
 });

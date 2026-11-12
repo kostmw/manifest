@@ -5,7 +5,7 @@
  * searched across every printing and the collector line is looked up on its
  * own, so a card whose title can't be read can still be found.
  */
-import type { CollectorMatch, CollectorReading, GameAdapter } from '../games/adapter';
+import type { CardRegions, CollectorMatch, CollectorReading, GameAdapter } from '../games/adapter';
 import type { Catalog, CatalogPrinting } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
 import type { Printing } from '../games/types';
@@ -128,6 +128,95 @@ interface Query {
   placement: CardPlacement;
 }
 
+/** The card's fingerprint under each registration guess (the outline, the frame line, a sleeve), and turned over unless the way up is known. */
+function fingerprintQueries(
+  frame: RgbaImage,
+  corners: Quad,
+  regions: CardRegions,
+  orientationKnown: boolean,
+  hasFingerprints: boolean,
+  outlineOnly = false,
+): Query[] {
+  const size = regions.size;
+  const placements = [
+    { id: 'card', placement: [0, 0, size.width, size.height] as CardPlacement },
+    ...(outlineOnly ? [] : regions.outlines.map((outline) => ({ id: outline.id, placement: placementFor(outline.box, size) }))),
+  ];
+  const queries: Query[] = [];
+  for (const turned of orientationKnown ? [false] : [false, true]) {
+    const mapping = cornersMapping(turned ? turnCorners(corners) : corners, size);
+    if (!mapping) continue;
+    const canvas = hasFingerprints ? canvasFromFrame(frame, mapping, size, CANVAS_MARGIN) : null;
+    for (const { id, placement } of placements) {
+      queries.push({
+        words: canvas ? toWords(fingerprintAt(canvas, regions, placement)) : new Uint32Array(0),
+        turned,
+        outline: id,
+        mapping,
+        placement,
+      });
+    }
+  }
+  return queries;
+}
+
+/** Set bits in a 32-bit word, inlined by hand for the table scan below. */
+const bits = (v: number): number => {
+  v -= (v >>> 1) & 0x55555555;
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  return (Math.imul((v + (v >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24);
+};
+
+/** An axis-aligned rectangle in frame pixels: [x0, y0, x1, y1]. */
+export type FrameBox = readonly [number, number, number, number];
+
+/**
+ * How closely the artwork inside each upright rectangle matches anything in
+ * the index: the smallest fingerprint distance (of 128 bits), either way up,
+ * in one pass over the fingerprint table. Null without fingerprints. For
+ * choosing among guesses at where a card is: the right guess matches some
+ * printing far better than the wrong ones match any. Every rectangle is
+ * sampled from one canvas of the whole frame (and one turned over), so dozens
+ * cost little more than one.
+ */
+export async function nearestArt(frame: RgbaImage, boxes: readonly FrameBox[], regions: CardRegions, catalog: Catalog): Promise<number[] | null> {
+  if (!(await catalog.hasFingerprints())) return null;
+  const table = await catalog.fingerprintTable();
+  if (!table) return null;
+  const { width: w, height: h } = frame;
+  const whole = { width: w, height: h };
+  const corner = (x: number, y: number) => ({ x: x - 0.5, y: y - 0.5 });
+  const upright = cornersMapping([corner(0, 0), corner(w, 0), corner(w, h), corner(0, h)], whole);
+  const turned = cornersMapping([corner(w, h), corner(0, h), corner(0, 0), corner(w, 0)], whole);
+  if (!upright || !turned) return null;
+  const canvases = [canvasFromFrame(frame, upright, whole, 0), canvasFromFrame(frame, turned, whole, 0)] as const;
+
+  // Each box's fingerprint, upright then turned over: 4 words each.
+  const count = boxes.length * 2;
+  const query = new Uint32Array(count * 4);
+  boxes.forEach(([x0, y0, x1, y1], q) => {
+    query.set(toWords(fingerprintAt(canvases[0], regions, [x0, y0, x1, y1])), q * 8);
+    query.set(toWords(fingerprintAt(canvases[1], regions, [w - x1, h - y1, w - x0, h - y0])), q * 8 + 4);
+  });
+  const best = new Float64Array(count).fill(Number.POSITIVE_INFINITY);
+  for (const { words, rows } of table.shards) {
+    for (let row = 0; row < rows; row++) {
+      const o = row * table.rowWords;
+      const w0 = words[o]!;
+      const w1 = words[o + 1]!;
+      const w2 = words[o + 2]!;
+      const w3 = words[o + 3]!;
+      if ((w0 | w1 | w2 | w3) === 0) continue;
+      for (let k = 0; k < count; k++) {
+        const b = k * 4;
+        const d = bits(query[b]! ^ w0) + bits(query[b + 1]! ^ w1) + bits(query[b + 2]! ^ w2) + bits(query[b + 3]! ^ w3);
+        if (d < best[k]!) best[k] = d;
+      }
+    }
+  }
+  return boxes.map((_, q) => Math.min(best[q * 2]!, best[q * 2 + 1]!));
+}
+
 function minDistance(queries: readonly Query[], table: Uint32Array, row: number): { distance: number; query: Query } {
   let best = Number.POSITIVE_INFINITY;
   let which = queries[0]!;
@@ -171,26 +260,8 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const lap = input.lap ?? (() => {});
 
   // Fingerprints of the card under each registration guess (and turned over, if unsure).
-  const placements = [
-    { id: 'card', placement: [0, 0, size.width, size.height] as CardPlacement },
-    ...regions.outlines.map((outline) => ({ id: outline.id, placement: placementFor(outline.box, size) })),
-  ];
   const hasFingerprints = await catalog.hasFingerprints();
-  const queries: Query[] = [];
-  for (const turned of input.orientationKnown ? [false] : [false, true]) {
-    const mapping = cornersMapping(turned ? turnCorners(input.corners) : input.corners, size);
-    if (!mapping) continue;
-    const canvas = hasFingerprints ? canvasFromFrame(frame, mapping, size, CANVAS_MARGIN) : null;
-    for (const { id, placement } of placements) {
-      queries.push({
-        words: canvas ? toWords(fingerprintAt(canvas, regions, placement)) : new Uint32Array(0),
-        turned,
-        outline: id,
-        mapping,
-        placement,
-      });
-    }
-  }
+  const queries = fingerprintQueries(frame, input.corners, regions, input.orientationKnown, hasFingerprints);
   lap('fingerprint');
 
   // The candidate pool: printings of every name any signal puts forward.

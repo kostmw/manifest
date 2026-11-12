@@ -7,6 +7,7 @@
 import type { CardRegions, CollectorReading, GameAdapter } from '../games/adapter';
 import type { Catalog } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
+import { centerCardSearch, refineBox, type Box4 } from '../vision/centerCard';
 import { detectCards, type CardDetection } from '../vision/detect';
 import { distance } from '../vision/geometry';
 import type { GrayImage, RgbaImage } from '../vision/image';
@@ -14,7 +15,7 @@ import { rotateRgba180 } from '../vision/image';
 import { assessQuality, DEFAULT_QUALITY, type QualityReport, type QualityThresholds } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
 import { cornersMapping, boxCorners, type CardMapping } from './fingerprint';
-import { identifyPrinting, type PrintingCandidate } from './identify';
+import { identifyPrinting, nearestArt, type PrintingCandidate } from './identify';
 import type { NameIndex } from './nameSearch';
 import type { OcrEngine, OcrLine } from './ocr';
 import { cropTitle, cropTitleFromFrame, MAX_TITLE_DETAIL } from './titleCrop';
@@ -50,6 +51,13 @@ export interface RecognizeOptions {
    * never auto-accepted.
    */
   readDespiteQuality?: boolean;
+  /**
+   * When no outline is found, or the one found yields no name, look for the
+   * card the photo is centred on (vision/centerCard.ts): a borderless card
+   * among others touching it has no outline of its own. Photos only: it costs
+   * a few hundred milliseconds. Such a card is never auto-accepted.
+   */
+  centerFallback?: boolean;
   /** Keep the crops for the review UI or the eval report. */
   keepImages?: boolean;
   /** Detections already made for this frame (live mode detects every frame anyway). */
@@ -91,9 +99,11 @@ export interface Recognition {
   card?: RgbaImage;
   /** The collector line crops that were read, when keepImages is set. */
   collectorCrops?: GrayImage[];
+  /** The card's outline was a guess at the card in the middle of the photo (see centerFallback). */
+  guessedOutline: boolean;
 }
 
-const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null };
+const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null, guessedOutline: false };
 
 /**
  * Reads the title, trying the crop's alternative renderings while the reading
@@ -133,6 +143,45 @@ const MAX_CANDIDATES = 2;
  * of background around the card, and only the artwork can tell.
  */
 const OUTLINE_FALLBACK_BELOW = 0.5;
+/** A guessed outline (see centerFallback) is kept only when it names a card at least this surely. */
+const CENTER_MIN_NAME = 0.5;
+
+/**
+ * The card the photo is centred on, as a detection: rectangles from the edges
+ * around the middle, the one whose artwork best matches the index, refined
+ * once. Without fingerprints, the strongest edges' rectangle.
+ */
+async function centerGuess(frame: RgbaImage, options: RecognizeOptions, lap: (stage: string) => void): Promise<CardDetection | null> {
+  const { regions } = options;
+  const search = centerCardSearch(frame, regions.size.width / regions.size.height);
+  let box = search.boxes[0];
+  if (box && options.printings) {
+    const pick = async (boxes: readonly Box4[], current: { box: Box4; distance: number } | null) => {
+      const distances = await nearestArt(frame, boxes, regions, options.printings!.catalog);
+      if (!distances) return current;
+      let best = current;
+      boxes.forEach((candidate, i) => {
+        if (!best || distances[i]! < best.distance) best = { box: candidate, distance: distances[i]! };
+      });
+      return best;
+    };
+    const first = await pick(search.boxes, null);
+    const refined = first ? await pick(refineBox(search, first.box), first) : null;
+    box = refined?.box ?? box;
+  }
+  lap('center');
+  if (!box) return null;
+  const [x0, y0, x1, y1] = box;
+  return {
+    corners: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }],
+    score: 0,
+    edgeSupport: 0,
+    aspect: (x1 - x0) / (y1 - y0),
+    areaFraction: ((x1 - x0) * (y1 - y0)) / (frame.width * frame.height),
+    tilt: 0,
+  };
+}
+
 /** Read the title from the frame itself once it holds this much more detail than the rectified card. */
 const FRAME_TITLE_MIN_DETAIL = 1.25;
 
@@ -210,10 +259,15 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     mark = now;
   };
 
-  const detections = options.detections ?? detectCards(frame, detectOptions(options.regions));
+  let detections = options.detections ?? detectCards(frame, detectOptions(options.regions));
   lap('detect');
-  if (detections.length === 0) {
-    return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
+  let guessed = false;
+  const nothingFound = detections.length === 0;
+  if (nothingFound) {
+    const guess = options.centerFallback ? await centerGuess(frame, options, lap) : null;
+    if (!guess) return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
+    detections = [guess];
+    guessed = true;
   }
 
   // The first candidate is almost always the card. When its title doesn't read, the next one
@@ -278,9 +332,25 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
       if (alternative.confidence > chosen.confidence) chosen = alternative;
     }
   }
+  // Still no name from what detection found: the card may be one with no outline of its own.
+  if (!guessed && options.centerFallback && options.printings && chosen.nameConfidence < OUTLINE_FALLBACK_BELOW) {
+    const guess = await centerGuess(frame, options, lap);
+    const attempt = guess ? await readCandidate(frame, guess, options, decision, lap) : null;
+    if (attempt?.read) {
+      const alternative = await conclude(attempt as Attempt & { read: NonNullable<Attempt['read']> });
+      if (alternative.nameConfidence >= CENTER_MIN_NAME && alternative.confidence > chosen.confidence) {
+        chosen = alternative;
+        guessed = true;
+      }
+    }
+  }
+  // When detection found nothing, a guess is only worth showing if it names a card.
+  if (nothingFound && chosen.nameConfidence < CENTER_MIN_NAME) {
+    return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
+  }
   const { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright } = chosen;
 
-  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok ? 'accept' : 'review';
+  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed ? 'accept' : 'review';
   return {
     decision: verdict,
     detection,
@@ -293,6 +363,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     confidence,
     collector,
     timings,
+    guessedOutline: guessed,
     ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),
   };
 }

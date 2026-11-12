@@ -15,7 +15,7 @@ import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
 import { assessQuality, type QualityAdvice, type QualityIssue, type QualityMetrics } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
-import { FINGERPRINT_VERSION } from './fingerprint';
+import { canvasFromFrame, cornersMapping, FINGERPRINT_VERSION, fingerprintAt, toWords } from './fingerprint';
 import type { PrintingCandidate } from './identify';
 import { LiveSession, type LivePhase } from './liveSession';
 import { NameIndex } from './nameSearch';
@@ -48,6 +48,8 @@ export interface ScanResult {
   advice: QualityAdvice[];
   /** Live mode tried this card several times and none of the reads worked. */
   gaveUp: boolean;
+  /** No outline was clear, so the card was found by looking at the middle of the photo. */
+  guessedOutline: boolean;
 }
 
 export interface FrameOutcome {
@@ -104,6 +106,12 @@ async function toJpeg(image: RgbaImage): Promise<Blob> {
   return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
 }
 
+/** The card in view's fingerprint, to tell a new card put on top from the one read last. */
+function cardSignature(frame: RgbaImage, corners: Quad, regions: ReturnType<typeof getGame>['regions']): Uint32Array | null {
+  const mapping = cornersMapping(corners, regions.size);
+  return mapping ? toWords(fingerprintAt(canvasFromFrame(frame, mapping, regions.size, 0), regions)) : null;
+}
+
 function ready() {
   if (!game || !names || !ocr || !catalog) throw new Error('The recognizer is not loaded yet');
   const adapter = getGame(game);
@@ -125,6 +133,7 @@ async function toResult(recognition: Recognition, started: number, gaveUp = fals
     elapsedMs: performance.now() - started,
     advice: recognition.quality?.advice ?? [],
     gaveUp,
+    guessedOutline: recognition.guessedOutline,
   };
 }
 
@@ -143,6 +152,7 @@ function unreadable(card: RgbaImage, advice: QualityAdvice[], timings: Record<st
     collector: null,
     timings,
     card,
+    guessedOutline: false,
   };
 }
 
@@ -207,7 +217,18 @@ const api = {
     outcome.issues = quality.issues;
     outcome.advice = quality.advice;
     outcome.metrics = quality.metrics;
-    if (!step.recognize || !quality.ok) return finish();
+    // A card put on top of the one read last: read it like any new card.
+    let recognize = step.recognize;
+    let signature: Uint32Array | null = null;
+    if (step.checkCard) {
+      signature = cardSignature(frame, best.corners, context.regions);
+      if (live.changed(signature)) {
+        recognize = true;
+        outcome.phase = 'reading';
+      }
+    }
+    if (!recognize || !quality.ok) return finish();
+    signature ??= cardSignature(frame, best.corners, context.regions);
 
     // A read that throws or finds nothing usable is tried again on the next steady frame, a few
     // times; then the card is reported as unreadable, so live mode never waits forever.
@@ -218,7 +239,7 @@ const api = {
       console.warn('Reading a live frame failed', error);
     }
     if (!recognition || recognition.decision === 'retake') {
-      if (!live.failed()) {
+      if (!live.failed(signature, best.corners)) {
         outcome.phase = 'reading';
         return finish();
       }
@@ -226,7 +247,7 @@ const api = {
       outcome.result = await toResult(unreadable(card, quality.advice, recognition?.timings ?? {}), started, true);
       return finish();
     }
-    live.markRead();
+    live.markRead(signature, best.corners);
     outcome.phase = 'read';
     // The read's own stages; its detection was this frame's, already timed above.
     for (const [stage, ms] of Object.entries(recognition.timings)) if (stage !== 'detect') timings[stage] = ms;
@@ -239,13 +260,18 @@ const api = {
     live.again();
   },
 
+  /** "Scan next card": the next card placed in view is read, even an identical copy of the last. */
+  arm(): void {
+    live.arm();
+  },
+
   /** A still photo: always read, since it can't be retaken the way a live frame can. */
   async photo(bitmap: ImageBitmap): Promise<FrameOutcome> {
     const started = performance.now();
     const context = ready();
     const frame = pixels(bitmap, PHOTO_MAX_SIDE);
     const copied = performance.now() - started;
-    const recognition = await recognizeFrame(frame, { ...context, readDespiteQuality: true, keepImages: true });
+    const recognition = await recognizeFrame(frame, { ...context, readDespiteQuality: true, keepImages: true, centerFallback: true });
     return {
       frame: { width: frame.width, height: frame.height },
       corners: recognition.detection?.corners ?? null,

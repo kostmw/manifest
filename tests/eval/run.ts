@@ -120,6 +120,8 @@ for (const [index, fixture] of fixtures.entries()) {
     names,
     ocr,
     readDespiteQuality: true,
+    // The eval's photos stand for the app's photo scans, which look for a centred card when no outline is clear.
+    centerFallback: true,
     keepImages: true,
     ...(printingSources ? { printings: printingSources } : {}),
   });
