@@ -125,6 +125,10 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // On a first visit, take charge as soon as installed, so the OCR files the scanner fetches
+        // are cached for offline use straight away rather than from the next launch. Safe with
+        // `prompt`: an update only activates when the user taps Reload, which reloads anyway.
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
         navigateFallback: 'index.html',
         // Index shards are versioned by the app and cached separately, on demand. OCR files
