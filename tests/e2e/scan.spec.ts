@@ -97,7 +97,7 @@ test('says so when a photo has no card in it', async ({ page }) => {
     mimeType: 'image/png',
     buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64'),
   });
-  await expect(page.getByRole('alert')).toContainText('No card found');
+  await expect(page.getByRole('alert')).toContainText("Couldn't find a card");
 });
 
 test('explains what to do while no card is in view of the camera', async ({ page }) => {
@@ -133,4 +133,21 @@ test('shows live frame timings with ?debug=1', async ({ page }) => {
   await openScannerWithDebug(page);
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByTestId('debug-live')).toContainText(/\d+×\d+ · [\d.]+ fps · capture \d+ · pixels \d+ · detect \d+/);
+});
+
+test('turns the timings on and off from inside the app', async ({ page }) => {
+  await page.getByText('Testing', { exact: true }).click();
+  await page.getByLabel('Show timings').check();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByTestId('debug-live')).toBeVisible();
+  // Remembered, like ?debug=1.
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
+  await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
+  await page.getByText('Testing', { exact: true }).click();
+  await expect(page.getByLabel('Show timings')).toBeChecked();
+  await page.getByLabel('Show timings').uncheck();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByRole('status').first()).toBeVisible();
+  await expect(page.getByTestId('debug-live')).toHaveCount(0);
 });

@@ -45,3 +45,25 @@ export function formatTimings(timings: Record<string, number>): string {
     .map(([stage, ms]) => `${stage} ${Math.round(ms)}`)
     .join(' · ');
 }
+
+/** Turns a remembered setting on (`value`) or off (null). Returns false when storage is blocked. */
+function remember(name: string, value: string | null, store?: Store): boolean {
+  try {
+    const storage = store ?? globalThis.localStorage;
+    if (value === null) storage.removeItem(`manifest-${name}`);
+    else storage.setItem(`manifest-${name}`, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The in-app switch for the timings readout (iOS home-screen apps don't share Safari's storage, or its address bar). */
+export function setDebugEnabled(on: boolean, store?: Store): boolean {
+  return remember('debug', on ? '1' : null, store);
+}
+
+/** The in-app switch for the live camera's resolution; it applies the next time the camera starts. */
+export function setCameraResolution(resolution: 720 | 1080, store?: Store): boolean {
+  return remember('camera', resolution === 1080 ? '1080' : null, store);
+}

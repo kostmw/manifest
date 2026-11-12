@@ -104,8 +104,9 @@ export default defineConfig({
     indexData(),
     ocrAssets(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // A new version waits until the user taps Reload (ui/UpdateBanner.tsx), so it never cuts off a scan.
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'Manifest: TCG card scanner',

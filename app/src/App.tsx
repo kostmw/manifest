@@ -4,6 +4,7 @@ import { AddCards } from './search/AddCards';
 import { BatchView } from './session/BatchView';
 import { useBatches } from './session/useBatches';
 import { LegalFooter } from './ui/LegalFooter';
+import { UpdateBanner } from './ui/UpdateBanner';
 
 type Tab = 'add' | 'batch' | 'scan';
 
@@ -57,6 +58,7 @@ export function App() {
         {tab === 'scan' && <Scanner batch={batches.active} onSearchInstead={() => setTab('add')} />}
       </main>
       <LegalFooter />
+      <UpdateBanner />
     </div>
   );
 }

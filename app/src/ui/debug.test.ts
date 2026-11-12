@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cameraResolution, debugEnabled, formatTimings } from './debug';
+import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from './debug';
 
 function memoryStore() {
   const values = new Map<string, string>();
@@ -33,6 +33,19 @@ describe('debug readout', () => {
     expect(cameraResolution('', store)).toBe(1080);
     expect(cameraResolution('?camera=4k', store)).toBe(1080);
     expect(cameraResolution('?camera=0', store)).toBe(720);
+  });
+
+  it('can be switched from inside the app, and the query string still works after', () => {
+    const store = memoryStore();
+    expect(setDebugEnabled(true, store)).toBe(true);
+    expect(debugEnabled('', store)).toBe(true);
+    setDebugEnabled(false, store);
+    expect(debugEnabled('', store)).toBe(false);
+    expect(debugEnabled('?debug=1', store)).toBe(true);
+    setCameraResolution(1080, store);
+    expect(cameraResolution('', store)).toBe(1080);
+    setCameraResolution(720, store);
+    expect(cameraResolution('', store)).toBe(720);
   });
 
   it('formats timings in milliseconds, in order', () => {

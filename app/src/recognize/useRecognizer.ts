@@ -65,7 +65,11 @@ export function useRecognizer(game: GameId) {
     void remoteRef.current?.again();
   }, []);
 
+  const arm = useCallback(() => {
+    void remoteRef.current?.arm();
+  }, []);
+
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
-  return { status, live, photo, again, retry };
+  return { status, live, photo, again, arm, retry };
 }

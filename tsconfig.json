@@ -16,7 +16,7 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node", "vite/client", "vite-plugin-pwa/client"]
+    "types": ["node", "vite/client", "vite-plugin-pwa/client", "vite-plugin-pwa/react"]
   },
   "include": ["app/src", "scripts", "tests", "*.ts"]
 }

@@ -5,7 +5,7 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { PrintingList, PrintingRow, usePrintings, type Message } from '../search/printings';
 import type { Batch } from '../session/types';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
-import { debugEnabled, formatTimings } from '../ui/debug';
+import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
 import { ADVICE_HINTS, QUALITY_HINTS, type QualityAdvice } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
 import { useCamera, type Torch } from './useCamera';
@@ -26,7 +26,7 @@ function liveHint(frame: FrameOutcome | null, torch: Torch): string {
   // blurry however still the phone is.
   if (issue === 'blurry' && frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (issue) return QUALITY_HINTS[issue];
-  if (frame.phase === 'read') return 'Done with this card. Take it away to scan the next one.';
+  if (frame.phase === 'read') return 'Done with this card. Put the next one on top, or take this one away.';
   if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (frame.phase !== 'reading') return 'Hold still…';
   return frame.advice.includes('dim') && torch.supported && !torch.on ? 'Reading… More light would help: try the flashlight.' : 'Reading…';
@@ -169,6 +169,9 @@ function ResultPanel({
               {unreadableHint(result.advice)}
             </p>
           )}
+          {result.guessedOutline && (
+            <p className="text-xs text-zinc-500">The card's edges weren't clear, so this was read from the middle of the photo.</p>
+          )}
           {result.titleText && (
             <p className="text-xs text-zinc-500">
               Title read as <span className="font-mono">“{result.titleText}”</span>
@@ -261,11 +264,12 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
   const [result, setResult] = useState<{ scan: ScanResult; source: 'live' | 'photo'; timings: Record<string, number> } | null>(null);
-  const [debug] = useState(() => debugEnabled());
+  const [debug, setDebug] = useState(() => debugEnabled());
+  const [sharper, setSharper] = useState(() => cameraResolution() === 1080);
   const rate = useFrameRate(frame);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
   const streaming = camera.state.status === 'live';
-  const { live, photo, again } = recognizer;
+  const { live, photo, again, arm } = recognizer;
 
   useEffect(() => {
     if (recognizer.status !== 'ready' || !streaming || result || photoState === 'reading') return;
@@ -337,6 +341,8 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
           batch={batch}
           debug={debug}
           onDone={() => {
+            // The next card put down is read, on top of this one or in its place, even an identical copy.
+            if (result.source === 'live') arm();
             setResult(null);
             setFrame(null);
           }}
@@ -384,7 +390,8 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
         {photoState === 'reading' && <p className="text-sm text-zinc-400">Reading the photo…</p>}
         {photoState === 'no-card' && (
           <p role="alert" className="text-sm text-amber-300">
-            No card found in that photo. Try one card on a plain background, filling most of the picture.
+            Couldn't find a card in that photo. Its edges need to stand out: photograph one card on a plain background
+            that contrasts with it, with the card in the middle and a little space around it.
           </p>
         )}
         {photoState === 'failed' && (
@@ -393,6 +400,35 @@ export function Scanner({ batch, onSearchInstead }: { batch: Batch | null; onSea
           </p>
         )}
       </div>
+
+      {/* For phone tests: a home-screen app has no address bar for ?debug=1. */}
+      <details className="text-xs text-zinc-500">
+        <summary className="cursor-pointer select-none">Testing</summary>
+        <div className="mt-2 flex flex-col gap-2">
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              checked={debug}
+              onChange={(event) => {
+                setDebugEnabled(event.target.checked);
+                setDebug(event.target.checked);
+              }}
+            />
+            Show timings
+          </label>
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              checked={sharper}
+              onChange={(event) => {
+                setCameraResolution(event.target.checked ? 1080 : 720);
+                setSharper(event.target.checked);
+              }}
+            />
+            Sharper camera (1080p; slower, applies when the camera next starts)
+          </label>
+        </div>
+      </details>
     </div>
   );
 }

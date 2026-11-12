@@ -245,6 +245,28 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Debug readout:** `?debug=1` (remembered; `?debug=0` clears it) shows per-frame `capture · pixels · detect · total · wall` ms, fps, tilt, light, noise and sharpness in live mode, and per-stage timings and confidences under each result.
     - **Eval, before → after** (0 wrong auto-accepts in every set at 0.9; the sweep shows 1 wrong at 0.8–0.85 on `phone`, so the threshold stays). `phone` (456 photos): name 72.6% → 85.1%, printing 59.6% → 71.3%, top-5 printing 71.5% → 83.8%, auto-accepted 30.0% → 36.2%. By scene, name: plain 94.1% → 93.4%, tilt 30–42° 78.7% → 80.0%, **tilt 42–55° 5.2% → 79.2%** (detected 42.9% → 88.3%), dim 82.2% → 82.2%. By kind, name: Star Trek 72.1% → 86.5%, planets 73.3% → 86.7%, tokens 67.8% → 84.4%, foil 55.6% → 74.1%. `phone-1080`: name 73.2% → 85.7%, printing 61.4% → 72.4%. Standard: name 91.9% → 92.2%, printing 74.1% → 74.4%, auto-accepted 38.8% → 39.1%, goal subset unchanged. Hires: name 95.3% → 96.7%, printing 74.7% → 75.3%. Latency p50/p95 (Node, M-series Mac): standard 209/427 → 213/474 ms, phone 194/432 → 194/426 ms.
     - **Still failing on the phone set:** dark-bordered tokens on dark mats (not detected, as in M2), very dark frames, and the borderless Saboteur on a busy patterned background (its art runs to the edge, so the card's outline merges with the background; it reads on a plain one). 1080p frames from the phone set are upscaled from 488-pixel scans, so they understate a real 1080p camera; `--set hires` (collector number read 44% → 61% at 2×) is the better guide. Which token the owner tried is unknown.
+  - **Follow-up fixes (2026-11-11, PR #3).** PR #2 was merged and the index rebuilt with fingerprints. The owner's second iPhone test passed: several Star Trek cards and a planet, a basic land (right art), the borderless foil Dominion Saboteur, on a plain background too, a sleeved card, a promo (right code), tokens, and the flashlight. Four fixes followed:
+    - **Borderless card among other cards:** The Holodeck (TRK 346, art to the edge), photographed with other cards touching it, gave "No card found" (`tests/fixtures/real-scans/holodeck-trk-346-on-table.jpg`, labelled in `labels.json`; the photo is gitignored). Photos (`centerFallback`, also on in the eval) now look for the card the photo is centred on when no outline is found, or the one found yields a name confidence < 0.5:
+      - `vision/centerCard.ts` makes card-sized rectangles from the long edges either side of the middle, allowing for a slightly off-straight view.
+      - `identify.nearestArt` ranks them by the closest fingerprint in the whole index, all sampled from one canvas of the frame in one pass (~115 ms for 48 in Node). The best one is refined once over the found edges.
+      - The guess is kept only at name confidence ≥ 0.5, never auto-accepted, and noted in the result ("The card's edges weren't clear…").
+      - "No card found" now explains what to change.
+    - **Stacked cards in live mode:** the session counted a new card only after the frame emptied, which stacking never does.
+      - `LiveSession` now keeps the read card's fingerprint and outline. A steady card whose fingerprint differs by > 24 of 128 bits is a new card.
+      - An identical copy counts once "Scan next card" has armed the session (`arm()`) and the view was disturbed since (the card left view, or its outline moved > 10% of its diagonal). So two copies count as two, and a card left lying, or nudged, counts once.
+      - A copy put down exactly in place while the result panel was open (no frames processed) is not noticed. A different card is.
+    - **Updates:** the service worker moved from `autoUpdate` to `prompt`.
+      - `ui/updates.ts` checks for a new version when the app comes back into view (`visibilitychange`, `pageshow`: iOS resumes home-screen apps without reloading) and hourly. `ui/UpdateBanner.tsx` offers Reload and never reloads on its own.
+      - Batches are written to IndexedDB as they change, so reloading loses only an unsaved scan result on screen.
+      - Installs from before this need one full close (swipe the app away) to pick it up.
+    - **Timings inside the app:** a "Testing" section at the bottom of the Scan tab switches "Show timings" and "Sharper camera (1080p)", the same remembered settings as `?debug=1` and `?camera=1080` (iOS home-screen apps share neither Safari's storage nor its address bar).
+    - **Eval, before → after** (0 wrong auto-accepts in every set; sweeps unchanged, so 0.9 stays):
+      - **Holodeck photo:** "Quag Feast" at 0.18 → The Holodeck TRK 346 at 0.96 (review).
+      - **`phone`:** name 85.1% → 87.7%, printing 71.3% → 72.6%, top-5 printing 83.8% → 86.2%, auto-accepted 36.2% → 36.2%. By scene, name: plain 93.4% → 96.1%, dim 82.2% → 86.8%, tilt 42–55° 79.2% → 79.2%; special treatments 68.9% → 76.7%, Star Trek 86.5% → 88.3%.
+      - **`phone-1080`:** name 85.7% → 87.9%, printing 72.4% → 73.5%.
+      - **Standard and hires:** unchanged (name 92.2% / 96.7%, printing 74.4% / 75.3%).
+      - **Latency:** the fallback costs a few hundred ms on the cards it runs for. p50/p95: phone 194/426 → 215/556 ms, standard 213/474 → 206/491 ms.
+    - **Dropped:** a tighter check on perspective-corrected shapes (within 12% of 63:88) lost a sixth of the steep-tilt detections, and the centre search is what fixed the Holodeck.
 
 ## Working agreements for Claude Code
 
