@@ -13,7 +13,9 @@ Node comes from `.nvmrc`. One package at the repo root; Vite's root is `app/`.
 | `npm run check` | Typecheck, unit tests, production build |
 | `npm run e2e` | Playwright against a production build, with a fake camera and a 25-card index. `live.spec.ts` feeds the fake camera a generated video of fake cards (`--use-file-for-fake-video-capture`, written to `.cache/e2e-live/`) to test live scanning end to end |
 | `npm run index:build` | Downloads Scryfall bulk data and writes the index to `data/`. Add `-- --source file.jsonl --out dir` to use a local file. Fingerprints need every card's `small` image: they are cached in `.cache/fingerprints/` with each image's version, so only new or changed cards are downloaded (the first build fetches ~110k images, about 1.5 hours at 20/s). `--fingerprints cache-only` never downloads (it still uses images in `--images dir`), `--fingerprints none` leaves them out (the e2e build does), `--images dir` keeps the downloaded images |
-| `npm run eval` | Recognition eval on the owner's real scans and a synthetic set (needs `index:build` first; the first run downloads ~320 Scryfall images to `.cache/eval/`). Report in `.cache/eval/report/index.html`. Flags: `--only real\|synthetic`, `--tag dfc`, `--limit 50`, `--regenerate`, `--names-only` (stop at the name, as M2 did: the baseline for printing work), `--set hires` (the 150 modern cards rendered from Scryfall's `large` scans at twice the resolution, closer to a full-size phone photo; downloads 150 more images), `--set phone` (152 cards, each rendered plain, viewed 30–55° off straight-on, and in dim light, at live-camera size: how people actually hold a phone; includes the Star Trek planets, borderless foil and tokens from the owner's first phone test), `--set phone-1080` (the same scenes at 1920×1080), `--set phone-flash` (the same 152 cards once each with a flashlight hotspot on the art, in a red deck box, soft close-up focus: the owner's M4 setup), `--detect-size 480` (detect on a smaller copy than 640), `--lock true-set` (each card scanned into a batch locked to its own set) and `--lock other-set` (to a set it isn't from: nothing may be auto-accepted) |
+| `npm run eval` | Recognition eval on the owner's real scans and a synthetic set (needs `index:build` first; the first run downloads ~320 Scryfall images to `.cache/eval/`). Report in `.cache/eval/report/index.html`. Flags: `--only real\|synthetic`, `--tag dfc`, `--limit 50`, `--regenerate`, `--names-only` (stop at the name, as M2 did: the baseline for printing work), `--set hires` (the 150 modern cards rendered from Scryfall's `large` scans at twice the resolution, closer to a full-size phone photo; downloads 150 more images), `--set phone` (152 cards, each rendered plain, viewed 30–55° off straight-on, and in dim light, at live-camera size: how people actually hold a phone; includes the Star Trek planets, borderless foil and tokens from the owner's first phone test), `--set phone-1080` (the same scenes at 1920×1080), `--set phone-flash` (the same 152 cards once each with a flashlight hotspot on the art, in a red deck box, soft close-up focus: the owner's M4 setup), `--set phone-redbox` (the same cards in a red box whose light tints them red, 60% with a flashlight hotspot), `--detect-size 480` (detect on a smaller copy than 640), `--lock true-set` (each card scanned into a batch locked to its own set) and `--lock other-set` (to a set it isn't from: nothing may be auto-accepted) |
+
+`npx tsx tests/eval/testlog-to-fixtures.ts <log.json>` turns a phone's test log into real-scan fixtures (`--dry-run`, `--out dir`; see `tests/eval/TESTLOG.md`).
 
 Set `MANIFEST_BASE` to build for a sub-path (GitHub Pages uses `/manifest/`; CI sets it).
 
@@ -196,7 +198,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
 
 ## Accuracy, testing, and the eval harness (non-negotiable)
 
-- `tests/fixtures/real-scans/` holds labeled real photos supplied by the owner. Labels live in `labels.json` (filename → game, Scryfall/printing id, foil, and sleeved/lighting notes); the format is in that folder's README.
+- `tests/fixtures/real-scans/` holds labeled real photos supplied by the owner. Labels live in `labels.json` (filename → game, Scryfall/printing id, foil, and sleeved/lighting notes); the format is in that folder's README. A phone test's log (see Status → M4 → Test log) adds the scans the owner corrected there as padded card crops, tagged `testlog` and `cropped`: they test recognition, not detection.
 - Until there are real scans, the eval also runs a **synthetic set**: 320 printings sampled (stratified, deterministic) from the bulk file, their Scryfall `normal` images composited onto procedural backgrounds with perspective, rotation (incl. upside-down and sideways), lighting, glare, sleeve sheen, blur, noise and JPEG compression (`tests/eval/synthesize.ts`). Images are cached in `.cache/eval/`, never committed. Synthetic numbers are optimistic (the source images are the index's own scans); real scans decide. The `phone` set (`--set phone`) re-renders a subset with a real 3D tilt (pinhole camera, phone field of view), dim light (dark, or brightened and noisy as a phone camera does it) and foil sheen.
 - `npm run eval` runs the full pipeline on the fixtures and reports:
   - top-1 **name** accuracy, top-1 **printing** accuracy, and top-5 accuracy
@@ -309,6 +311,49 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - Node p50/p95: flash 222/709 → 218/707, phone 229/582 → 214/587, standard 219/516 → 204/519.
       - Throttled Chromium (4×), per frame: detect 36–43 → 26–30 ms.
     - **Tests:** 349 unit, 47 e2e, passing on Linux in Docker as deploy.yml's verify job runs them.
+  - **Round 5 fixes (2026-11-12, PR #8, merged, not yet phone-tested).** The owner's fifth iPhone test (red deck box as a chute, flashlight on, 1080p, Star Trek cards, no set lock) added 15 cards and sent 30 to review. Clearly legible titles read as nothing ("Swamp"), "2" ("Orion") or "fulcan" ("Vulcan").
+    - **Cause, from the review crops in the screenshots:**
+      - The title line held non-letters: the title bar's outline above and below the name, the top of the art as a band (Orion), and the card's border at one end when the outline was a little off (Swamp).
+      - The band's left edge clipped the first letter: "Jrion", "'ulcan".
+      - "The title outside the frame" was the preview: a 3:4 box hid the top and bottom of the portrait 1080p frame, which the scanner saw whole.
+    - **Rescue readings for a poorly read title** (`titleCrop.ts`, `pipeline.readTitle`). Only after the usual three renderings read < 0.85:
+      - the cleaned line (`cleanLine`): rule rows near the strip's top and bottom, or thin ones anywhere, are erased, along with what is left of them and tall border blobs at the ends. Letters joined to a rule keep their rows, and blurred letters run together through the middle stay;
+      - then the cleaned line from a wider band (MTG `title.wide`, x 10–478 of 488).
+      - They count only when sure: ≥ 0.75, or ≥ 0.9 for a name under 5 letters.
+      - Making the cleaned or wide line the first reading cost the standard set about 2 points of names. Blurred titles found by their art lost to short junk ("we" → Web, "- Tee" → Tek), which also fixed orientation wrongly.
+    - **Live preview** (`capture/CameraPreview.tsx`): the camera's whole picture in its own shape, up to 58vh. The cut-off hint says "Move the phone back: the whole card must be in view."
+    - **Dropped:**
+      - brightest-channel grey under a colour cast (mixed on the owner's crops);
+      - extending the collector band past the card's bottom edge for outlines that stop short of a dark bottom border. It was better on standard but worse on phone, where the band picks up background texture below the card. Vulcan's cut collector line stays unfixed.
+    - **Eval, before → after** (0 wrong auto-accepts everywhere, no card lost its auto-accept; sweeps as before, so 0.9 stays):
+      - `phone-redbox` (152, new): name 92.8% → 94.7%, printing 78.9% → 80.9%, auto-accepted 46.1% → 47.4%.
+      - `phone-flash`: name 85.5% → 88.8%, printing 67.1% → 69.7%, auto-accepted 27.6% → 28.9%.
+      - `phone`: name 87.7% → 87.9%, auto-accepted 36.4% → 37.7%.
+      - Standard: name 92.2% → 92.8%, printing 74.4% → 75.0%, auto-accepted 39.7% → 40.3%.
+      - Latency: p95 rose (standard 522 → 647 ms) from the rescue OCR on poorly read titles.
+      - The synthetic red light is milder than the owner's box.
+    - **Open:** Guidance Failure was counted three times in a row while dedupe caught 5 re-reads; whether these were 3 real copies is unknown.
+  - **Test log (2026-11-13, PR #9, not yet merged or phone-tested).** iPhone QA went through screenshots, and the backup holds only waiting reviews. Now the scanner can record a test log and share it as one file.
+    - **Where:** Scan → Sound and testing (`capture/TestLogPanel.tsx`).
+      - "Record a test log": off by default, remembered, with the line "It stays on this phone until you share it". Nothing is sent anywhere.
+      - "Include card pictures": on by default; each card as a 244×340 JPEG, about 10 KB.
+      - A count of logged scans; Share (Web Share) / Download / Clear.
+    - **Reads** (`session/testLog.ts`, `session/testLogRecord.ts`): one per live or photo scan.
+      - Build (`__BUILD__`: package version + commit), user agent and settings (camera, flashlight, set lock, foil, language, condition, sound).
+      - Frame size, per-stage timings and quality (light, noise, sharpness, tilt, glare, card width, in frame, issues, advice).
+      - The raw title and collector OCR, the trace, the top 5 candidates with per-signal scores, and the confidences.
+      - The outcome: added, review with its reason, or same card not counted with why (`LiveSession.lastSameCard`, `FrameOutcome.repeat`).
+    - **Trace:** `Recognition.trace` records the paths recognition took. It is bookkeeping only: the standard eval gave the same result on all 320 cards.
+      - `title:rendering-N` (1–3, or the rescue readings 4–5), `title:from-frame`, `title:upside-down`;
+      - `outline:N`, `outline:fallback`, `center-guess`, `orientation-unknown`;
+      - `deglared`, `hash-search`, `collector:skipped`/`digits`/`lookup`, `lock:number-lookup`, `lock:outside`, `gave-up`.
+    - **Follow-up events**, linked by a scan id that travels with the card (`ReviewItem.scanId`, `BatchItem.scanIds`, kept through merges):
+      - a review accepted as a printing (the ground truth), with how it was found (`via`: candidate rank, all printings, search, all similar);
+      - a review discarded;
+      - a thumbnail's Undo;
+      - Change printing in the Batch tab (the ground truth for every read in the row).
+    - **Storage and format:** a ring buffer of the last 300 reads in Dexie v3 table `testlog`. File format `manifest-testlog` version 1, documented in `tests/eval/TESTLOG.md`. `tests/eval/testlog-to-fixtures.ts` turns labelled reads into real-scan fixtures; a later Undo or discard removes a label.
+    - **Tests:** 363 unit and 48 e2e, passing on Linux in Docker as deploy.yml's verify job runs them. The new e2e records a log, scans, undoes, resolves a review, downloads the file, checks it and clears it.
 
 ## Working agreements for Claude Code
 

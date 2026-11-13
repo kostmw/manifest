@@ -80,6 +80,8 @@ export interface IdentifyInput {
   lockSets?: readonly string[];
   keepImages?: boolean;
   lap?: (stage: string) => void;
+  /** Collects which paths were taken (see Recognition.trace). */
+  trace?: string[];
 }
 
 /** Card units around the card kept for fingerprinting, enough for the widest outline guess. */
@@ -343,10 +345,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const { regions } = game;
   const size = regions.size;
   const lap = input.lap ?? (() => {});
+  const trace = input.trace ?? [];
 
   // Fingerprints of the card under each registration guess (and turned over, if unsure).
   const hasFingerprints = await catalog.hasFingerprints();
   const queries = fingerprintQueries(frame, input.corners, regions, input.orientationKnown, hasFingerprints);
+  if (queries.length > 0 && queries.length > (input.orientationKnown ? 1 : 2) * (1 + regions.outlines.length)) trace.push('deglared');
+  if (!input.orientationKnown) trace.push('orientation-unknown');
   lap('fingerprint');
 
   // The candidate pool: printings of every name any signal puts forward.
@@ -387,6 +392,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       await addNames([...new Set(found.filter((entry) => entry !== null).map((entry) => entry!.printing.name))], 'hash');
       measure();
     }
+    trace.push('hash-search');
     lap('hash-search');
   }
 
@@ -425,7 +431,9 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   let collector: CollectorReading | null = null;
   let used = firstQuery;
   const crops: GrayImage[] = [];
-  for (const query of artSettles(ranked[0]?.name ?? null) ? [] : tries) {
+  const skipCollector = artSettles(ranked[0]?.name ?? null);
+  if (skipCollector) trace.push('collector:skipped');
+  for (const query of skipCollector ? [] : tries) {
     const lines = cropCollectorLines(frame, placedMapping(query.mapping, query.placement, size), regions.collector);
     const texts: string[] = [];
     for (const line of lines) {
@@ -439,6 +447,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     if (setLine > 0 && !reading?.numbers.length) {
       const digits = (await input.ocr.readLine(lines[setLine - 1]!.image, { characters: COLLECTOR_NUMBER_CHARACTERS })).text;
       const again = game.parseCollectorLine([...texts, digits]);
+      trace.push('collector:digits');
       if (again?.numbers.length) {
         reading = again;
         texts.push(digits);
@@ -467,6 +476,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       if (names.size > 0) break;
     }
     if (names.size > 0 && names.size <= 3) {
+      trace.push('collector:lookup');
       await addNames([...names], 'collector');
       measure();
     }
@@ -476,6 +486,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     const names = new Set<string>();
     for (const set of lock) for (const number of collector.numbers.slice(0, 2)) for (const name of input.collectors.lookup(set, number)) names.add(name);
     if (names.size > 0 && names.size <= LOCKED_NUMBER_NAMES) {
+      trace.push('lock:number-lookup');
       await addNames([...names], 'collector');
       measure();
     }
@@ -553,6 +564,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const evidence = sameName.map((c) => -(c.hashDistance ?? NO_FINGERPRINT_DISTANCE) / 3 + 3 * (c.collector?.score ?? 0));
   const printingConfidence = Math.min(cap, sameName.length === 1 ? 1 : share(evidence, 0));
 
+  if (outsideNames.has(topName)) trace.push('lock:outside');
   return {
     candidates: scored.slice(0, TOP),
     confidence: nameConfidence * printingConfidence,

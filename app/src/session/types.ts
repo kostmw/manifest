@@ -36,6 +36,8 @@ export interface BatchItem {
   addedAt: string;
   /** Printing + finish + language + condition. Adding a card with the same key raises its quantity. */
   mergeKey: string;
+  /** The test log's ids of the scans that went into this row, newest last (at most 20). */
+  scanIds?: string[];
 }
 
 /** Why a scanned card waits for review instead of going straight into the batch. */
@@ -76,4 +78,6 @@ export interface ReviewItem {
   lang: string;
   condition: string;
   qty: number;
+  /** The test log's id of the scan that queued it. */
+  scanId?: string;
 }

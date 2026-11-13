@@ -49,6 +49,8 @@ describe('recognizeFrame', () => {
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr });
     expect(result.title?.rotated).toBe(true);
     expect(result.names[0]).toBe('Sol Ring');
+    // The test log's record of the path taken.
+    expect(result.trace).toEqual(expect.arrayContaining(['title:rendering-1', 'title:upside-down']));
   });
 
   it('reads a title from the cleaned line when the usual renderings fail, but only when sure', async () => {
@@ -56,6 +58,7 @@ describe('recognizeFrame', () => {
     const rescued = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Sol Ring') });
     expect(rescued.title?.rotated).toBe(false);
     expect(rescued.names[0]).toBe('Sol Ring');
+    expect(rescued.trace).toContain('title:rendering-4');
     // A cleaned line that spells a short name by chance doesn't count.
     const chance = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Ow', 'Ow', '#~') });
     expect(chance.title?.text).not.toBe('Ow');

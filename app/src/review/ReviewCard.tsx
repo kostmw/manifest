@@ -9,6 +9,7 @@ import { getGame } from '../games/registry';
 import type { Printing } from '../games/types';
 import { PrintingPicker } from '../search/PrintingPicker';
 import { acceptReview, acceptReviews, discardReview, similarReviews } from '../session/reviews';
+import { knownIds, logEvent, logPrinting } from '../session/testLog';
 import type { Batch, ReviewItem } from '../session/types';
 import { UNREADABLE_BELOW } from '../session/intake';
 import { BUTTON_DANGER, BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
@@ -75,6 +76,8 @@ export function ReviewCard({
   const candidates = review.candidates.slice(0, 5);
   const [selected, setSelected] = useState<number | null>(candidates.length > 0 ? 0 : null);
   const [custom, setCustom] = useState<Printing | null>(null);
+  /** How the custom printing was found, for the test log: all printings of a name, or a search. */
+  const [customVia, setCustomVia] = useState<'printings' | 'search'>('printings');
   const [picking, setPicking] = useState<{ name?: string; searchFirst?: boolean } | null>(null);
   const [foil, setFoil] = useState(review.foil);
   const [qty, setQty] = useState(review.qty);
@@ -98,9 +101,14 @@ export function ReviewCard({
       setFailed(true);
     }
   };
+  /** How the chosen printing was found, for the test log. */
+  const via = custom ? customVia : `candidate-${(selected ?? 0) + 1}`;
   const accept = () => {
     if (!chosen || !finish) return;
-    void run(() => acceptReview(batch, review, { printing: chosen, finish, qty }), 'accepted');
+    void run(async () => {
+      await acceptReview(batch, review, { printing: chosen, finish, qty });
+      logEvent({ type: 'review-accepted', readIds: knownIds(review.scanId), printing: logPrinting(chosen), finish, qty, via });
+    }, 'accepted');
   };
   const acceptSimilar = () => {
     if (!chosen) return;
@@ -120,8 +128,18 @@ export function ReviewCard({
         ),
       'accepted',
     );
+    logEvent({
+      type: 'review-accepted',
+      readIds: knownIds(review.scanId, ...similar.map((item) => item.scanId)),
+      printing: logPrinting(chosen),
+      via: `${via}, all similar`,
+    });
   };
-  const discard = () => void run(() => discardReview(review.id), 'discarded');
+  const discard = () =>
+    void run(async () => {
+      await discardReview(review.id);
+      logEvent({ type: 'review-discarded', readIds: knownIds(review.scanId) });
+    }, 'discarded');
 
   // Enter on one of this card's own buttons (Discard, say) presses that button, as it always does.
   // Anywhere else, a candidate included, it adds the chosen printing.
@@ -206,6 +224,7 @@ export function ReviewCard({
           searchFirst={picking.searchFirst}
           onChoose={(printing) => {
             setCustom(printing);
+            setCustomVia(picking.searchFirst ? 'search' : 'printings');
             setSelected(null);
             setPicking(null);
           }}

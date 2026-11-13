@@ -1,7 +1,7 @@
 /** The review queue: scanned cards the recognizer wasn't sure enough to add on its own. */
 import { getGame } from '../games/registry';
 import type { Printing } from '../games/types';
-import { mergeKeyFor } from './batches';
+import { mergeKeyFor, withScan } from './batches';
 import { db } from './db';
 import type { Batch, ReviewItem } from './types';
 
@@ -47,11 +47,13 @@ export async function acceptReviews(batch: Batch, resolutions: readonly { review
       const mergeKey = mergeKeyFor(printing.id, finish, lang, review.condition);
       const existing = await db.items.where({ batchId: batch.id, mergeKey }).first();
       if (existing) {
-        await db.items.update(existing.id, { qty: existing.qty + qty });
+        const scanIds = withScan(existing.scanIds, review.scanId);
+        await db.items.update(existing.id, { qty: existing.qty + qty, ...(scanIds ? { scanIds } : {}) });
         ids.push(existing.id);
       } else {
         const id = crypto.randomUUID();
         await db.items.add({
+          ...(review.scanId ? { scanIds: [review.scanId] } : {}),
           id,
           batchId: batch.id,
           printing,

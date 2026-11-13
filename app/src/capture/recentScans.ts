@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react';
 import { changeQuantity } from '../session/batches';
 import { discardReview } from '../session/reviews';
+import { logEvent } from '../session/testLog';
 
 export const RECENT_LIMIT = 5;
 
@@ -23,6 +24,8 @@ export interface RecentScan {
   /** The batch row the card went into. */
   itemId?: string;
   reviewId?: string;
+  /** The test log's id of this scan. */
+  scanId?: string;
   /** Object URL of the user's crop. */
   thumb: string | null;
   /** performance.now() when it was scanned. */
@@ -63,6 +66,7 @@ export async function undoRecent(entry: RecentScan): Promise<void> {
   if (entry.kind === 'added' && entry.itemId) await changeQuantity(entry.itemId, -1);
   if (entry.kind === 'review' && entry.reviewId) await discardReview(entry.reviewId);
   removeRecent(entry.id);
+  if (entry.scanId) logEvent({ type: 'undo', readIds: [entry.scanId] });
 }
 
 function subscribe(listener: () => void): () => void {

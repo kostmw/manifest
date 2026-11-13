@@ -13,7 +13,7 @@ import type { GameId } from '../games/types';
 import { detectCards } from '../vision/detect';
 import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
-import { assessQuality, type QualityAdvice, type QualityIssue, type QualityMetrics } from '../vision/quality';
+import { assessQuality, type QualityAdvice, type QualityIssue, type QualityMetrics, type QualityReport } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
 import { canvasFromFrame, cornersMapping, deglared, FINGERPRINT_VERSION, fingerprintAt, toWords } from './fingerprint';
 import type { PrintingCandidate } from './identify';
@@ -52,6 +52,12 @@ export interface ScanResult {
   guessedOutline: boolean;
   /** The batch is locked to some sets, and the best name has no printing in them. */
   outsideLock: boolean;
+  /** The paths recognition took (see Recognition.trace). */
+  trace: string[];
+  /** The quality gate's measurements and verdict for the card that was read; null when none was. */
+  quality: (QualityMetrics & { issues: QualityIssue[]; inFrame: boolean }) | null;
+  /** The frame or photo's size, as read. */
+  frame: { width: number; height: number };
 }
 
 export interface FrameOutcome {
@@ -77,6 +83,8 @@ export interface FrameOutcome {
    * is counted.
    */
   sameCard?: boolean;
+  /** That read, and why it was taken for the same card, for the test log. */
+  repeat?: { result: ScanResult; why: string };
 }
 
 /**
@@ -158,7 +166,7 @@ function ready() {
   return { regions: adapter.regions, names, ocr, printings: { game: adapter, catalog, collectors, lockSets } };
 }
 
-async function toResult(recognition: Recognition, started: number, gaveUp = false): Promise<ScanResult> {
+async function toResult(recognition: Recognition, started: number, frame: { width: number; height: number }, gaveUp = false): Promise<ScanResult> {
   const card = recognition.card ? await toJpeg(recognition.card) : null;
   return {
     decision: recognition.decision,
@@ -175,15 +183,20 @@ async function toResult(recognition: Recognition, started: number, gaveUp = fals
     gaveUp,
     guessedOutline: recognition.guessedOutline,
     outsideLock: recognition.outsideLock,
+    trace: recognition.trace,
+    quality: recognition.quality
+      ? { ...recognition.quality.metrics, issues: recognition.quality.issues, inFrame: !recognition.quality.issues.includes('out-of-frame') }
+      : null,
+    frame,
   };
 }
 
 /** What live mode reports for a card it has given up on: no names, the crop, and why it may have failed. */
-function unreadable(card: RgbaImage, advice: QualityAdvice[], timings: Record<string, number>): Recognition {
+function unreadable(card: RgbaImage, quality: QualityReport, timings: Record<string, number>): Recognition {
   return {
     decision: 'review',
     detection: null,
-    quality: { ok: true, issues: [], advice, metrics: { cardWidth: 0, sharpness: 0, titleGlare: 0, cardGlare: 0, brightness: 0, tilt: 0, noise: 0, hotspot: 0 } },
+    quality,
     title: null,
     names: [],
     titleCandidates: [],
@@ -195,6 +208,7 @@ function unreadable(card: RgbaImage, advice: QualityAdvice[], timings: Record<st
     card,
     guessedOutline: false,
     outsideLock: false,
+    trace: ['gave-up'],
   };
 }
 
@@ -288,11 +302,13 @@ const api = {
         return finish();
       }
       outcome.phase = 'read';
+      const result = await toResult(unreadable(card, quality, recognition?.timings ?? {}), started, outcome.frame, true);
       if (verdict === 'same-card') {
         outcome.sameCard = true;
+        outcome.repeat = { result, why: live.lastSameCard ?? 'same card' };
         return finish();
       }
-      outcome.result = await toResult(unreadable(card, quality.advice, recognition?.timings ?? {}), started, true);
+      outcome.result = result;
       return finish();
     }
     outcome.phase = 'read';
@@ -301,9 +317,10 @@ const api = {
     // A card that only looked different (glare, foil shimmer) is the card already counted.
     if (!live.settle(signature, best.corners, identityOf(recognition))) {
       outcome.sameCard = true;
+      outcome.repeat = { result: await toResult(recognition, started, outcome.frame), why: live.lastSameCard ?? 'same card' };
       return finish();
     }
-    outcome.result = await toResult(recognition, started);
+    outcome.result = await toResult(recognition, started, outcome.frame);
     return finish();
   },
 
@@ -333,7 +350,7 @@ const api = {
       advice: recognition.quality?.advice ?? [],
       metrics: recognition.quality?.metrics ?? null,
       timings: { pixels: copied, ...recognition.timings, total: performance.now() - started },
-      result: recognition.decision === 'no-card' ? null : await toResult(recognition, started),
+      result: recognition.decision === 'no-card' ? null : await toResult(recognition, started, { width: frame.width, height: frame.height }),
     };
   },
 };

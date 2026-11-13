@@ -48,15 +48,16 @@ export type IntakeOutcome =
   | { kind: 'added'; itemId: string; printing: Printing; finish: string }
   | { kind: 'review'; review: ReviewItem };
 
-export async function intake(batch: Batch, scan: ScannedCard, source: ReviewItem['source']): Promise<IntakeOutcome> {
+export async function intake(batch: Batch, scan: ScannedCard, source: ReviewItem['source'], scanId?: string): Promise<IntakeOutcome> {
   const decision = decideIntake(scan);
   const foil = batch.settings.foil === true;
   if (decision.kind === 'add') {
     const finish = getGame(batch.game).defaultFinish(decision.printing, foil);
-    const itemId = await addCard(batch, decision.printing, { finish });
+    const itemId = await addCard(batch, decision.printing, { finish, ...(scanId ? { scanId } : {}) });
     return { kind: 'added', itemId, printing: decision.printing, finish };
   }
   const review = await queueReview({
+    ...(scanId ? { scanId } : {}),
     batchId: batch.id,
     source,
     ...(scan.card ? { crop: await scan.card.arrayBuffer() } : {}),
