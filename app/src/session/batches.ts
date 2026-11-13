@@ -60,7 +60,11 @@ export async function mergeBatches(sourceId: string, targetId: string): Promise<
     for (const item of await db.items.where('batchId').equals(sourceId).toArray()) {
       const twin = await db.items.where({ batchId: targetId, mergeKey: item.mergeKey }).first();
       if (twin) {
-        await db.items.update(twin.id, { qty: twin.qty + item.qty, addedAt: item.addedAt < twin.addedAt ? item.addedAt : twin.addedAt });
+        await db.items.update(twin.id, {
+          qty: twin.qty + item.qty,
+          addedAt: item.addedAt < twin.addedAt ? item.addedAt : twin.addedAt,
+          ...mergedScans(twin, item),
+        });
         await db.items.delete(item.id);
       } else {
         await db.items.update(item.id, { batchId: targetId });
@@ -80,6 +84,17 @@ export interface AddCardOptions {
   lang?: string;
   condition?: string;
   qty?: number;
+  /** The test log's id of the scan that adds it. */
+  scanId?: string;
+}
+
+/** Scan ids kept on a batch row, for the test log's printing changes. */
+const SCAN_IDS_KEPT = 20;
+export const withScan = (ids: string[] | undefined, scanId: string | undefined) => (scanId ? [...(ids ?? []), scanId].slice(-SCAN_IDS_KEPT) : ids);
+/** Two rows' scan ids, for the row they merge into. */
+function mergedScans(into: BatchItem, from: BatchItem): Partial<BatchItem> {
+  const ids = [...(into.scanIds ?? []), ...(from.scanIds ?? [])].slice(-SCAN_IDS_KEPT);
+  return ids.length ? { scanIds: ids } : {};
 }
 
 /**
@@ -96,11 +111,13 @@ export async function addCard(batch: Batch, printing: Printing, options: AddCard
   return db.transaction('rw', db.items, async () => {
     const existing = await db.items.where({ batchId: batch.id, mergeKey }).first();
     if (existing) {
-      await db.items.update(existing.id, { qty: existing.qty + qty });
+      const scanIds = withScan(existing.scanIds, options.scanId);
+      await db.items.update(existing.id, { qty: existing.qty + qty, ...(scanIds ? { scanIds } : {}) });
       return existing.id;
     }
     const id = crypto.randomUUID();
     await db.items.add({
+      ...(options.scanId ? { scanIds: [options.scanId] } : {}),
       id,
       batchId: batch.id,
       printing,
@@ -149,7 +166,7 @@ export async function updateItem(
     const mergeKey = mergeKeyFor(next.printing.id, next.finish, next.lang, next.condition);
     const twin = await db.items.where({ batchId: item.batchId, mergeKey }).first();
     if (twin && twin.id !== item.id) {
-      await db.items.update(twin.id, { qty: twin.qty + item.qty });
+      await db.items.update(twin.id, { qty: twin.qty + item.qty, ...mergedScans(twin, item) });
       await db.items.delete(item.id);
       return twin.id;
     }

@@ -106,6 +106,14 @@ export function sameCard(before: CardIdentity, after: CardIdentity, distance: nu
   return distance <= SAME_CARD_DISTANCE;
 }
 
+/** Why `sameCard` took two reads for one card, in words for the test log. */
+export function sameCardReason(before: CardIdentity, after: CardIdentity, distance: number): string {
+  const art = Number.isFinite(distance) ? `artwork ${distance} bits from how it looked before` : 'no fingerprint';
+  if (before.printingId && after.printingId) return `same printing (${after.printingId}), ${art}`;
+  if (before.name && after.name) return `same name (${after.name}), printing unsure, ${art}`;
+  return `name not read, ${art}`;
+}
+
 /**
  * Live-mode bookkeeping for continuous scanning: the camera keeps watching
  * while cards are slid in one at a time or stacked. A card is read once it has
@@ -145,6 +153,8 @@ export class LiveSession {
   private trigger: 'fresh' | 'copy' | 'different' = 'fresh';
   /** For a `different` read: how far the card in view was from the card read last. */
   private triggerDistance = Number.POSITIVE_INFINITY;
+  /** Why the last read settled as the card already counted, for the test log. */
+  lastSameCard: string | null = null;
 
   constructor(
     private readonly stability: StabilityOptions = LIVE_STABILITY,
@@ -241,6 +251,7 @@ export class LiveSession {
    */
   settle(signature: Uint32Array | null, corners: Quad | null, identity: CardIdentity): boolean {
     if (this.trigger === 'different' && sameCard(this.identity, identity, this.triggerDistance)) {
+      this.lastSameCard = sameCardReason(this.identity, identity, this.triggerDistance);
       this.read = true;
       this.failures = 0;
       if (signature) this.signatures = [...this.signatures, signature].slice(-SIGNATURES_KEPT);

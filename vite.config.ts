@@ -1,4 +1,5 @@
 import { cp, mkdir, readFile, stat } from 'node:fs/promises';
+import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve, sep } from 'node:path';
@@ -9,6 +10,15 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // GitHub Pages serves the site from /manifest/; Cloudflare Pages and local dev from /.
 const base = process.env.MANIFEST_BASE ?? '/';
+/** Package version and commit, for the test log: which build a phone test ran. */
+const BUILD = (() => {
+  const version = (JSON.parse(readFileSync('package.json', 'utf8')) as { version: string }).version;
+  try {
+    return `${version}+${execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()}`;
+  } catch {
+    return version;
+  }
+})();
 const dataDir = resolve(process.env.MANIFEST_DATA_DIR ?? 'data');
 
 /**
@@ -97,7 +107,7 @@ export default defineConfig({
   base,
   build: { outDir: '../dist', emptyOutDir: true },
   worker: { format: 'es' },
-  define: { __OCR_DIR__: JSON.stringify(OCR_DIR) },
+  define: { __OCR_DIR__: JSON.stringify(OCR_DIR), __BUILD__: JSON.stringify(BUILD) },
   plugins: [
     react(),
     tailwindcss(),

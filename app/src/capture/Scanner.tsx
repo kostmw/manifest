@@ -4,6 +4,8 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { printingCode } from '../review/explain';
 import { ReviewCard } from '../review/ReviewCard';
 import { intake, UNREADABLE_BELOW } from '../session/intake';
+import { testLogEnabled, type TestLogSettings } from '../session/testLog';
+import { logOutcome, recordRead } from '../session/testLogRecord';
 import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
 import {
@@ -22,6 +24,7 @@ import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
 import { pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
 import { ScanSettings } from './ScanSettings';
+import { TestLogPanel } from './TestLogPanel';
 import { useCamera, type Torch } from './useCamera';
 import { useWakeLock } from './useWakeLock';
 
@@ -242,12 +245,42 @@ export function Scanner({
   const batchRef = useRef(batch);
   batchRef.current = batch;
 
+  // The camera's flashlight, for the test log's settings.
+  const torchRef = useRef(camera.torch.on);
+  torchRef.current = camera.torch.on;
+  /** The settings a scan was made with, for the test log. */
+  const logSettings = useCallback((target: Batch): TestLogSettings => ({
+    camera: cameraResolution(),
+    flashlight: torchRef.current,
+    lockSets: target.settings.lockSets ?? [],
+    foil: target.settings.foil === true,
+    lang: target.settings.defaultLang,
+    condition: target.settings.defaultCondition,
+    sound: soundMode(),
+  }), []);
+
+  /** A read of the card already counted (glare, shimmer): nothing is filed, but the test log keeps it. */
+  const logRepeat = useCallback((repeat: { result: ScanResult; why: string }, timings: Record<string, number>) => {
+    const target = batchRef.current;
+    if (!target || !testLogEnabled()) return;
+    void recordRead({
+      id: crypto.randomUUID(),
+      source: 'live',
+      scan: repeat.result,
+      outcome: logOutcome({ kind: 'same-card', why: repeat.why }),
+      settings: logSettings(target),
+      timings,
+    });
+  }, [logSettings]);
+
   /** Files a scanned card: into the batch or the review queue, with sound, vibration and a flash. */
-  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo') => {
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>) => {
     const target = batchRef.current;
     if (!target) return null;
     try {
-      const outcome = await intake(target, scan, source);
+      const scanId = crypto.randomUUID();
+      const outcome = await intake(target, scan, source, scanId);
+      if (testLogEnabled()) void recordRead({ id: scanId, source, scan, outcome: logOutcome(outcome), settings: logSettings(target), timings });
       const best = scan.printings[0]?.printing;
       const sure = scan.nameConfidence >= UNREADABLE_BELOW;
       const entry = pushRecent({
@@ -257,6 +290,7 @@ export function Scanner({
         name: outcome.kind === 'added' ? (outcome.printing.exportName ?? outcome.printing.name) : sure ? (scan.names[0] ?? null) : null,
         code: outcome.kind === 'added' ? printingCode(outcome.printing) : best && sure ? printingCode(best) : null,
         ...(outcome.kind === 'added' ? { itemId: outcome.itemId } : { reviewId: outcome.review.id }),
+        scanId,
         card: scan.card,
       });
       setLast({ entry });
@@ -268,7 +302,7 @@ export function Scanner({
       setSaveFailed(true);
       return null;
     }
-  }, []);
+  }, [logSettings]);
 
   useEffect(() => {
     if (recognizer.status !== 'ready' || !streaming || photoState === 'reading') return;
@@ -285,10 +319,11 @@ export function Scanner({
             // The camera keeps watching: a read card is filed, and the next one is looked for at once.
             if (outcome.result) {
               setLastRead(outcome.timings);
-              void file(outcome.result, 'live');
+              void file(outcome.result, 'live', outcome.timings);
             } else if (outcome.sameCard) {
               setLastRead(outcome.timings);
               setRepeats((count) => count + 1);
+              if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings);
             }
           }
         } catch {
@@ -300,7 +335,7 @@ export function Scanner({
     return () => {
       stopped = true;
     };
-  }, [recognizer.status, streaming, photoState, live, file]);
+  }, [recognizer.status, streaming, photoState, live, file, logRepeat]);
 
   // The big status line shows the last card for a few seconds, then the live hint again.
   useEffect(() => {
@@ -320,7 +355,7 @@ export function Scanner({
       const outcome = await photo(chosen);
       if (outcome?.result) {
         setLastRead(outcome.timings);
-        const filed = await file(outcome.result, 'photo');
+        const filed = await file(outcome.result, 'photo', outcome.timings);
         if (filed?.kind === 'review') {
           setPhotoReview({
             review: filed.review,
@@ -583,6 +618,7 @@ export function Scanner({
             />
             Sharper camera (1080p; slower, applies when the camera next starts)
           </label>
+          <TestLogPanel />
         </div>
       </details>
     </div>

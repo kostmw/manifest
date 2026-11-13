@@ -77,6 +77,13 @@ export interface TitleReading {
   /** True when the card was read upside down and turned. */
   rotated: boolean;
   inverted: boolean;
+  /**
+   * Which rendering read best: 1 binarized, 2 contrast-stretched grey, 3 strict
+   * threshold; the rescue readings 4 (the cleaned line) and 5 (the cleaned wide band).
+   */
+  rendering: number;
+  /** The title was warped straight from the frame, which held more detail than the rectified card. */
+  fromFrame: boolean;
   crop?: GrayImage;
 }
 
@@ -107,9 +114,16 @@ export interface Recognition {
   guessedOutline: boolean;
   /** With a set lock: the best name has no printing in the locked sets. */
   outsideLock: boolean;
+  /**
+   * The paths recognition took, for the test log: `title:rendering-N`,
+   * `title:from-frame`, `title:upside-down`, `outline:N` (a later detection),
+   * `outline:fallback`, `center-guess`, and identify.ts's own (`deglared`,
+   * `hash-search`, `collector:skipped`, `collector:digits`, `collector:lookup`…).
+   */
+  trace: string[];
 }
 
-const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null, guessedOutline: false, outsideLock: false };
+const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0, confidence: 0, collector: null, guessedOutline: false, outsideLock: false, trace: [] };
 
 /**
  * Reads the title, trying the crop's alternative renderings while the reading
@@ -120,22 +134,22 @@ async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: bo
     ? cropTitleFromFrame(source.frame, rotated ? source.turned : source.upright, options.regions.title, source.scale)
     : cropTitle(card, options.regions.title);
   const renderings = [crop.image, ...crop.alternatives.slice(0, rotated ? 1 : 2)];
-  let best: { line: OcrLine; match: TitleMatch; image: GrayImage } | null = null;
-  for (const image of renderings) {
+  let best: { line: OcrLine; match: TitleMatch; image: GrayImage; rendering: number } | null = null;
+  for (const [index, image] of renderings.entries()) {
     const line = await options.ocr.readLine(image);
     const match = matchTitle(options.names, line.text, 5);
-    if (!best || (match.confidence >= SWITCH_FLOOR && match.confidence > best.match.confidence)) best = { line, match, image };
+    if (!best || (match.confidence >= SWITCH_FLOOR && match.confidence > best.match.confidence)) best = { line, match, image, rendering: index + 1 };
     if (best.match.confidence >= enough) break;
   }
   // Still poor: the cleaned line, then the cleaned wide band. Only a sure reading of them counts,
   // since an unreadable title cleaned down to a few marks can spell a short real name.
-  for (const rescue of best!.match.confidence < enough ? crop.rescue : []) {
+  for (const [index, rescue] of (best!.match.confidence < enough ? crop.rescue : []).entries()) {
     const image = rescue();
     const line = await options.ocr.readLine(image);
     const match = matchTitle(options.names, line.text, 5);
     const name = match.candidates[0]?.name ?? '';
     const sure = match.confidence >= (name.replace(/[^\p{L}]/gu, '').length < RESCUE_SHORT_NAME ? RESCUE_SURE_SHORT : RESCUE_SURE);
-    if (sure && match.confidence > best!.match.confidence) best = { line, match, image };
+    if (sure && match.confidence > best!.match.confidence) best = { line, match, image, rendering: RESCUE_RENDERING + index };
     if (best!.match.confidence >= enough) break;
   }
   const title: TitleReading = {
@@ -143,6 +157,8 @@ async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: bo
     ocrConfidence: best!.line.confidence,
     rotated,
     inverted: crop.inverted,
+    rendering: best!.rendering,
+    fromFrame: source !== null,
     ...(options.keepImages ? { crop: best!.image } : {}),
   };
   return { title, match: best!.match, card };
@@ -200,6 +216,8 @@ async function centerGuess(frame: RgbaImage, options: RecognizeOptions, lap: (st
   };
 }
 
+/** The rendering number of the first rescue reading (see TitleReading.rendering). */
+const RESCUE_RENDERING = 4;
 /** A rescue reading of the title (see TitleCrop.rescue) counts only at this confidence… */
 const RESCUE_SURE = 0.75;
 /** …or this one, for a name of fewer than RESCUE_SHORT_NAME letters, which junk can spell by chance. */
@@ -321,6 +339,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     let collector: CollectorReading | null = null;
     let collectorCrops: GrayImage[] | undefined;
     let outsideLock = false;
+    const trace: string[] = [];
     let upright = card;
     if (options.printings) {
       const corners = title.rotated ? ([detection.corners[2], detection.corners[3], detection.corners[0], detection.corners[1]] as const) : detection.corners;
@@ -333,6 +352,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
         ocr: options.ocr,
         keepImages: options.keepImages,
         lap,
+        trace,
       });
       printings = found.candidates;
       collector = found.collector;
@@ -346,7 +366,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
         if (found.turned && options.keepImages) upright = rotateRgba180(card);
       }
     }
-    return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock };
+    return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock, trace };
   };
 
   let chosen = await conclude(best as Attempt & { read: NonNullable<Attempt['read']> });
@@ -355,7 +375,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     for (const other of attempts) {
       if (other === best || !other.read) continue;
       const alternative = await conclude(other as Attempt & { read: NonNullable<Attempt['read']> });
-      if (alternative.confidence > chosen.confidence) chosen = alternative;
+      if (alternative.confidence > chosen.confidence) chosen = { ...alternative, trace: [...alternative.trace, 'outline:fallback'] };
     }
   }
   // Still no name from what detection found: the card may be one with no outline of its own.
@@ -375,6 +395,15 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     return { decision: 'no-card', detection: null, quality: null, title: null, ...EMPTY, timings };
   }
   const { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock } = chosen;
+  const outlineIndex = detections.indexOf(detection);
+  const trace = [
+    `title:rendering-${title.rendering}`,
+    ...(title.fromFrame ? ['title:from-frame'] : []),
+    ...(title.rotated ? ['title:upside-down'] : []),
+    ...(outlineIndex > 0 ? [`outline:${outlineIndex + 1}`] : []),
+    ...(guessed ? ['center-guess'] : []),
+    ...chosen.trace,
+  ];
 
   const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed && !outsideLock ? 'accept' : 'review';
   return {
@@ -391,6 +420,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     timings,
     guessedOutline: guessed,
     outsideLock,
+    trace,
     ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),
   };
 }

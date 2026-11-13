@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Quad } from '../vision/geometry';
 import { StabilityTracker } from '../vision/stability';
 import { cardQuad } from '../vision/testScene';
-import { LiveSession, NO_IDENTITY, sameCard, signatureDistance, type SignatureProbe } from './liveSession';
+import { LiveSession, NO_IDENTITY, sameCard, sameCardReason, signatureDistance, type SignatureProbe } from './liveSession';
 
 const at = (x: number): Quad => cardQuad({ x, y: 300 }, 400);
 
@@ -261,6 +261,7 @@ describe('LiveSession under glare and foil shimmer (the owner’s deck box with 
     expect(session.next(at(300)).recognize).toBe(true);
     // Same name (the printing unsure, as foils often are): the same card. Not counted.
     expect(session.settle(shimmer, at(300), GRAY_AND_ADIRA)).toBe(false);
+    expect(session.lastSameCard).toBe('same name (Gray and Adira, Forever Joined), printing unsure, artwork 34 bits from how it looked before');
     // That look is remembered, so it doesn't trigger another read.
     expect(session.next(at(300))).toMatchObject({ phase: 'read', checkCard: true });
     expect(session.changed(flipped(foil, 33))).toBe(false);
@@ -295,5 +296,12 @@ describe('LiveSession under glare and foil shimmer (the owner’s deck box with 
     session.next(at(301));
     expect(session.changed(flipped(foil, 5))).toBe(true);
     expect(session.settle(flipped(foil, 5), at(301), GRAY_AND_ADIRA)).toBe(true);
+  });
+});
+
+describe('sameCardReason', () => {
+  it('says which rule took two reads for one card', () => {
+    expect(sameCardReason({ name: 'Opt', printingId: 'dom-60' }, { name: 'Opt', printingId: 'dom-60' }, 30)).toBe('same printing (dom-60), artwork 30 bits from how it looked before');
+    expect(sameCardReason(NO_IDENTITY, NO_IDENTITY, 28)).toBe('name not read, artwork 28 bits from how it looked before');
   });
 });

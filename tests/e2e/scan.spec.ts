@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import { drawFakeCard, type FakeCardOptions } from './fakeCard';
 
@@ -227,4 +228,43 @@ test('turns the timings on and off from inside the app', async ({ page }) => {
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByRole('status').first()).toBeVisible();
   await expect(page.getByTestId('debug-live')).toHaveCount(0);
+});
+
+test('records a test log of scans and corrections, and saves it as one file', async ({ page }) => {
+  await page.getByText('Sound and testing', { exact: true }).click();
+  await page.getByLabel('Record a test log').check();
+  await expect(page.getByLabel('Include card pictures (small, about 10 KB each)')).toBeChecked();
+
+  // One card added and then undone, one sent to review and settled by hand.
+  await scanPhoto(page, SOL_RING);
+  const strip = page.getByRole('list', { name: 'Last cards scanned' });
+  await expect(strip.getByRole('button', { name: 'Undo Sol Ring' })).toBeVisible({ timeout: 30_000 });
+  await strip.getByRole('button', { name: 'Undo Sol Ring' }).click();
+  await scanPhoto(page, { title: 'Lightning Bolt' });
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await result.getByRole('button', { name: 'Pick Lightning Bolt, M11 149' }).click({ timeout: 30_000 });
+  await result.getByRole('button', { name: /^Add M11 149/ }).click();
+  await expect(result).toHaveCount(0);
+
+  await expect(page.getByTestId('testlog-count')).toHaveText(/^2 scans in the log/, { timeout: 10_000 });
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download test log' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^manifest-testlog-\d{8}-\d{4}\.json$/);
+  const log = JSON.parse(await readFile((await download.path())!, 'utf8'));
+  expect(log).toMatchObject({ format: 'manifest-testlog', version: 1 });
+  expect(log.reads).toHaveLength(2);
+  const [solRing, bolt] = log.reads;
+  expect(solRing).toMatchObject({ source: 'photo', outcome: { kind: 'added' }, ocr: { title: expect.stringContaining('Sol') } });
+  expect(solRing.trace).toContain('title:rendering-1');
+  expect(solRing.timings).toHaveProperty('ocr');
+  expect(solRing.candidates[0]).toMatchObject({ set: 'cmm', number: '410' });
+  expect(solRing.crop).toMatch(/^\/9j\//);
+  expect(bolt.outcome).toEqual({ kind: 'review', reason: 'unsure-printing' });
+  expect(log.events).toEqual([
+    expect.objectContaining({ type: 'undo', readIds: [solRing.id] }),
+    expect.objectContaining({ type: 'review-accepted', readIds: [bolt.id], printing: expect.objectContaining({ set: 'm11', number: '149' }), via: 'candidate-2' }),
+  ]);
+
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Clear log' }).click();
+  await expect(page.getByTestId('testlog-count')).toHaveText(/^0 scans/);
 });

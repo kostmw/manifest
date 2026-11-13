@@ -16,6 +16,7 @@ import {
   updateBatchSettings,
   updateItem,
 } from './batches';
+import { logEvent, logPrinting } from './testLog';
 import type { Batch, BatchItem } from './types';
 import type { BatchesState } from './useBatches';
 
@@ -128,7 +129,9 @@ function ItemRow({ item, batch }: { item: BatchItem; batch: Batch }) {
           name={printing.name}
           onChoose={(chosen) => {
             setChanging(false);
-            void changeItemPrinting(item, chosen, game);
+            void changeItemPrinting(item, chosen, game).then(() =>
+              logEvent({ type: 'printing-changed', readIds: item.scanIds ?? [], printing: logPrinting(chosen), from: logPrinting(item.printing) }),
+            );
           }}
           onCancel={() => setChanging(false)}
         />
