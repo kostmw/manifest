@@ -110,12 +110,12 @@ function Outline({ frame }: { frame: FrameOutcome | null }) {
   if (!frame?.corners) return null;
   const good = frame.issues.length === 0;
   return (
-    // Same scaling as the video's object-cover, so the outline sits on the card.
+    // Same scaling as the video's object-contain, so the outline sits on the card.
     <svg
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 h-full w-full"
       viewBox={`0 0 ${frame.frame.width} ${frame.frame.height}`}
-      preserveAspectRatio="xMidYMid slice"
+      preserveAspectRatio="xMidYMid meet"
     >
       <polygon
         points={frame.corners.map((p) => `${p.x},${p.y}`).join(' ')}

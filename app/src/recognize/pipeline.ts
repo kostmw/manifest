@@ -127,6 +127,17 @@ async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: bo
     if (!best || (match.confidence >= SWITCH_FLOOR && match.confidence > best.match.confidence)) best = { line, match, image };
     if (best.match.confidence >= enough) break;
   }
+  // Still poor: the cleaned line, then the cleaned wide band. Only a sure reading of them counts,
+  // since an unreadable title cleaned down to a few marks can spell a short real name.
+  for (const rescue of best!.match.confidence < enough ? crop.rescue : []) {
+    const image = rescue();
+    const line = await options.ocr.readLine(image);
+    const match = matchTitle(options.names, line.text, 5);
+    const name = match.candidates[0]?.name ?? '';
+    const sure = match.confidence >= (name.replace(/[^\p{L}]/gu, '').length < RESCUE_SHORT_NAME ? RESCUE_SURE_SHORT : RESCUE_SURE);
+    if (sure && match.confidence > best!.match.confidence) best = { line, match, image };
+    if (best!.match.confidence >= enough) break;
+  }
   const title: TitleReading = {
     text: best!.line.text,
     ocrConfidence: best!.line.confidence,
@@ -188,6 +199,12 @@ async function centerGuess(frame: RgbaImage, options: RecognizeOptions, lap: (st
     tilt: 0,
   };
 }
+
+/** A rescue reading of the title (see TitleCrop.rescue) counts only at this confidence… */
+const RESCUE_SURE = 0.75;
+/** …or this one, for a name of fewer than RESCUE_SHORT_NAME letters, which junk can spell by chance. */
+const RESCUE_SURE_SHORT = 0.9;
+const RESCUE_SHORT_NAME = 5;
 
 /** Read the title from the frame itself once it holds this much more detail than the rectified card. */
 const FRAME_TITLE_MIN_DETAIL = 1.25;

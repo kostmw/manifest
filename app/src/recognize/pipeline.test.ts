@@ -43,11 +43,22 @@ describe('recognizeFrame', () => {
   });
 
   it('tries other renderings, then the card upside down, when the title reads poorly', async () => {
-    // Junk for the three upright renderings, then a clean read of the turned card.
-    const ocr = fakeOcr('#~', '#~', '#~', 'Sol Ring');
+    // Junk for the three upright renderings and the two rescue tries (cleaned, wide), then a clean
+    // read of the turned card.
+    const ocr = fakeOcr('#~', '#~', '#~', '#~', '#~', 'Sol Ring');
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr });
     expect(result.title?.rotated).toBe(true);
     expect(result.names[0]).toBe('Sol Ring');
+  });
+
+  it('reads a title from the cleaned line when the usual renderings fail, but only when sure', async () => {
+    // Three junk renderings, then the cleaned line reads the name.
+    const rescued = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Sol Ring') });
+    expect(rescued.title?.rotated).toBe(false);
+    expect(rescued.names[0]).toBe('Sol Ring');
+    // A cleaned line that spells a short name by chance doesn't count.
+    const chance = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Ow', 'Ow', '#~') });
+    expect(chance.title?.text).not.toBe('Ow');
   });
 
   it('sends a doubtful reading to review rather than accepting it', async () => {
