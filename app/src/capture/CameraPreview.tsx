@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import { CAMERA_FAILURE_MESSAGES } from './camera';
 import type { useCamera } from './useCamera';
 
@@ -22,6 +22,12 @@ export function CameraPreview({
 }) {
   const { state, start, stop, torch, setTorchOn } = camera;
   const stream = state.status === 'live' ? state.stream : null;
+  // The camera's own shape, once it reports it; 3:4 until then.
+  const [videoSize, setVideoSize] = useState({ width: 3, height: 4 });
+  const measure = () => {
+    const video = videoRef.current;
+    if (video?.videoWidth && video.videoHeight) setVideoSize({ width: video.videoWidth, height: video.videoHeight });
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -34,15 +40,25 @@ export function CameraPreview({
 
   return (
     <section aria-label="Camera" className="flex flex-col gap-3">
-      {/* Short until the camera runs, so whatever is below (a photo's result) stays in view. */}
-      <div className={`relative w-full overflow-hidden rounded-xl bg-black ${stream ? 'aspect-[3/4] sm:aspect-video' : 'h-56'}`}>
+      {/*
+        Short until the camera runs, so whatever is below (a photo's result) stays in view. Then
+        exactly the camera's picture, uncropped: what the scanner reads is what the user sees, so a
+        card that looks whole on screen is whole in the frame (a portrait 1080p picture shown in a
+        3:4 box hid its top and bottom).
+      */}
+      <div
+        className={`relative mx-auto overflow-hidden rounded-xl bg-black ${stream ? 'max-h-[58vh] max-w-full' : 'h-56 w-full'}`}
+        style={stream ? { aspectRatio: `${videoSize.width} / ${videoSize.height}`, height: 'auto', width: `min(100%, calc(58vh * ${videoSize.width / videoSize.height}))` } : undefined}
+      >
         <video
           ref={videoRef}
           data-testid="camera-video"
           autoPlay
           muted
           playsInline
-          className={`h-full w-full object-cover ${stream ? '' : 'hidden'}`}
+          onLoadedMetadata={measure}
+          onResize={measure}
+          className={`h-full w-full object-contain ${stream ? '' : 'hidden'}`}
         />
         {stream && overlay}
         {!stream && (

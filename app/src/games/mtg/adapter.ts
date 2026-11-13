@@ -42,7 +42,15 @@ export const MTG_REGIONS: CardRegions = {
   size: { width: 488, height: 680 },
   // 19–23 px of 488 on 1993–2015 frames; the bottom border is about twice that.
   border: 0.042,
-  title: { search: { x: 26, y: 12, width: 436, height: 88 }, lineHeight: 32, expectedCenterY: 53 },
+  // `wide` runs nearly the card's full width, a last try when the usual band reads poorly: an
+  // outline a little off to one side (a dark border in a red deck box) clips the name's first
+  // letter in it, but the wider band catches more of the frame, so it doesn't come first.
+  title: {
+    search: { x: 26, y: 12, width: 436, height: 88 },
+    wide: { x: 10, y: 12, width: 468, height: 88 },
+    lineHeight: 32,
+    expectedCenterY: 53,
+  },
   // Two lines (number, then set • language • artist) at the bottom left since 2014; the
   // 2003–2014 frames end the copyright line, at the same height, with the number.
   collector: { search: { x: 16, y: 626, width: 300, height: 48 }, lineHeight: 9, maxLines: 2 },

@@ -16,7 +16,7 @@ export type QualityIssue = 'out-of-frame' | 'too-small' | 'blurry' | 'glare' | '
 export const QUALITY_ISSUES: readonly QualityIssue[] = ['out-of-frame', 'too-small', 'too-dark', 'glare', 'blurry'];
 
 export const QUALITY_HINTS: Record<QualityIssue, string> = {
-  'out-of-frame': 'Fit the whole card in the frame.',
+  'out-of-frame': 'Move the phone back: the whole card must be in view.',
   'too-small': 'Move closer: the card is too small.',
   'too-dark': 'Too dark: add some light.',
   glare: 'Too much glare: tilt the card.',

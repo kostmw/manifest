@@ -404,9 +404,10 @@ export function scaleParams(params: SynthParams, factor: number): SynthParams {
  * `flash` is the owner's M4 setup: a phone over a red deck box used as a
  * chute, flashlight on, so the light bounces straight back as a hotspot on
  * the card (mostly on the art), the box is dim around it, and the focus is
- * soft at that distance.
+ * soft at that distance. `redbox` is the owner's second deck-box test: the
+ * red box tints the whole picture red, often with the flashlight's hotspot.
  */
-export type PhoneScene = 'plain' | 'tilt' | 'dim' | 'flash';
+export type PhoneScene = 'plain' | 'tilt' | 'dim' | 'flash' | 'redbox';
 
 export function phoneParams(rng: Rng, aspect: number, scene: PhoneScene, foil: boolean): SynthParams {
   const base = randomParams(rng, aspect);
@@ -453,6 +454,18 @@ export function phoneParams(rng: Rng, aspect: number, scene: PhoneScene, foil: b
     params.noise = uniform(rng, 2, 6);
     params.jpegQuality = Math.round(uniform(rng, 75, 88));
     conditions.push('flash', 'hotspot');
+  } else if (scene === 'redbox') {
+    params.background = 'solid';
+    params.backgroundColor = [uniform(rng, 180, 230), uniform(rng, 25, 60), uniform(rng, 15, 40)];
+    // Light bouncing off red walls: everything, the card included, comes out red.
+    params.tint = [uniform(rng, 1.15, 1.3), uniform(rng, 0.72, 0.88), uniform(rng, 0.68, 0.84)];
+    params.brightness = uniform(rng, 0.7, 1.0);
+    params.glare =
+      rng() < 0.6 ? { x: uniform(rng, 0.35, 0.65), y: uniform(rng, 0.22, 0.55), radius: uniform(rng, 0.08, 0.18), strength: uniform(rng, 0.6, 1.3) } : null;
+    params.blur = uniform(rng, 0.4, 1.3);
+    params.noise = uniform(rng, 2, 6);
+    params.jpegQuality = Math.round(uniform(rng, 75, 88));
+    conditions.push('redbox', 'red-cast', ...(params.glare ? ['hotspot'] : []));
   } else {
     conditions.push('plain');
   }

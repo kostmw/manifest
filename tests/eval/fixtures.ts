@@ -86,10 +86,11 @@ export function latestBulkFile(cacheDir = '.cache/bulk'): string | null {
  * size (1280×720). `phone-1080` is the same scenes at 1920×1080.
  * `phone-flash` renders the same cards once each with the flashlight on
  * inside a red deck box (see synthesize.ts's `flash` scene): a hotspot on the
- * art, as in the owner's M4 test.
+ * art, as in the owner's M4 test. `phone-redbox` renders them once each in a
+ * red box whose light tints the card red, often with the flashlight's hotspot.
  */
-export type SyntheticVariant = 'standard' | 'hires' | 'phone' | 'phone-1080' | 'phone-flash';
-export const SYNTHETIC_VARIANTS = ['standard', 'hires', 'phone', 'phone-1080', 'phone-flash'] as const;
+export type SyntheticVariant = 'standard' | 'hires' | 'phone' | 'phone-1080' | 'phone-flash' | 'phone-redbox';
+export const SYNTHETIC_VARIANTS = ['standard', 'hires', 'phone', 'phone-1080', 'phone-flash', 'phone-redbox'] as const;
 
 const VARIANTS: Record<
   SyntheticVariant,
@@ -100,6 +101,7 @@ const VARIANTS: Record<
   phone: { dir: 'synthetic-phone', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null, phone: true },
   'phone-1080': { dir: 'synthetic-phone-1080', imageDir: 'scryfall', size: 'normal', scale: 1.5, strata: null, phone: true },
   'phone-flash': { dir: 'synthetic-phone-flash', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null, phone: true, scenes: ['flash'] },
+  'phone-redbox': { dir: 'synthetic-phone-redbox', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null, phone: true, scenes: ['redbox'] },
 };
 
 const PHONE_SCENES: readonly PhoneScene[] = ['plain', 'tilt', 'dim'];
