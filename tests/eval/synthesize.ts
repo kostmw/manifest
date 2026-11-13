@@ -401,8 +401,12 @@ export function scaleParams(params: SynthParams, factor: number): SynthParams {
  * the card 30–55° off straight-on (mostly with the title on the far edge,
  * phone tilted back); `dim` is either a dark frame or one the camera has
  * brightened, which is what a phone does in dim light: noisy and soft.
+ * `flash` is the owner's M4 setup: a phone over a red deck box used as a
+ * chute, flashlight on, so the light bounces straight back as a hotspot on
+ * the card (mostly on the art), the box is dim around it, and the focus is
+ * soft at that distance.
  */
-export type PhoneScene = 'plain' | 'tilt' | 'dim';
+export type PhoneScene = 'plain' | 'tilt' | 'dim' | 'flash';
 
 export function phoneParams(rng: Rng, aspect: number, scene: PhoneScene, foil: boolean): SynthParams {
   const base = randomParams(rng, aspect);
@@ -439,6 +443,16 @@ export function phoneParams(rng: Rng, aspect: number, scene: PhoneScene, foil: b
       conditions.push('dim', 'dim-noisy');
     }
     params.jpegQuality = Math.round(uniform(rng, 70, 85));
+  } else if (scene === 'flash') {
+    params.background = 'solid';
+    params.backgroundColor = [uniform(rng, 170, 230), uniform(rng, 25, 70), uniform(rng, 10, 40)];
+    params.brightness = uniform(rng, 0.6, 0.9);
+    // The flashlight's reflection, in card coordinates: near the middle, so usually on the art.
+    params.glare = { x: uniform(rng, 0.35, 0.65), y: uniform(rng, 0.22, 0.55), radius: uniform(rng, 0.09, 0.2), strength: uniform(rng, 0.8, 1.5) };
+    params.blur = uniform(rng, 0.6, 1.5);
+    params.noise = uniform(rng, 2, 6);
+    params.jpegQuality = Math.round(uniform(rng, 75, 88));
+    conditions.push('flash', 'hotspot');
   } else {
     conditions.push('plain');
   }

@@ -54,6 +54,8 @@ const { values } = parseArgs({
     'names-only': { type: 'boolean', default: false },
     set: { type: 'string', default: 'standard' },
     lock: { type: 'string', default: 'none' },
+    // Long side of the copy detection works on; live mode's per-frame size can be compared this way.
+    'detect-size': { type: 'string' },
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
     out: { type: 'string', default: '.cache/eval/report' },
@@ -140,6 +142,7 @@ for (const [index, fixture] of fixtures.entries()) {
     // The eval's photos stand for the app's photo scans, which look for a centred card when no outline is clear.
     centerFallback: true,
     keepImages: true,
+    ...(values['detect-size'] ? { detectSize: Number(values['detect-size']) } : {}),
     ...(printingSources ? { printings: { ...printingSources, ...(lockSets ? { lockSets } : {}) } } : {}),
   });
   const expected = printingSources ? await expectedPrinting(fixture) : null;
@@ -159,6 +162,17 @@ for (const [index, fixture] of fixtures.entries()) {
       : {}),
     qualityOk: result.quality?.ok ?? false,
     qualityIssues: result.quality?.issues ?? [],
+    ...(result.quality
+      ? {
+          quality: {
+            sharpness: Math.round(result.quality.metrics.sharpness),
+            brightness: Math.round(result.quality.metrics.brightness),
+            cardGlare: Math.round(result.quality.metrics.cardGlare * 1000) / 1000,
+            titleGlare: Math.round(result.quality.metrics.titleGlare * 1000) / 1000,
+            cardWidth: Math.round(result.quality.metrics.cardWidth),
+          },
+        }
+      : {}),
     decision: result.decision,
     predicted: result.names,
     confidence: result.confidence,
@@ -266,6 +280,7 @@ const notes = [
     : 'Names only (--names-only): printings were not identified, as in M2.',
   'Synthetic photos are rendered from the same Scryfall scans the index uses, so they are optimistic. Real scans are the ground truth.',
   `Auto-accept threshold ${DEFAULT_DECISION.autoAccept}. OCR model: ${values['ocr-model']}. Latency is measured in Node on this machine, not on a phone.`,
+  ...(values['detect-size'] ? [`Detection on a copy ${values['detect-size']} px on its long side (--detect-size).`] : []),
   ...(values.lock === 'true-set' ? ["Set lock (--lock true-set): each card was scanned into a batch locked to the card's own set."] : []),
   ...(values.lock === 'other-set' ? ["Set lock (--lock other-set): each card was scanned into a batch locked to a set it isn't from; none may be auto-accepted."] : []),
 ];

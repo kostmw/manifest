@@ -5,7 +5,8 @@
  */
 import { laplacianVariance } from './filters';
 import { distance, type Quad } from './geometry';
-import { cropGray, luma, toGray, type Box, type GrayImage, type RgbaImage } from './image';
+import { findHotspot } from './glare';
+import { createGray, cropGray, luma, toGray, type Box, type GrayImage, type RgbaImage } from './image';
 import { cardPose } from './perspective';
 import type { Size } from './rectify';
 
@@ -26,11 +27,12 @@ export const QUALITY_HINTS: Record<QualityIssue, string> = {
  * Conditions that don't stop a read but make it likelier to fail: worth
  * telling the user while they line the card up, and when a card can't be read.
  */
-export type QualityAdvice = 'tilted' | 'dim';
+export type QualityAdvice = 'tilted' | 'dim' | 'hotspot';
 
 export const ADVICE_HINTS: Record<QualityAdvice, string> = {
   tilted: 'Hold the phone flatter, straight above the card.',
   dim: 'More light would help.',
+  hotspot: 'Glare: a light reflects off the card. Light it from the side, or turn the flashlight off.',
 };
 
 export interface QualityThresholds {
@@ -62,7 +64,10 @@ export interface QualityThresholds {
 export const DEFAULT_QUALITY: QualityThresholds = {
   minCardWidth: 200,
   edgeMargin: 0.005,
-  minSharpness: 60,
+  // Calibrated on the eval in M4's follow-up: down to 20, cards held back only for blur that would be
+  // auto-accepted were all right (standard, phone and flashlight sets), and a phone over a deck box
+  // gives about 40 at its closest focus.
+  minSharpness: 30,
   maxTitleGlare: 0.08,
   maxCardGlare: 0.2,
   minBrightness: 35,
@@ -82,6 +87,8 @@ export interface QualityMetrics {
   tilt: number;
   /** Sensor noise of the card, in grey levels (see noiseLevel). */
   noise: number;
+  /** A light's reflection on the card (see glare.ts), as a share of its area; 0 when there is none. */
+  hotspot: number;
 }
 
 export interface QualityReport {
@@ -168,6 +175,7 @@ export function assessQuality(input: {
     brightness: meanLuma(card),
     tilt: cardPose(corners, frame)?.tilt ?? 0,
     noise: noiseLevel(gray),
+    hotspot: hotspotShare(gray),
   };
 
   const found = new Set<QualityIssue>();
@@ -184,5 +192,26 @@ export function assessQuality(input: {
     metrics.brightness < thresholds.adviseBrightness ||
     (metrics.noise > thresholds.adviseNoise && metrics.brightness < thresholds.adviseNoisyBrightness);
   if (dim && !found.has('too-dark')) advice.push('dim');
+  if (metrics.hotspot >= ADVISE_HOTSPOT && !found.has('glare')) advice.push('hotspot');
   return { ok: issues.length === 0, issues, advice, metrics };
+}
+
+/** A reflection covering this share of the card is worth a word: it costs the artwork match. */
+const ADVISE_HOTSPOT = 0.008;
+
+/** The card's light reflection, if any, as a share of its area: found on a quarter-size grey copy, for speed. */
+function hotspotShare(gray: GrayImage): number {
+  const width = Math.floor(gray.width / 4);
+  const height = Math.floor(gray.height / 4);
+  const small = createGray(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let dy = 0; dy < 4; dy++) for (let dx = 0; dx < 4; dx++) sum += gray.data[(y * 4 + dy) * gray.width + x * 4 + dx]!;
+      small.data[y * width + x] = sum / 16;
+    }
+  }
+  // Inset past the border, as for the fingerprint (a white border is no reflection).
+  const found = findHotspot(small, { x0: width * 0.06, y0: height * 0.05, x1: width * 0.94, y1: height * 0.95 });
+  return found?.area ?? 0;
 }

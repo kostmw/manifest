@@ -77,11 +77,14 @@ function memorySource(withFingerprints = true, invertArt: (name: string) => bool
 }
 
 /** Title reads come from `title`; collector-line reads from `collector`, in order. */
-function fakeOcr(collector: string[]): OcrEngine {
+function fakeOcr(collector: string[], reads?: { collector: number }): OcrEngine {
   let next = 0;
   return {
     async readLine(_image, options) {
-      if (options?.characters === COLLECTOR_CHARACTERS) return { text: collector[next++] ?? '', confidence: 80 };
+      if (options?.characters === COLLECTOR_CHARACTERS) {
+        if (reads) reads.collector += 1;
+        return { text: collector[next++] ?? '', confidence: 80 };
+      }
       return { text: '', confidence: 0 };
     },
     async dispose() {},
@@ -100,6 +103,7 @@ async function identify(
     angle?: number;
     invertArt?: (name: string) => boolean;
     lockSets?: string[];
+    reads?: { collector: number };
   },
 ) {
   const corners = cardQuad({ x: 400, y: 520 }, 820, options.angle ?? 0.05);
@@ -115,7 +119,7 @@ async function identify(
     game: mtg,
     catalog,
     collectors: await catalog.collectors(dictionary),
-    ocr: fakeOcr(options.collector ?? []),
+    ocr: fakeOcr(options.collector ?? [], options.reads),
     ...(options.lockSets ? { lockSets: options.lockSets } : {}),
   });
 }
@@ -127,6 +131,18 @@ describe('identifyPrinting', () => {
     expect(result.candidates[0]?.hashDistance).toBeLessThanOrEqual(12);
     expect(result.printingConfidence).toBeGreaterThan(0.9);
     expect(result.confidence).toBeGreaterThan(0.9);
+  });
+
+  it("skips the collector line when a sure title's art already picks out one printing", async () => {
+    const reads = { collector: 0 };
+    const result = await identify(1, { title: sure('Sol Ring'), reads });
+    expect(result.candidates[0]?.printing.id).toBe('c21-263');
+    expect(reads.collector).toBe(0);
+    expect(result.confidence).toBeGreaterThan(0.9);
+    // Two printings with the same art: only the collector line can tell them apart, so it is read.
+    const twins = { collector: 0 };
+    await identify(2, { title: sure('Sol Ring'), reads: twins });
+    expect(twins.collector).toBeGreaterThan(0);
   });
 
   it('leaves printings with the same art to the collector line, and is unsure without one', async () => {

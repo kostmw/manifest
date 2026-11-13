@@ -145,6 +145,34 @@ function vibrate(cue: Cue): void {
   }
 }
 
+const SOUND_TIP_KEY = 'manifest-sound-tip';
+
+/**
+ * Whether the phone's silent switch can mute the beeps, so a tip about it is
+ * worth showing: Safari, the browser with the Audio Session API that can play
+ * through the switch.
+ */
+export function silentSwitchMatters(): boolean {
+  return typeof navigator !== 'undefined' && 'audioSession' in navigator;
+}
+
+/** Whether the one-time "no sound? the silent switch" tip was dismissed. */
+export function soundTipDismissed(): boolean {
+  try {
+    return localStorage.getItem(SOUND_TIP_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function dismissSoundTip(): void {
+  try {
+    localStorage.setItem(SOUND_TIP_KEY, '1');
+  } catch {
+    // Storage blocked: the tip comes back next time, which is harmless.
+  }
+}
+
 /** Whether this browser can vibrate at all (Android Chrome yes, iOS Safari no). */
 export function canVibrate(): boolean {
   return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';

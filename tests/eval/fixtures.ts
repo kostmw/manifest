@@ -84,18 +84,22 @@ export function latestBulkFile(cacheDir = '.cache/bulk'): string | null {
  * phone tests failed on (Star Trek planets, a borderless foil, tokens) three
  * ways each: plain, viewed at a steep tilt, and in dim light, at live-camera
  * size (1280×720). `phone-1080` is the same scenes at 1920×1080.
+ * `phone-flash` renders the same cards once each with the flashlight on
+ * inside a red deck box (see synthesize.ts's `flash` scene): a hotspot on the
+ * art, as in the owner's M4 test.
  */
-export type SyntheticVariant = 'standard' | 'hires' | 'phone' | 'phone-1080';
-export const SYNTHETIC_VARIANTS = ['standard', 'hires', 'phone', 'phone-1080'] as const;
+export type SyntheticVariant = 'standard' | 'hires' | 'phone' | 'phone-1080' | 'phone-flash';
+export const SYNTHETIC_VARIANTS = ['standard', 'hires', 'phone', 'phone-1080', 'phone-flash'] as const;
 
 const VARIANTS: Record<
   SyntheticVariant,
-  { dir: string; imageDir: string; size: string; scale: number; strata: string[] | null; phone?: boolean }
+  { dir: string; imageDir: string; size: string; scale: number; strata: string[] | null; phone?: boolean; scenes?: readonly PhoneScene[] }
 > = {
   standard: { dir: 'synthetic', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null },
   hires: { dir: 'synthetic-hires', imageDir: 'scryfall-large', size: 'large', scale: 2, strata: ['modern'] },
   phone: { dir: 'synthetic-phone', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null, phone: true },
   'phone-1080': { dir: 'synthetic-phone-1080', imageDir: 'scryfall', size: 'normal', scale: 1.5, strata: null, phone: true },
+  'phone-flash': { dir: 'synthetic-phone-flash', imageDir: 'scryfall', size: 'normal', scale: 1, strata: null, phone: true, scenes: ['flash'] },
 };
 
 const PHONE_SCENES: readonly PhoneScene[] = ['plain', 'tilt', 'dim'];
@@ -136,7 +140,7 @@ export async function syntheticFixtures(options: {
   type Job = { card: (typeof cards)[number]; file: string; seed: string; scene: PhoneScene | null };
   const jobs = cards.flatMap((card): Job[] =>
     variant.phone
-      ? PHONE_SCENES.map((scene) => ({ card, file: `${card.id}-${scene}.jpg`, seed: `${card.id}:${scene}`, scene }))
+      ? (variant.scenes ?? PHONE_SCENES).map((scene) => ({ card, file: `${card.id}-${scene}.jpg`, seed: `${card.id}:${scene}`, scene }))
       : [{ card, file: `${card.id}.jpg`, seed: card.id, scene: null }],
   );
   await mkdir(dir, { recursive: true });

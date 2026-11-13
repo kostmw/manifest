@@ -64,6 +64,8 @@ export interface RecognizeOptions {
   keepImages?: boolean;
   /** Detections already made for this frame (live mode detects every frame anyway). */
   detections?: CardDetection[];
+  /** Long side of the copy detection works on (see detect.ts); 640 when not given. */
+  detectSize?: number;
   clock?: () => number;
 }
 
@@ -135,9 +137,10 @@ async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: bo
   return { title, match: best!.match, card };
 }
 
-export const detectOptions = (regions: CardRegions) => ({
+export const detectOptions = (regions: CardRegions, workingSize?: number) => ({
   aspect: regions.size.width / regions.size.height,
   border: regions.border,
+  ...(workingSize ? { workingSize } : {}),
 });
 
 const MAX_CANDIDATES = 2;
@@ -263,7 +266,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     mark = now;
   };
 
-  let detections = options.detections ?? detectCards(frame, detectOptions(options.regions));
+  let detections = options.detections ?? detectCards(frame, detectOptions(options.regions, options.detectSize));
   lap('detect');
   let guessed = false;
   const nothingFound = detections.length === 0;
