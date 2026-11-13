@@ -12,6 +12,7 @@
 import { applyHomography, homography, type Homography, type Point, type Quad } from '../vision/geometry';
 import { createGray, luma, type Box, type GrayImage, type RgbaImage } from '../vision/image';
 import { warpQuad } from '../vision/rectify';
+import { fillHotspot, findHotspot } from '../vision/glare';
 
 export const FINGERPRINT_VERSION = 1;
 /** One 64-bit hash. */
@@ -155,6 +156,28 @@ export function canvasFromFrame(
   const height = Math.round(box.height * CANVAS_SCALE);
   const gray = grayOf(warpQuad(frame, boxCorners(mapping, box), { width, height }));
   return { gray, sat: summedArea(gray), scaleX: width / box.width, scaleY: height / box.height, originX: -margin, originY: -margin };
+}
+
+/** Card units kept clear of hotspot detection along each edge, so a white border never counts as one. */
+const HOTSPOT_INSET = { x: 0.06, y: 0.05 };
+
+/**
+ * The canvas with a flashlight's reflection painted over (see glare.ts), or
+ * null when the card has none: the same canvas otherwise, so fingerprints of
+ * cards without a hotspot are unchanged.
+ */
+export function deglared(canvas: FingerprintCanvas, size: { width: number; height: number }): FingerprintCanvas | null {
+  const toX = (x: number) => (x - canvas.originX) * canvas.scaleX;
+  const toY = (y: number) => (y - canvas.originY) * canvas.scaleY;
+  const hotspot = findHotspot(canvas.gray, {
+    x0: toX(size.width * HOTSPOT_INSET.x),
+    y0: toY(size.height * HOTSPOT_INSET.y),
+    x1: toX(size.width * (1 - HOTSPOT_INSET.x)),
+    y1: toY(size.height * (1 - HOTSPOT_INSET.y)),
+  });
+  if (!hotspot) return null;
+  const gray = fillHotspot(canvas.gray, hotspot);
+  return { ...canvas, gray, sat: summedArea(gray) };
 }
 
 /** The summed-area table at a fractional position, bilinearly. */

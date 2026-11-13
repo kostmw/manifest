@@ -22,6 +22,12 @@ export interface FakeCardOptions {
   art?: [string, string];
   /** Just the table, no card. */
   noCard?: boolean;
+  /** A flashlight's reflection on the art: its radius, in card units (488 across). */
+  hotspot?: number;
+  /** A foil's shimmer: bright and dark bands across the art, shifted by this many card units. */
+  shimmer?: number;
+  /** Blur the whole picture by this many pixels, as when the camera refocuses: detection loses the card. */
+  blur?: number;
 }
 
 export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
@@ -88,7 +94,41 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
   ctx.arc(436 * s, 53 * s, 12 * s, 0, Math.PI * 2);
   ctx.fillStyle = '#cbc2b8';
   ctx.fill();
+  if (options.shimmer !== undefined) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(40 * s, 82 * s, 408 * s, 292 * s);
+    ctx.clip();
+    for (let band = -400; band < 900; band += 60) {
+      const x = (band + options.shimmer) * s;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.beginPath();
+      ctx.moveTo(x, 82 * s);
+      ctx.lineTo(x + 30 * s, 82 * s);
+      ctx.lineTo(x + 30 * s - 292 * s, 374 * s);
+      ctx.lineTo(x - 292 * s, 374 * s);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  if (options.hotspot) {
+    const spot = ctx.createRadialGradient(244 * s, 228 * s, 0, 244 * s, 228 * s, options.hotspot * 1.8 * s);
+    spot.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    spot.addColorStop(0.45, 'rgba(255, 255, 255, 0.95)');
+    spot.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = spot;
+    ctx.fillRect(0, 0, 488 * s, 680 * s);
+  }
   ctx.restore();
 
+  if (options.blur) {
+    const copy = document.createElement('canvas');
+    copy.width = width;
+    copy.height = height;
+    const copyContext = copy.getContext('2d')!;
+    copyContext.filter = `blur(${options.blur}px)`;
+    copyContext.drawImage(canvas, 0, 0);
+    return copy.toDataURL('image/png');
+  }
   return canvas.toDataURL('image/png');
 }

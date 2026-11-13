@@ -6,7 +6,7 @@
  * own, so a card whose title can't be read can still be found.
  */
 import type { CardRegions, CollectorMatch, CollectorReading, GameAdapter } from '../games/adapter';
-import type { Catalog, CatalogPrinting } from '../games/catalog';
+import type { Catalog, CatalogPrinting, FingerprintTable } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
 import type { Printing } from '../games/types';
 import type { Quad } from '../vision/geometry';
@@ -15,6 +15,7 @@ import { cropCollectorLines } from './collectorCrop';
 import {
   canvasFromFrame,
   cornersMapping,
+  deglared,
   distanceAt,
   fingerprintAt,
   toWords,
@@ -106,8 +107,23 @@ const TOP = 5;
  * that plainly is something else (it is shown, flagged, for review).
  */
 const OUTSIDE_LOCK_PENALTY = 0.3;
+/**
+ * A sure title whose printings' art is at least this close needs no search of
+ * every fingerprint: a flashlight's hotspot keeps true matches around 12–24.
+ */
+const SURE_TITLE_ART = 24;
 /** A collector number names at most this many cards across the locked sets before it is ignored. */
 const LOCKED_NUMBER_NAMES = 3;
+/**
+ * The art settles the printing (and the collector line is skipped) when the
+ * best printing is this close… (a flashlight's hotspot keeps true matches
+ * around 12–18 even after it is painted over)
+ */
+const ART_SETTLES = 18;
+/** …and holds this share of the printing evidence among the name's printings (see printingConfidence). */
+const ART_SETTLES_SHARE = 0.97;
+/** The distance a printing without a fingerprint counts as, in printing evidence. */
+const NO_FINGERPRINT_DISTANCE = 24;
 
 /** The real card's place in the detected outline's own coordinates, given where that outline lies on the card. */
 export function placementFor(outline: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }): CardPlacement {
@@ -172,6 +188,14 @@ function fingerprintQueries(
         placement,
       });
     }
+    // A flashlight's hotspot on the card: also the card with it painted over, which is closer
+    // to the index's clean scans. Cards without one get exactly the queries they always did.
+    const fixed = canvas ? deglared(canvas, size) : null;
+    if (fixed) {
+      for (const { id, placement } of placements) {
+        queries.push({ words: toWords(fingerprintAt(fixed, regions, placement)), turned, outline: id, mapping, placement });
+      }
+    }
   }
   return queries;
 }
@@ -231,6 +255,49 @@ export async function nearestArt(frame: RgbaImage, boxes: readonly FrameBox[], r
     }
   }
   return boxes.map((_, q) => Math.min(best[q * 2]!, best[q * 2 + 1]!));
+}
+
+/**
+ * The GLOBAL_HITS rows of the whole fingerprint table nearest to any of the
+ * queries, nearest first. Written as one tight loop with nothing allocated
+ * per row (about 111k rows times a few queries): Safari's JIT keeps the
+ * object-per-comparison version an order of magnitude slower than V8 does.
+ * A query's art half alone already at least as far as the worst kept hit can't
+ * get in, so its card half is skipped. The result is exactly what comparing
+ * every row in full gives.
+ */
+function nearestRows(queries: readonly Query[], table: FingerprintTable): { shard: number; row: number; distance: number }[] {
+  const count = queries.length;
+  const query = new Uint32Array(count * 4);
+  queries.forEach((q, i) => query.set(q.words.subarray(0, 4), i * 4));
+  const hits: { shard: number; row: number; distance: number }[] = [];
+  let worst = Number.POSITIVE_INFINITY;
+  for (const { shard, words, rows } of table.shards) {
+    for (let row = 0; row < rows; row++) {
+      const o = row * table.rowWords;
+      const w0 = words[o]!;
+      const w1 = words[o + 1]!;
+      const w2 = words[o + 2]!;
+      const w3 = words[o + 3]!;
+      if ((w0 | w1 | w2 | w3) === 0) continue;
+      const bound = hits.length < GLOBAL_HITS ? Number.POSITIVE_INFINITY : worst;
+      let best = Number.POSITIVE_INFINITY;
+      for (let k = 0; k < count; k++) {
+        const b = k * 4;
+        const art = bits(query[b]! ^ w0) + bits(query[b + 1]! ^ w1);
+        if (art >= best || art >= bound) continue;
+        const d = art + bits(query[b + 2]! ^ w2) + bits(query[b + 3]! ^ w3);
+        if (d < best) best = d;
+      }
+      if (best < bound) {
+        hits.push({ shard, row, distance: best });
+        hits.sort((a, b) => a.distance - b.distance);
+        if (hits.length > GLOBAL_HITS) hits.pop();
+        worst = hits[hits.length - 1]!.distance;
+      }
+    }
+  }
+  return hits;
 }
 
 function minDistance(queries: readonly Query[], table: Uint32Array, row: number): { distance: number; query: Query } {
@@ -306,26 +373,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   };
   measure();
 
-  // No confident title, or nothing that looks like it: search every fingerprint.
+  // No confident title, or nothing that looks like it: search every fingerprint. (On a phone the
+  // search mostly costs loading the hits' printings, so it is skipped whenever the title can do.)
   const bestTitleDistance = Math.min(...[...distances.values()].map((d) => d.distance), Number.POSITIVE_INFINITY);
-  if (hasFingerprints && (title.confidence < SURE_TITLE || bestTitleDistance > 16)) {
+  if (hasFingerprints && (title.confidence < SURE_TITLE || bestTitleDistance > SURE_TITLE_ART)) {
     const table = await catalog.fingerprintTable();
     if (table) {
-      const hits: { shard: number; row: number; distance: number }[] = [];
-      let worst = Number.POSITIVE_INFINITY;
-      for (const { shard, words, rows } of table.shards) {
-        for (let row = 0; row < rows; row++) {
-          const o = row * table.rowWords;
-          if ((words[o]! | words[o + 1]! | words[o + 2]! | words[o + 3]!) === 0) continue;
-          const { distance } = minDistance(queries, words, row);
-          if (hits.length < GLOBAL_HITS || distance < worst) {
-            hits.push({ shard, row, distance });
-            hits.sort((a, b) => a.distance - b.distance);
-            if (hits.length > GLOBAL_HITS) hits.pop();
-            worst = hits[hits.length - 1]!.distance;
-          }
-        }
-      }
+      const hits = nearestRows(queries, table);
       // Only hits that could be the card: near the best, and not hopelessly far from a match.
       const best = hits[0]?.distance ?? Number.POSITIVE_INFINITY;
       const close = hits.filter((hit) => hit.distance <= Math.min(GLOBAL_MAX_DISTANCE, Math.max(18, best + 4)));
@@ -335,6 +389,22 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     }
     lap('hash-search');
   }
+
+  /**
+   * The title is sure of a name, and the artwork alone already picks out one of
+   * its printings (in the batch's locked sets, if any): then the collector line
+   * can't change the result, and its OCR, the slowest stage on a phone, is skipped.
+   */
+  const artSettles = (name: string | null): boolean => {
+    if (!hasFingerprints || !name || title.confidence < SURE_TITLE || title.candidates[0]?.name !== name) return false;
+    const entries = pool.get(name)?.entries ?? [];
+    const locked = lock ? entries.filter((entry) => lock.has(entry.printing.set)) : entries;
+    const looks = (locked.length > 0 ? locked : entries)
+      .map((entry) => distances.get(entry.printing.id)?.distance ?? NO_FINGERPRINT_DISTANCE)
+      .sort((a, b) => a - b);
+    if (looks.length === 0 || looks[0]! > ART_SETTLES) return false;
+    return looks.length === 1 || share(looks.map((d) => -d / 3), 0) >= ART_SETTLES_SHARE;
+  };
 
   // Register the collector line the way the best-fitting fingerprint did.
   const ranked = [...pool.entries()].flatMap(([name, { entries }]) =>
@@ -349,12 +419,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   const firstQuery = leader ?? queries[0]!;
   const tries = [firstQuery];
   const identity = queries.find((query) => query.turned === firstQuery.turned && query.outline === 'card');
-  if (identity && identity !== firstQuery) tries.push(identity);
+  // A de-glared query has its raw twin's geometry: reading the same crop twice would only cost time.
+  if (identity && (identity.mapping !== firstQuery.mapping || identity.placement !== firstQuery.placement)) tries.push(identity);
 
   let collector: CollectorReading | null = null;
   let used = firstQuery;
   const crops: GrayImage[] = [];
-  for (const query of tries) {
+  for (const query of artSettles(ranked[0]?.name ?? null) ? [] : tries) {
     const lines = cropCollectorLines(frame, placedMapping(query.mapping, query.placement, size), regions.collector);
     const texts: string[] = [];
     for (const line of lines) {
@@ -479,7 +550,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
 
   // Which printing of that name: fingerprints and collector line only. Printings that look
   // the same split the share between them, so only the collector line can settle those.
-  const evidence = sameName.map((c) => -(c.hashDistance ?? 24) / 3 + 3 * (c.collector?.score ?? 0));
+  const evidence = sameName.map((c) => -(c.hashDistance ?? NO_FINGERPRINT_DISTANCE) / 3 + 3 * (c.collector?.score ?? 0));
   const printingConfidence = Math.min(cap, sameName.length === 1 ? 1 : share(evidence, 0));
 
   return {

@@ -31,6 +31,8 @@ export interface EvalOutcome {
   predictedLabels?: string[];
   /** The top printing isn't the labelled one, but its promo or List twin (see isPrintingTwin). */
   topIsTwin?: boolean;
+  /** The quality gate's measurements of the chosen outline, for tuning its thresholds. */
+  quality?: { sharpness: number; brightness: number; cardGlare: number; titleGlare: number; cardWidth: number };
 }
 
 export interface Metrics {

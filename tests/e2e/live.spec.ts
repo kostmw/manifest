@@ -41,6 +41,8 @@ test.beforeAll(async () => {
 
 test('counts copies and stacked cards without a confirm step, while the camera keeps watching', async ({ page }) => {
   await page.route('https://cards.scryfall.io/**', (route) => route.abort());
+  // As in Safari, whose Audio Session API is how the beeps get past the silent switch.
+  await page.addInitScript(() => Object.defineProperty(navigator, 'audioSession', { value: { type: 'auto' }, configurable: true }));
   await page.goto('./');
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Scan', exact: true }).click();
   await expect(page.getByLabel('Scan a photo')).toBeEnabled({ timeout: 60_000 });
@@ -59,4 +61,13 @@ test('counts copies and stacked cards without a confirm step, while the camera k
   await expect(strip.nth(0).getByRole('button', { name: /^Aether Vial, .*, added$/ })).toBeVisible();
   await expect(strip.nth(1)).toContainText('Sol Ring');
   await expect(strip.nth(2)).toContainText('Sol Ring');
+
+  // After the first card, once: the silent switch may be why there is no beep.
+  const tip = page.getByRole('complementary', { name: 'Sound tip' });
+  await expect(tip).toContainText('silent switch');
+  await tip.getByRole('button', { name: 'Beep even in silent mode' }).click();
+  await expect(tip).toHaveCount(0);
+  await page.getByText('Sound and testing', { exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Sound' })).toHaveValue('always');
+  expect(await page.evaluate(() => (navigator as Navigator & { audioSession: { type: string } }).audioSession.type)).toBe('playback');
 });

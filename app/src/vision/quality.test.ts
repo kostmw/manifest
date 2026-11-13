@@ -53,6 +53,24 @@ describe('assessQuality', () => {
     expect(check(undefined, glare).issues).toContain('glare');
   });
 
+  it('warns about a light reflecting off the card, without refusing it', () => {
+    const reflection = (card: RgbaImage) => {
+      const out = { ...card, data: new Uint8ClampedArray(card.data) };
+      for (let y = 0; y < card.height; y++) {
+        for (let x = 0; x < card.width; x++) {
+          const boost = 320 * Math.exp(-((x - 244) ** 2 + (y - 230) ** 2) / 50 ** 2);
+          for (let c = 0; c < 3; c++) out.data[(y * card.width + x) * 4 + c] = Math.min(255, out.data[(y * card.width + x) * 4 + c]! + boost);
+        }
+      }
+      return out;
+    };
+    const report = check(undefined, reflection);
+    expect(report.advice).toContain('hotspot');
+    expect(report.metrics.hotspot).toBeGreaterThan(0.008);
+    expect(report.ok).toBe(true);
+    expect(check().advice).not.toContain('hotspot');
+  });
+
   it('asks for light when the card is very dark', () => {
     const dim = (card: RgbaImage) => ({ ...card, data: card.data.map((v, i) => (i % 4 === 3 ? v : v * 0.15)) });
     expect(check(undefined, dim).issues).toContain('too-dark');

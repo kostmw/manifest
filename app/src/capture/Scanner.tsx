@@ -6,7 +6,17 @@ import { ReviewCard } from '../review/ReviewCard';
 import { intake, UNREADABLE_BELOW } from '../session/intake';
 import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
-import { canVibrate, cue, setSoundMode, soundMode, unlockAudio, type SoundMode } from '../ui/feedback';
+import {
+  canVibrate,
+  cue,
+  dismissSoundTip,
+  setSoundMode,
+  silentSwitchMatters,
+  soundMode,
+  soundTipDismissed,
+  unlockAudio,
+  type SoundMode,
+} from '../ui/feedback';
 import { BUTTON_SECONDARY } from '../ui/styles';
 import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
@@ -30,6 +40,11 @@ function liveHint(frame: FrameOutcome | null, torch: Torch): string {
   // blurry however still the phone is.
   if (issue === 'blurry' && frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (issue) return QUALITY_HINTS[issue];
+  // A reflection doesn't stop the read, but it costs the artwork match: say what causes it while
+  // the card is lined up (not after, or it would nag on every card when the flashlight is needed).
+  if (frame.advice.includes('hotspot') && frame.phase !== 'read') {
+    return torch.on ? 'Glare from the flashlight: turn it off, or light the cards from the side.' : ADVICE_HINTS.hotspot;
+  }
   if (frame.phase === 'read') return 'Next card: put it on top, or take this one away.';
   if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (frame.phase !== 'reading') return 'Hold still…';
@@ -59,7 +74,20 @@ function scanRate(recent: readonly RecentScan[]): number | null {
   return span > 0 ? ((recent.length - 1) / span) * 60_000 : null;
 }
 
-function LiveDebug({ frame, rate, read, recent }: { frame: FrameOutcome | null; rate: number; read: Record<string, number> | null; recent: readonly RecentScan[] }) {
+function LiveDebug({
+  frame,
+  rate,
+  read,
+  recent,
+  repeats,
+}: {
+  frame: FrameOutcome | null;
+  rate: number;
+  read: Record<string, number> | null;
+  recent: readonly RecentScan[];
+  /** Reads that found the card already counted (glare, shimmer), so counted nothing. */
+  repeats: number;
+}) {
   if (!frame) return null;
   const metrics = frame.metrics;
   const perMinute = scanRate(recent);
@@ -68,10 +96,12 @@ function LiveDebug({ frame, rate, read, recent }: { frame: FrameOutcome | null; 
       <p>
         {frame.frame.width}×{frame.frame.height} · {rate.toFixed(1)} fps · {formatTimings(frame.timings)} ms
         {metrics &&
-          ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}`}
+          ` · tilt ${Math.round(metrics.tilt)}° · light ${Math.round(metrics.brightness)} · noise ${metrics.noise.toFixed(1)} · sharp ${Math.round(metrics.sharpness)}` +
+            (metrics.hotspot ? ` · glare ${(metrics.hotspot * 100).toFixed(1)}%` : '')}
         {` · ${frame.phase}`}
       </p>
       {read && <p data-testid="debug-read">last read: {formatTimings(read)} ms{perMinute ? ` · ${perMinute.toFixed(0)} cards/min` : ''}</p>}
+      {repeats > 0 && <p data-testid="debug-repeats">same card read again, not counted: {repeats}×</p>}
     </div>
   );
 }
@@ -185,6 +215,7 @@ export function Scanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
   const [lastRead, setLastRead] = useState<Record<string, number> | null>(null);
+  const [repeats, setRepeats] = useState(0);
   const [last, setLast] = useState<{ entry: RecentScan } | null>(null);
   const [flash, setFlash] = useState<{ kind: RecentScan['kind']; key: number } | null>(null);
   const [photoReview, setPhotoReview] = useState<{ review: ReviewItem; debug: string } | null>(null);
@@ -192,6 +223,7 @@ export function Scanner({
   const [debug, setDebug] = useState(() => debugEnabled());
   const [sharper, setSharper] = useState(() => cameraResolution() === 1080);
   const [sound, setSound] = useState<SoundMode>(() => soundMode());
+  const [tipDismissed, setTipDismissed] = useState(() => soundTipDismissed());
   // Bumped when the last card's line should give way to the live hint again.
   const [, setTick] = useState(0);
   const rate = useFrameRate(frame);
@@ -254,6 +286,9 @@ export function Scanner({
             if (outcome.result) {
               setLastRead(outcome.timings);
               void file(outcome.result, 'live');
+            } else if (outcome.sameCard) {
+              setLastRead(outcome.timings);
+              setRepeats((count) => count + 1);
             }
           }
         } catch {
@@ -381,6 +416,38 @@ export function Scanner({
         }
       />
 
+      {/* Once, after the first card: the silent switch mutes the beeps, and the way round it is tucked away. */}
+      {streaming && recent.length > 0 && sound === 'on' && !tipDismissed && silentSwitchMatters() && (
+        <aside aria-label="Sound tip" className="flex flex-col gap-2 rounded-xl bg-zinc-800/60 p-3 text-sm text-zinc-200">
+          <p>No beep? Your phone’s silent switch may be on. Manifest can beep anyway, though that pauses music.</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSoundMode('always');
+                setSound('always');
+                unlockAudio();
+                dismissSoundTip();
+                setTipDismissed(true);
+              }}
+              className={BUTTON_SECONDARY}
+            >
+              Beep even in silent mode
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                dismissSoundTip();
+                setTipDismissed(true);
+              }}
+              className={BUTTON_SECONDARY}
+            >
+              I hear it
+            </button>
+          </div>
+        </aside>
+      )}
+
       <div className="flex min-h-16 flex-col gap-1" role="status" aria-live="polite">
         {showingLast ? (
           <p className={`text-xl font-semibold ${last.entry.kind === 'added' ? 'text-emerald-300' : 'text-amber-300'}`}>
@@ -408,7 +475,7 @@ export function Scanner({
           Wrong? Read this card again
         </button>
       )}
-      {streaming && debug && <LiveDebug frame={frame} rate={rate} read={lastRead} recent={recent} />}
+      {streaming && debug && <LiveDebug frame={frame} rate={rate} read={lastRead} recent={recent} repeats={repeats} />}
 
       <div className="flex flex-col gap-2">
         <label className={`${BUTTON_SECONDARY} self-start ${recognizer.status === 'ready' ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
