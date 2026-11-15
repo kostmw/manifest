@@ -222,6 +222,22 @@ describe('identifyPrinting with the batch locked to sets', () => {
     expect((await identify(31, { title: sure('Borg'), lockSets: ['dom'], extra: tokens, picture: artCard(31) })).outsideLock).toBe(true);
   });
 
+  it("ranks a locked set's card ahead of another set's unless that one's title reads clearly (round 10: Grim Physician THB over Photosynthetic Physician TRK)", async () => {
+    const extra = [{ printing: printing('Grim Physician', 'thb', '100', '2020-01-24'), art: 41 }, { printing: printing('Photosynthetic Physician', 'trk', '210', '2026-11-13'), art: 42 }];
+    const read = (grim: number): TitleMatch => ({
+      candidates: [{ name: 'Grim Physician', distance: 1, similarity: grim }, { name: 'Photosynthetic Physician', distance: 9, similarity: 0.45 }],
+      confidence: 0.3,
+      reading: 'ie Physician 44',
+    });
+    const unclear = await identify(42, { title: read(0.72), fingerprints: false, lockSets: ['trk'], extra, picture: artCard(42) });
+    expect(unclear.candidates[0]?.printing.id).toBe('trk-210');
+    expect(unclear.outsideLock).toBe(false);
+    // Read clearly, the card from another set still comes first, flagged for review.
+    const clear = await identify(42, { title: read(0.92), fingerprints: false, lockSets: ['trk'], extra, picture: artCard(42) });
+    expect(clear.candidates[0]?.printing.id).toBe('thb-100');
+    expect(clear.outsideLock).toBe(true);
+  });
+
   it('names a card by its collector number alone within the locked sets, when the set code is unreadable', async () => {
     const unlocked = await identify(1, { title: junk, fingerprints: false, collector: ['263/300 U', ''] });
     expect(unlocked.candidates).toEqual([]);
