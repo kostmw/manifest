@@ -1,3 +1,4 @@
+import { mtgLockedSets } from './mtg/adapter';
 import { describe, expect, it } from 'vitest';
 import { buildSetList, searchSets } from './sets';
 import type { Printing } from './types';
@@ -34,5 +35,13 @@ describe('sets', () => {
     expect(searchSets(sets, 'tales').map((set) => set.code)).toEqual(['pltr', 'ltr']);
     expect(searchSets(sets, 'alpha').map((set) => set.code)).toEqual(['lea']);
     expect(searchSets(sets, '')).toEqual([]);
+  });
+});
+
+describe('mtgLockedSets', () => {
+  it("adds each locked set's token set, and nothing else", () => {
+    expect(mtgLockedSets(['trk'])).toEqual(['trk', 'ttrk']);
+    expect(mtgLockedSets(['trk', 'sds'])).toEqual(['trk', 'ttrk', 'sds', 'tsds']);
+    expect(mtgLockedSets([])).toEqual([]);
   });
 });

@@ -21,14 +21,32 @@ import { detectOptions, recognizeFrame, type Recognition, type RecognizeOptions 
  */
 export const LIVE_DETECT_SIZE = 480;
 
-/** Below this name confidence a read doesn't say which card it was. */
+/** Below this name confidence a read doesn't say which card it was by its name alone. */
 const IDENTITY_NAME_MIN = 0.5;
+/** A best guess whose artwork is this close (of 128 bits) names its card: as close as a title-less read needs (identify.ts). */
+const IDENTITY_ART_MAX = 26;
+
+/**
+ * Whether a read's best guess names its card on evidence of its own, though
+ * the read was unsure of its name: the collector line read its set and number
+ * cleanly, or its artwork matches. Under a flashlight's hotspot the artwork
+ * of two foils can be as alike as one foil's two looks (round 9: Gray and
+ * Adira and a Plains, 34 bits), so the fingerprint alone can't tell them apart.
+ */
+function namesItsCard(recognition: Recognition): boolean {
+  const best = recognition.printings[0];
+  if (!best) return false;
+  const collector = best.collector;
+  if (collector?.number === 'exact' && collector.set === 'exact' && !recognition.collector?.looseNumbers) return true;
+  return best.hashDistance !== null && best.hashDistance <= IDENTITY_ART_MAX;
+}
 
 /** What a read says the card is, for telling it from the next one. */
 export function identityOf(recognition: Recognition): CardIdentity {
-  const name = recognition.nameConfidence >= IDENTITY_NAME_MIN ? (recognition.names[0] ?? null) : null;
-  const printingId = recognition.decision === 'accept' ? (recognition.printings[0]?.printing.id ?? null) : null;
-  const guess = recognition.printings[0]?.printing.id ?? null;
+  const best = recognition.printings[0];
+  const name = recognition.nameConfidence >= IDENTITY_NAME_MIN ? (recognition.names[0] ?? null) : namesItsCard(recognition) ? best!.printing.name : null;
+  const printingId = recognition.decision === 'accept' ? (best?.printing.id ?? null) : null;
+  const guess = best?.printing.id ?? null;
   return name || printingId || guess ? { name, printingId, guess } : NO_IDENTITY;
 }
 
@@ -110,6 +128,23 @@ export function presenceSignature(frame: RgbaImage, corners: Quad, regions: Regi
 /** What one frame told the session, and how long after the one before it came (ms), for the test log. */
 export interface TrailFrame extends FrameNote {
   ms: number;
+  phase: LivePhase;
+  /** The frame's mean brightness (0–255): whether detection was working in the dark. */
+  light: number;
+  /** What the quality gate found wrong with the card in view, which keeps it from being read. */
+  issues?: QualityIssue[];
+}
+
+/**
+ * Live mode went `QUIET_MS` without reading anything: what it saw meanwhile,
+ * for the test log, so that a card left unread (not found, never steady,
+ * failing the quality gate, or too like the card read last) leaves a trace.
+ */
+export interface QuietSpell {
+  /** Milliseconds since the last read. */
+  ms: number;
+  /** The frames since the last read or the spell before, oldest first, at most `TRAIL_FRAMES`. */
+  frames: TrailFrame[];
 }
 
 /** A read live mode made, and what became of it. */
@@ -144,10 +179,31 @@ export interface LiveFrame {
   busy?: true;
   /** The outline held no card (an empty box's floor), so nothing was read. */
   dismissed?: true;
+  /** Nothing was read for a while: what live mode saw meanwhile (see QuietSpell). */
+  quiet?: QuietSpell;
 }
 
 /** Frames kept for a read's trail in the test log. */
 const TRAIL_FRAMES = 24;
+/** Time without a read after which the frames are reported as a quiet spell. */
+export const QUIET_MS = 2000;
+/** Quiet spells reported in a row before live mode stops reporting them until something is read (a long pause). */
+const QUIET_SPELLS = 5;
+
+/** The frame's mean brightness, from a sparse sample. */
+function meanLight(frame: RgbaImage): number {
+  const step = 16;
+  let sum = 0;
+  let count = 0;
+  for (let y = step >> 1; y < frame.height; y += step) {
+    for (let x = step >> 1; x < frame.width; x += step) {
+      const i = (y * frame.width + x) * 4;
+      sum += 0.299 * frame.data[i]! + 0.587 * frame.data[i + 1]! + 0.114 * frame.data[i + 2]!;
+      count += 1;
+    }
+  }
+  return count ? Math.round(sum / count) : 0;
+}
 /**
  * An outline this untextured (textureShare) and this much one colour
  * (dominantColorShare) holds no card: an empty box's floor. No card in the
@@ -186,6 +242,11 @@ export class LiveScanner {
   private working = false;
   private trail: TrailFrame[] = [];
   private lastFrameAt: number | null = null;
+  /** Frames since the last read or quiet spell, when the last read was, when the quiet spell started, and how many were reported since the read. */
+  private quiet: TrailFrame[] = [];
+  private lastReadAt: number | null = null;
+  private quietSince: number | null = null;
+  private quietSpells = 0;
 
   constructor(
     readonly session: LiveSession = new LiveSession(),
@@ -219,10 +280,9 @@ export class LiveScanner {
     const best = detections[0] ?? null;
     // When detection doesn't find the card read last where it lay, whether it is still lying there.
     const step = this.session.next(best?.corners ?? null, (corners) => presenceSignature(frame, corners, regions));
-    this.note(started);
     const outcome: LiveFrame = { ...emptyFrame(frame), corners: best?.corners ?? null, steadyFrames: step.steadyFrames, phase: step.phase };
     outcome.timings.detect = this.clock() - started;
-    if (!best) return outcome;
+    if (!best) return this.note(started, frame, outcome, null, false);
 
     const card = warpQuad(frame, best.corners, regions.size);
     const quality = assessQuality({ frame, corners: best.corners, card, titleBox: regions.title.search });
@@ -245,9 +305,10 @@ export class LiveScanner {
       this.session.dismiss(signature ?? cardSignature(frame, best.corners, regions), best.corners);
       outcome.phase = 'empty';
       outcome.dismissed = true;
-      return outcome;
+      return this.note(started, frame, outcome, quality.issues, true);
     }
-    if (!recognize || !quality.ok) return outcome;
+    if (!recognize || !quality.ok) return this.note(started, frame, outcome, quality.issues, false);
+    this.note(started, frame, outcome, quality.issues, true);
     signature ??= cardSignature(frame, best.corners, regions);
     const { trigger, distance } = this.session.readReason;
 
@@ -308,11 +369,34 @@ export class LiveScanner {
     return outcome;
   }
 
-  /** Keeps what the session made of this frame for the next read's trail. */
-  private note(now: number): void {
+  /**
+   * Keeps what the session made of this frame for the next read's trail, and
+   * reports a quiet spell when nothing has been read for `QUIET_MS`. `decided`:
+   * this frame is read (or dismissed), which ends any quiet spell.
+   */
+  private note(now: number, frame: RgbaImage, outcome: LiveFrame, issues: QualityIssue[] | null, decided: boolean): LiveFrame {
     const ms = this.lastFrameAt === null ? 0 : Math.round(now - this.lastFrameAt);
     this.lastFrameAt = now;
-    this.trail = [...this.trail, { ms, ...this.session.lastFrame }].slice(-TRAIL_FRAMES);
+    const entry: TrailFrame = { ms, ...this.session.lastFrame, phase: outcome.phase, light: meanLight(frame), ...(issues?.length ? { issues } : {}) };
+    this.trail = [...this.trail, entry].slice(-TRAIL_FRAMES);
+    // Frames stopped for a while (the camera was off): a quiet spell starts afresh.
+    if (decided || this.quietSince === null || ms > QUIET_MS) {
+      this.quiet = decided ? [] : [entry];
+      this.quietSince = now;
+      if (decided) {
+        this.lastReadAt = now;
+        this.quietSpells = 0;
+      }
+      return outcome;
+    }
+    this.quiet = [...this.quiet, entry].slice(-TRAIL_FRAMES);
+    if (now - this.quietSince >= QUIET_MS && this.quietSpells < QUIET_SPELLS) {
+      outcome.quiet = { ms: Math.round(now - (this.lastReadAt ?? this.quietSince)), frames: this.quiet };
+      this.quiet = [];
+      this.quietSince = now;
+      this.quietSpells += 1;
+    }
+    return outcome;
   }
 
   /** The flashlight was switched: the camera re-exposes, so the card read last is held and then checked. */

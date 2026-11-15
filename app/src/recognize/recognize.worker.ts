@@ -15,7 +15,7 @@ import type { RgbaImage } from '../vision/image';
 import type { QualityAdvice, QualityIssue, QualityMetrics } from '../vision/quality';
 import { FINGERPRINT_VERSION } from './fingerprint';
 import type { PrintingCandidate } from './identify';
-import { LiveScanner, type LiveRead, type TrailFrame } from './liveScanner';
+import { LiveScanner, type LiveRead, type QuietSpell, type TrailFrame } from './liveScanner';
 import type { LivePhase, ReadTrigger } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
@@ -88,6 +88,8 @@ export interface FrameOutcome {
   liveRead?: { trigger: ReadTrigger; distance: number | null; frames: TrailFrame[] };
   /** Another frame was still being read, so this one was dropped: nothing to show. */
   busy?: true;
+  /** Live mode went a while without reading anything: what it saw meanwhile, for the test log. */
+  quiet?: QuietSpell;
 }
 
 /**

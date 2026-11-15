@@ -17,6 +17,20 @@ describe('StabilityTracker', () => {
     expect(tracker.update(at(340)).steadyFrames).toBe(1);
     expect(tracker.update(null)).toEqual({ steadyFrames: 0, stable: false });
   });
+
+  it('counts a card steady while detection flips between two of its outlines (round 9)', () => {
+    const tracker = new StabilityTracker({ frames: 2, tolerance: 0.02 });
+    // The card's edge and its frame line, 6% of the diagonal apart, frame by frame.
+    const edge = at(300);
+    const frameLine = at(330);
+    expect(tracker.update(edge).steadyFrames).toBe(1);
+    expect(tracker.update(frameLine).steadyFrames).toBe(1);
+    expect(tracker.update(edge)).toEqual({ steadyFrames: 2, stable: true });
+    expect(tracker.update(frameLine)).toEqual({ steadyFrames: 3, stable: true });
+    // A card sliding in is never steady: each frame is far from all the ones before.
+    tracker.reset();
+    for (const x of [300, 340, 380, 420]) expect(tracker.update(at(x)).steadyFrames).toBe(1);
+  });
 });
 
 describe('LiveSession', () => {
@@ -514,6 +528,7 @@ describe('LiveSession when the flashlight switches', () => {
 describe('sameCardReason', () => {
   it('says which rule took two reads for one card', () => {
     expect(sameCardReason(id('Opt', 'dom-60'), id('Opt', 'dom-60'), 30)).toBe('same printing (dom-60), artwork 30 bits from how it looked before');
-    expect(sameCardReason(NO_IDENTITY, NO_IDENTITY, 28)).toBe('name not read, artwork 28 bits from how it looked before');
+    expect(sameCardReason(NO_IDENTITY, NO_IDENTITY, 28)).toBe('card not named, artwork 28 bits from how it looked before');
+    expect(sameCardReason(NO_IDENTITY, id('Plains'), 30)).toBe('card read last not named, artwork 30 bits from how it looked before');
   });
 });

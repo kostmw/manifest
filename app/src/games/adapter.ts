@@ -98,4 +98,10 @@ export interface GameAdapter {
   defaultFinish: (printing: Pick<Printing, 'finishes'>, foil: boolean) => string;
   /** Whether a finish is one of the foil kinds, for the "everything is foil" setting and the F key. */
   isFoil: (finish: string) => boolean;
+  /**
+   * Every set a batch locked to these sets (lower-case codes) takes cards
+   * from: the sets themselves, and sets whose cards come in the same packs
+   * (tokens). Without it, only the sets themselves.
+   */
+  lockedSets?: (codes: readonly string[]) => string[];
 }

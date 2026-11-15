@@ -72,6 +72,22 @@ export function mtgDefaultFinish(printing: Pick<Printing, 'finishes'>, foil: boo
   return finishes.find((finish) => finish === 'foil') ?? finishes.find((finish) => finish === 'etched') ?? finishes[0] ?? 'nonfoil';
 }
 
+/**
+ * A set and its token set: Scryfall gives a set's tokens their own set, coded
+ * "t" + the set's code (TTRK for Star Trek's TRK; all 193 such pairs in the
+ * index are named "… Tokens"). They come in the set's packs, so a batch locked
+ * to the set takes them too (round 9: Borg TTRK 20 went to review as outside
+ * the lock).
+ */
+export function mtgLockedSets(codes: readonly string[]): string[] {
+  const sets = new Set<string>();
+  for (const code of codes) {
+    sets.add(code);
+    sets.add(`t${code}`);
+  }
+  return [...sets];
+}
+
 export const mtg: GameAdapter = {
   id: 'mtg',
   displayName: 'Magic: The Gathering',
@@ -107,6 +123,7 @@ export const mtg: GameAdapter = {
   printingPrior: mtgPrintingPrior,
   defaultFinish: mtgDefaultFinish,
   isFoil: (finish) => finish === 'foil' || finish === 'etched',
+  lockedSets: mtgLockedSets,
   exportFormats: [
     plainListFormat(formatMtgExportLine),
     detailedListFormat(formatMtgExportLine),

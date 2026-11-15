@@ -3,10 +3,13 @@ import { MTG_REGIONS } from '../games/mtg/adapter';
 import type { Quad } from '../vision/geometry';
 import { createRgba, type RgbaImage } from '../vision/image';
 import { artCard, cardQuad, emptyBoxFloor, placeCard } from '../vision/testScene';
-import { cardSignature, isBlank, LiveScanner, presenceSignature } from './liveScanner';
+import type { Printing } from '../games/types';
+import type { PrintingCandidate } from './identify';
+import { cardSignature, identityOf, isBlank, LiveScanner, presenceSignature } from './liveScanner';
 import { LiveSession, signatureDistance } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
+import type { Recognition } from './pipeline';
 
 const names = new NameIndex({ names: ['Sol Ring', 'Soaring', 'Lightning Bolt', 'Lightning Helix'], faces: {} });
 const FRAME = { width: 720, height: 960 };
@@ -129,5 +132,119 @@ describe('LiveScanner and things that are no card (round 7)', () => {
       if (frame.read) counted.push(frame.read.counted);
     }
     expect(counted).toEqual([true]);
+  });
+});
+
+describe('LiveScanner quiet spells (round 9: cards left unread left no trace in the log)', () => {
+  it('reports 2 s without a read, with what each frame saw, a few times in a row at most, and afresh after a read', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const ocr = fakeOcr();
+    const context = { regions: MTG_REGIONS, names, ocr };
+    const spells: NonNullable<Awaited<ReturnType<LiveScanner['frame']>>['quiet']>[] = [];
+    const show = async (corners: Quad | null, frames: number) => {
+      for (let i = 0; i < frames; i++) {
+        const seen = await scanner.frame(frameWith(corners), context);
+        if (seen.quiet) spells.push(seen.quiet);
+        now += 120;
+      }
+    };
+    // Read on the second steady frame, then left lying for 12 s: a spell every 2 s, five at most.
+    await show(where(), 100);
+    expect(ocr.calls).toBeGreaterThan(0);
+    expect(spells).toHaveLength(5);
+    expect(spells[0]!.ms).toBe(2040);
+    expect(spells[1]!.ms).toBe(4080);
+    const frame = spells[0]!.frames.at(-1)!;
+    // The card read last, steady, checked for a new card on top: the same look (distance 0).
+    expect(frame).toMatchObject({ outline: true, phase: 'read', far: 0 });
+    expect(frame.steady).toBeGreaterThan(2);
+    expect(frame.light).toBeGreaterThan(40);
+    expect(spells[0]!.frames.length).toBe(17);
+    // Taken away and put back: read again, so the spells start afresh.
+    await show(null, 4);
+    await show(where(), 30);
+    expect(spells).toHaveLength(6);
+    expect(spells[5]!.ms).toBeLessThan(2500);
+    expect(spells[5]!.frames.every((entry) => entry.phase === 'read')).toBe(true);
+  }, 60_000);
+
+  it('starts a quiet spell afresh after the frames stopped for a while (the camera was off)', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const context = { regions: MTG_REGIONS, names, ocr: fakeOcr() };
+    const quiet = [];
+    for (let i = 0; i < 10; i++) {
+      if ((await scanner.frame(frameWith(null), context)).quiet) quiet.push(i);
+      now += i === 4 ? 60_000 : 120;
+    }
+    expect(quiet).toEqual([]);
+  });
+});
+
+describe('identityOf (round 9: a card put on top under the flashlight)', () => {
+  const printing = (name: string, set: string, number: string): Printing => ({ id: `${set}-${number}`, name, set, setName: set.toUpperCase(), number, finishes: ['foil'], lang: 'en' });
+  const candidate = (p: Printing, hashDistance: number | null, collector: PrintingCandidate['collector'] = null): PrintingCandidate => ({
+    printing: p,
+    score: 1,
+    title: 0,
+    hashDistance,
+    collector,
+    sources: collector ? ['collector'] : ['hash'],
+  });
+  const recognition = (over: Partial<Recognition>): Recognition => ({
+    decision: 'review',
+    detection: null,
+    quality: null,
+    title: null,
+    names: [],
+    titleCandidates: [],
+    printings: [],
+    nameConfidence: 0,
+    confidence: 0,
+    collector: null,
+    timings: {},
+    guessedOutline: false,
+    outsideLock: false,
+    trace: [],
+    ...over,
+  });
+  const PLAINS = printing('Plains', 'trk', '307');
+  const EXACT = { number: 'exact', set: 'exact', score: 1.6 } as const;
+  const reading = (looseNumbers = false) => ({ numbers: ['307'], sets: ['TRK'], text: 'L0307 / TRK', ...(looseNumbers ? { looseNumbers } : {}) });
+  // Round 9, read #20: no title, the collector line "L0307 / TRK…" looked up, the art 48 bits off under the hotspot.
+  const plainsUnderTheHotspot = recognition({ names: ['Plains'], printings: [candidate(PLAINS, 48, EXACT)], collector: reading() });
+
+  it('names the card its collector line read cleanly, though the read was unsure of the name', () => {
+    expect(identityOf(plainsUnderTheHotspot)).toEqual({ name: 'Plains', printingId: null, guess: 'trk-307' });
+    // Loose digits, or the number alone, aren't enough.
+    expect(identityOf(recognition({ printings: [candidate(PLAINS, 48, EXACT)], collector: reading(true) })).name).toBeNull();
+    expect(identityOf(recognition({ printings: [candidate(PLAINS, 48, { number: 'exact', set: 'unread', score: 1 })], collector: reading() })).name).toBeNull();
+  });
+
+  it('names the card whose artwork matches the best guess, but not one guessed from far-off artwork', () => {
+    expect(identityOf(recognition({ printings: [candidate(PLAINS, 22)] })).name).toBe('Plains');
+    expect(identityOf(recognition({ printings: [candidate(PLAINS, 48)] }))).toEqual({ name: null, printingId: null, guess: 'trk-307' });
+  });
+
+  it('counts a Plains put on Gray and Adira, though under the hotspot the two looked alike (34 bits)', () => {
+    const session = new LiveSession({ frames: 1, tolerance: 0.02 });
+    const corners = where();
+    const grayAndAdira = Uint32Array.of(0x12345678, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
+    const plains = Uint32Array.from(grayAndAdira);
+    for (let i = 0; i < 34; i++) plains[i >> 5]! ^= 1 << (i & 31);
+    session.next(corners);
+    const gray = recognition({ decision: 'accept', names: ['Gray and Adira, Forever Joined'], nameConfidence: 0.96, confidence: 0.96, printings: [candidate(printing('Gray and Adira, Forever Joined', 'trk', '238'), 28)] });
+    expect(session.settle(grayAndAdira, corners, identityOf(gray))).toBe(true);
+    // The Plains is put on top: it looks different on two checks, and is read.
+    session.next(corners);
+    expect(session.changed(plains)).toBe(false);
+    expect(session.changed(plains)).toBe(true);
+    expect(session.settle(plains, corners, identityOf(plainsUnderTheHotspot))).toBe(true);
+    // A read of it that names nothing, as alike again, is still the Plains: not counted.
+    session.next(corners);
+    session.changed(grayAndAdira);
+    expect(session.changed(grayAndAdira)).toBe(true);
+    expect(session.settle(grayAndAdira, corners, identityOf(recognition({ printings: [candidate(PLAINS, 50)] })))).toBe(false);
   });
 });

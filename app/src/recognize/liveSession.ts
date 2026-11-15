@@ -25,7 +25,12 @@ export interface LiveStep {
 
 /** What a read said the card is, for telling the card read last from a new one. */
 export interface CardIdentity {
-  /** The best name, when the read was at least fairly sure of it. */
+  /**
+   * The card's name, when the read was at least fairly sure of it, or when its
+   * best guess has evidence of its own (the collector line read cleanly, or
+   * matching artwork): two reads naming different cards are two cards,
+   * however alike they look.
+   */
   name: string | null;
   /** The best printing's id, when the read was sure of it. */
   printingId: string | null;
@@ -74,6 +79,14 @@ export interface FrameNote {
   gone: number;
   /** The camera was still settling after the flashlight changed. */
   hold: boolean;
+  /** Steady frames so far: a card is read, or checked against the card read last, once it has been steady for a couple. */
+  steady: number;
+  /**
+   * The check for a new card on top: fingerprint distance from the steady card
+   * in view to the closest look of the card read last (a new card needs more
+   * than `NEW_CARD_DISTANCE` on two checks in a row). Null when not checked.
+   */
+  far: number | null;
 }
 
 /** Live mode reads a card once it has been steady for this many frames. */
@@ -164,7 +177,7 @@ export function sameCardReason(before: CardIdentity, after: CardIdentity, distan
   if (before.guess && after.guess && before.guess === after.guess) return `same best printing (${after.guess}), unsure, ${art}`;
   if (camera && before.name && after.name) return `same name (${after.name}) after the flashlight changed, ${art}`;
   if (before.name && after.name) return `same name (${after.name}), printing unsure, ${art}`;
-  return `name not read, ${art}`;
+  return `${after.name ? 'card read last not named' : 'card not named'}, ${art}`;
 }
 
 /**
@@ -219,7 +232,7 @@ export class LiveSession {
   /** Why the last read settled as the card already counted, for the test log. */
   lastSameCard: string | null = null;
   /** What the last frame told the session, for the test log. */
-  lastFrame: FrameNote = { outline: false, moved: null, probe: null, gone: 0, hold: false };
+  lastFrame: FrameNote = { outline: false, moved: null, probe: null, gone: 0, hold: false, steady: 0, far: null };
 
   constructor(
     private readonly stability: StabilityOptions = LIVE_STABILITY,
@@ -275,7 +288,7 @@ export class LiveSession {
       // A blown-out or black picture shows nothing: it neither keeps the card nor takes it away.
       this.goneRun = there || hold ? 0 : unseen ? this.goneRun : this.goneRun + 1;
     }
-    this.lastFrame = { outline: corners !== null, moved: moved === null ? null : Math.round(moved * 100) / 100, probe: probed, gone: this.goneRun, hold };
+    this.lastFrame = { outline: corners !== null, moved: moved === null ? null : Math.round(moved * 100) / 100, probe: probed, gone: this.goneRun, hold, steady: steadyFrames, far: null };
     if (this.known && this.goneRun >= this.goneFrames) this.forget();
 
     if (!corners) {
@@ -307,6 +320,7 @@ export class LiveSession {
       return true;
     }
     const far = signature !== null && this.signatures.length > 0 ? this.closest(signature) : 0;
+    this.lastFrame = { ...this.lastFrame, far: signature !== null && this.signatures.length > 0 ? far : null };
     if (this.cameraCheck) {
       // The flashlight changed: a card that doesn't look like any look of the card read last is read again at once.
       this.cameraCheck = false;
