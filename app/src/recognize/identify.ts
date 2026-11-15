@@ -126,6 +126,18 @@ const ART_SETTLES = 18;
 const ART_SETTLES_SHARE = 0.97;
 /** The distance a printing without a fingerprint counts as, in printing evidence. */
 const NO_FINGERPRINT_DISTANCE = 24;
+/**
+ * Names that read nearly alike ("A Good Day to Die", "A Good Day to Pie") are
+ * told apart by the artwork when the title's name has a printing at least this
+ * close (a true match under a flashlight's glare stays around here)…
+ */
+const ART_TIE_BREAK = 36;
+/** …and every printing of each look-alike name is at least this far, and this much farther. */
+const ART_TIE_RIVAL = 44;
+const ART_TIE_GAP = 14;
+/** A title read at least this similar to its name, with at least this many letters, can be settled by the art. */
+const TIE_BREAK_SIMILARITY = 0.9;
+const TIE_BREAK_LETTERS = 6;
 
 /** The real card's place in the detected outline's own coordinates, given where that outline lies on the card. */
 export function placementFor(outline: { x: number; y: number; width: number; height: number }, size: { width: number; height: number }): CardPlacement {
@@ -535,12 +547,38 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   // How sure the name is: each signal on its own, combined as if independent.
   const topName = top.printing.name;
   const sameName = scored.filter((candidate) => candidate.printing.name === topName);
-  const fromTitle = title.candidates[0]?.name === topName ? title.confidence : 0;
+  const nameDistance = Math.min(...sameName.map((c) => c.hashDistance ?? Number.POSITIVE_INFINITY));
+  const titleTop = title.candidates[0];
+  const titleAgrees = titleTop?.name === topName;
+  let fromTitle = titleAgrees ? title.confidence : 0;
+  // Names one letter apart split the title's confidence between them; the art settles which.
+  if (titleAgrees && titleTop.similarity >= TIE_BREAK_SIMILARITY && topName.replace(/[^a-z]/gi, '').length >= TIE_BREAK_LETTERS && nameDistance <= ART_TIE_BREAK) {
+    const rivals = title.candidates.filter((c) => c.name !== topName && c.similarity >= titleTop.similarity - 0.2);
+    const rivalArt = rivals.map((rival) => {
+      const printings = scored.filter((c) => c.printing.name === rival.name);
+      return printings.length > 0 && printings.every((c) => c.hashDistance !== null)
+        ? Math.min(...printings.map((c) => c.hashDistance!))
+        : null;
+    });
+    if (rivals.length > 0 && rivalArt.every((d) => d !== null && d >= ART_TIE_RIVAL && d - nameDistance >= ART_TIE_GAP)) {
+      fromTitle = Math.max(fromTitle, titleTop.similarity);
+      trace.push('art-tie-break');
+    }
+  }
   // A collector reading only vouches for a name when that printing's art doesn't plainly
   // contradict it, even when nothing else matches either: a misread number can name another card
   // entirely, and a card found by its collector line alone goes to review unless its art agrees.
-  const plausible = sameName.filter((c) => c.hashDistance === null || c.hashDistance <= GLOBAL_MAX_DISTANCE);
+  // When the title names the same card, the two agree, and art blurred by glare is enough.
+  const artLimit = titleAgrees ? ART_CONTRADICTS : GLOBAL_MAX_DISTANCE;
+  const plausible = sameName.filter((c) => c.hashDistance === null || c.hashDistance <= artLimit);
   const bestMatch = plausible.reduce<CollectorMatch | null>((best, c) => (c.collector && (!best || c.collector.score > best.score) ? c.collector : best), null);
+  // The number alone, with the set unread, names the printing when the title named the card and
+  // only one of its printings has that number.
+  const numberOnly =
+    titleAgrees &&
+    bestMatch?.number === 'exact' &&
+    bestMatch.set === 'unread' &&
+    sameName.filter((c) => c.collector?.number === 'exact').length === 1;
   const fromCollector =
     collector?.looseNumbers
       ? 0
@@ -548,8 +586,10 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       ? 0.9
       : bestMatch?.number === 'exact' && bestMatch.set === 'close'
         ? 0.75
-        : 0;
-  const nameDistance = Math.min(...sameName.map((c) => c.hashDistance ?? Number.POSITIVE_INFINITY));
+        : numberOnly
+          ? 0.75
+          : 0;
+  if (titleAgrees && fromCollector > 0) trace.push('collector:agrees');
   const otherDistance = Math.min(...scored.filter((c) => c.printing.name !== topName).map((c) => c.hashDistance ?? Number.POSITIVE_INFINITY));
   const fromHash =
     nameDistance <= 12 && otherDistance - nameDistance >= 10 ? 0.85 : nameDistance <= 16 && otherDistance - nameDistance >= 6 ? 0.5 : 0;

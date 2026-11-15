@@ -13,6 +13,7 @@ import { NameIndex } from './nameSearch';
 import { recognizeFrame } from './pipeline';
 import { COLLECTOR_CHARACTERS, type OcrEngine } from './ocr';
 import type { TitleMatch } from './titleMatch';
+import type { RgbaImage } from '../vision/image';
 
 const printing = (name: string, set: string, number: string, released: string): Printing => ({
   id: `${set}-${number}`,
@@ -35,15 +36,17 @@ const PRINTINGS: { printing: Printing; art: number }[] = [
 const NAMES = ['Opt', 'Sol Ring'];
 const ARTS = new Map(PRINTINGS.map(({ art }) => [art, artCard(art)]));
 
-/** A one-shard index held in memory, with fingerprints. */
-function memorySource(withFingerprints = true, invertArt: (name: string) => boolean = () => false): IndexSource {
-  const sorted = [...PRINTINGS].sort((a, b) => (a.printing.name < b.printing.name ? -1 : a.printing.name > b.printing.name ? 1 : a.printing.id < b.printing.id ? -1 : 1));
+/** A one-shard index held in memory, with fingerprints, and any `extra` printings. */
+function memorySource(withFingerprints = true, invertArt: (name: string) => boolean = () => false, extra: { printing: Printing; art: number }[] = []): IndexSource {
+  const all = [...PRINTINGS, ...extra];
+  const names = [...new Set([...NAMES, ...extra.map(({ printing }) => printing.name)])].sort();
+  const sorted = [...all].sort((a, b) => (a.printing.name < b.printing.name ? -1 : a.printing.name > b.printing.name ? 1 : a.printing.id < b.printing.id ? -1 : 1));
   const shardFile: IndexFile = { file: 'printings.mtg.00.json', bytes: 0, sha256: 'ab'.repeat(32) };
   const hashFile: IndexFile = { file: 'hashes.mtg.00.bin', bytes: 0, sha256: 'cd'.repeat(32) };
   const collectorsFile: IndexFile = { file: 'collectors.mtg.json', bytes: 0, sha256: 'ef'.repeat(32) };
   const index: GameIndex = {
     source: { name: 'test', updatedAt: 'now' },
-    counts: { names: NAMES.length, printings: PRINTINGS.length },
+    counts: { names: names.length, printings: all.length },
     names: { file: 'names.mtg.json', bytes: 0, sha256: '00'.repeat(32) },
     shards: [shardFile],
     collectors: collectorsFile,
@@ -56,7 +59,7 @@ function memorySource(withFingerprints = true, invertArt: (name: string) => bool
     rowBytes: FINGERPRINT_BYTES,
     printingsSha256: shardFile.sha256,
     rows: sorted.map(({ art, printing }) => {
-      const row = fingerprintCardImage(small(ARTS.get(art)!), MTG_REGIONS);
+      const row = fingerprintCardImage(small(ARTS.get(art) ?? artCard(art)), MTG_REGIONS);
       // Every bit flipped: artwork as unlike this card's as artwork can be.
       return invertArt(printing.name) ? row.map((byte) => 255 - byte) : row;
     }),
@@ -65,7 +68,7 @@ function memorySource(withFingerprints = true, invertArt: (name: string) => bool
     [shardFile.file]: sorted.map(({ printing }) => printing),
     [collectorsFile.file]: buildCollectorIndex(
       sorted.map(({ printing }) => printing),
-      NAMES,
+      names,
       '2014-07-01',
     ),
   };
@@ -104,12 +107,15 @@ async function identify(
     invertArt?: (name: string) => boolean;
     lockSets?: string[];
     reads?: { collector: number };
+    /** The card as photographed, when not the plain art (a flashlight's hotspot, say). */
+    picture?: RgbaImage;
+    extra?: { printing: Printing; art: number }[];
   },
 ) {
   const corners = cardQuad({ x: 400, y: 520 }, 820, options.angle ?? 0.05);
-  const frame = placeCard(ARTS.get(art)!, { width: 800, height: 1040 }, corners, [60, 80, 70]);
-  const catalog = new Catalog(memorySource(options.fingerprints ?? true, options.invertArt), FINGERPRINT_VERSION);
-  const dictionary = { names: NAMES, faces: {} };
+  const frame = placeCard(options.picture ?? ARTS.get(art)!, { width: 800, height: 1040 }, corners, [60, 80, 70]);
+  const catalog = new Catalog(memorySource(options.fingerprints ?? true, options.invertArt, options.extra), FINGERPRINT_VERSION);
+  const dictionary = { names: [...new Set([...NAMES, ...(options.extra ?? []).map(({ printing }) => printing.name)])].sort(), faces: {} };
   return identifyPrinting({
     frame,
     // As detection reports them: the edge higher in the frame is taken as the top.
@@ -234,6 +240,68 @@ describe('collector index lookups', () => {
   it('are built from the same printings the index ships', () => {
     const index = new CollectorIndex(buildCollectorIndex(PRINTINGS.map((p) => p.printing), NAMES, '2014-07-01'), NAMES);
     expect(index.lookup('CMM', '0410')).toEqual(['Sol Ring']);
+  });
+});
+
+/** The card with a flashlight's hotspot painted on its art: its fingerprint drifts 30–40 bits away. */
+function glared(seed: number): RgbaImage {
+  const card = artCard(seed);
+  for (let y = 80; y < 320; y++) {
+    for (let x = 80; x < 320; x++) {
+      if ((x - 200) ** 2 + (y - 200) ** 2 < 120 * 120) card.data.fill(255, (y * 488 + x) * 4, (y * 488 + x) * 4 + 3);
+    }
+  }
+  return card;
+}
+
+/** A title read with some junk after the name: similar, and as sure, as `similarity`. */
+const read = (similarity: number, name = 'Sol Ring'): TitleMatch => ({ candidates: [{ name, distance: 1, similarity }], confidence: similarity, reading: name });
+
+describe('identifyPrinting when the title and the collector line agree (round 7)', () => {
+  it('accepts a title and a clean collector line naming the same card, though glare puts its art 27–48 bits off', async () => {
+    const result = await identify(2, { title: read(0.9), collector: ['U0703', 'CMM•EN JOHN DOE'], picture: glared(2) });
+    const top = result.candidates[0]!;
+    expect(top.printing.id).toBe('cmm-703');
+    expect(top.hashDistance).toBeGreaterThan(26);
+    expect(top.hashDistance).toBeLessThanOrEqual(48);
+    expect(result.nameConfidence).toBeGreaterThan(0.95);
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('takes the number alone, the set unread, when only one printing of the title’s card has it', async () => {
+    const result = await identify(2, { title: read(0.9), collector: ['V0703'], picture: glared(2) });
+    expect(result.candidates[0]?.printing.id).toBe('cmm-703');
+    expect(result.collector).toMatchObject({ numbers: ['703'] });
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('still lets no collector line vouch for blurred art on its own, with no title', async () => {
+    const result = await identify(2, { title: junk, collector: ['U0703', 'CMM•EN JOHN DOE'], picture: glared(2) });
+    expect(result.nameConfidence).toBeLessThan(0.9);
+  });
+});
+
+describe('identifyPrinting between names one letter apart (round 7: A Good Day to Die / to Pie)', () => {
+  const lookalike = (art: number) => [{ printing: printing('Sol Rang', 'unf', '12', '2019-12-07'), art }];
+  const title: TitleMatch = {
+    candidates: [
+      { name: 'Sol Ring', distance: 0.4, similarity: 0.95 },
+      { name: 'Sol Rang', distance: 1.4, similarity: 0.88 },
+    ],
+    confidence: 0.95 * (0.5 + 0.5 * (0.07 / 0.2)),
+    reading: 'sol ring',
+  };
+
+  it('lets the artwork settle the name when the look-alike’s art is plainly another card', async () => {
+    const result = await identify(1, { title, picture: glared(1), extra: lookalike(7) });
+    expect(result.candidates[0]?.printing.id).toBe('c21-263');
+    expect(result.candidates[0]?.hashDistance).toBeLessThanOrEqual(36);
+    expect(result.nameConfidence).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it('leaves the name unsure when the look-alike’s art is as close', async () => {
+    const result = await identify(1, { title, picture: glared(1), extra: lookalike(1) });
+    expect(result.nameConfidence).toBeLessThan(0.9);
   });
 });
 
