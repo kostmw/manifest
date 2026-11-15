@@ -79,7 +79,8 @@ export interface TitleReading {
   inverted: boolean;
   /**
    * Which rendering read best: 1 binarized, 2 contrast-stretched grey, 3 strict
-   * threshold; the rescue readings 4 (the cleaned line) and 5 (the cleaned wide band).
+   * threshold; the rescue readings 4 (the cleaned line) and 5 (the cleaned wide band); 6 the
+   * wide band, for a line whose first letter the usual band cut off.
    */
   rendering: number;
   /** The title was warped straight from the frame, which held more detail than the rectified card. */
@@ -129,7 +130,7 @@ const EMPTY = { names: [], titleCandidates: [], printings: [], nameConfidence: 0
  * Reads the title, trying the crop's alternative renderings while the reading
  * is still poor. Upside-down attempts get fewer: they are rarely needed.
  */
-async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: boolean, enough: number, source: TitleSource | null) {
+async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: boolean, enough: number, sure: number, source: TitleSource | null) {
   const crop = source
     ? cropTitleFromFrame(source.frame, rotated ? source.turned : source.upright, options.regions.title, source.scale)
     : cropTitle(card, options.regions.title);
@@ -141,15 +142,28 @@ async function readTitle(card: RgbaImage, options: RecognizeOptions, rotated: bo
     if (!best || (match.confidence >= SWITCH_FLOOR && match.confidence > best.match.confidence)) best = { line, match, image, rendering: index + 1 };
     if (best.match.confidence >= enough) break;
   }
+  // Not sure enough to add the card: the same line from the wider band, which keeps a first letter
+  // the usual band cut off. Round 9 lost 14 of 94 first letters this way ("Jnexplored Territory",
+  // "ionstable Odo"), several reading 0.85–0.89, where the rescues below never ran. Ink at the
+  // band's edge can't tell a cut letter from the title bar's own outline, so it is read whenever
+  // the reading is unsure. It counts when it reads the same name more surely, or another name as
+  // surely as a rescue reading must (a wider band can catch frame junk). A short name is held to
+  // the rescue's bar either way: junk read twice is still junk.
+  if (crop.widened && best!.match.confidence < sure) {
+    const image = crop.widened();
+    const line = await options.ocr.readLine(image);
+    const match = matchTitle(options.names, line.text, 5);
+    const name = match.candidates[0]?.name;
+    const sameName = name !== undefined && name === best!.match.candidates[0]?.name && !shortMatch(match);
+    if (match.confidence > best!.match.confidence && (sameName ? match.confidence >= SWITCH_FLOOR : rescueSure(match))) best = { line, match, image, rendering: WIDENED_RENDERING };
+  }
   // Still poor: the cleaned line, then the cleaned wide band. Only a sure reading of them counts,
   // since an unreadable title cleaned down to a few marks can spell a short real name.
   for (const [index, rescue] of (best!.match.confidence < enough ? crop.rescue : []).entries()) {
     const image = rescue();
     const line = await options.ocr.readLine(image);
     const match = matchTitle(options.names, line.text, 5);
-    const name = match.candidates[0]?.name ?? '';
-    const sure = match.confidence >= (name.replace(/[^\p{L}]/gu, '').length < RESCUE_SHORT_NAME ? RESCUE_SURE_SHORT : RESCUE_SURE);
-    if (sure && match.confidence > best!.match.confidence) best = { line, match, image, rendering: RESCUE_RENDERING + index };
+    if (rescueSure(match) && match.confidence > best!.match.confidence) best = { line, match, image, rendering: RESCUE_RENDERING + index };
     if (best!.match.confidence >= enough) break;
   }
   const title: TitleReading = {
@@ -218,11 +232,23 @@ async function centerGuess(frame: RgbaImage, options: RecognizeOptions, lap: (st
 
 /** The rendering number of the first rescue reading (see TitleReading.rendering). */
 const RESCUE_RENDERING = 4;
+/** The rendering number of the wider band's reading of a line cut off at its left edge. */
+const WIDENED_RENDERING = 6;
 /** A rescue reading of the title (see TitleCrop.rescue) counts only at this confidence… */
 const RESCUE_SURE = 0.75;
 /** …or this one, for a name of fewer than RESCUE_SHORT_NAME letters, which junk can spell by chance. */
 const RESCUE_SURE_SHORT = 0.9;
 const RESCUE_SHORT_NAME = 5;
+/**
+ * Whether the best name of a reading is short: what matched, that is (a
+ * face, or a name printed in place of the card's own), since junk spells
+ * "Ile" (printed on a French Island) or "Far" (of Far // Away) as easily as "Ow".
+ */
+const shortMatch = (match: TitleMatch) => {
+  const best = match.candidates[0];
+  return (best?.matchedFace ?? best?.name ?? '').replace(/[^\p{L}]/gu, '').length < RESCUE_SHORT_NAME;
+};
+const rescueSure = (match: TitleMatch) => match.confidence >= (shortMatch(match) ? RESCUE_SURE_SHORT : RESCUE_SURE);
 
 /** Read the title from the frame itself once it holds this much more detail than the rectified card. */
 const FRAME_TITLE_MIN_DETAIL = 1.25;
@@ -280,9 +306,9 @@ async function readCandidate(
   // Corners are ordered assuming the card is the right way up; if the title
   // doesn't read well, it may be upside down.
   const source = titleSource(frame, detection, options.regions);
-  let read = await readTitle(upright, options, false, decision.retryRotated, source);
+  let read = await readTitle(upright, options, false, decision.retryRotated, decision.autoAccept, source);
   if (read.match.confidence < decision.retryRotated) {
-    const turned = await readTitle(rotateRgba180(upright), options, true, decision.retryRotated, source);
+    const turned = await readTitle(rotateRgba180(upright), options, true, decision.retryRotated, decision.autoAccept, source);
     if (turned.match.confidence >= SWITCH_FLOOR && turned.match.confidence > read.match.confidence) read = turned;
   }
   lap('ocr');

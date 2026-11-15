@@ -31,6 +31,13 @@ export interface TitleCrop {
    * these; an unreadable one gives junk, so their readings count only when sure.
    */
   rescue: (() => GrayImage)[];
+  /**
+   * The same line from the region's wider band, binarized like `image`, made
+   * on first use: it keeps a name's first letter that the usual band cuts off
+   * when the outline is a little off to one side (on a card's frame line in a
+   * dark deck box).
+   */
+  widened?: () => GrayImage;
 }
 
 /** Text height the OCR engine reads best, in pixels. */
@@ -326,5 +333,6 @@ function cropTitleFromBand(band: GrayImage, region: TitleRegion, scale: number, 
       () => pad(cleanLine(image), PADDING),
       ...(wide && bandAt ? [() => pad(cleanLine(lineOf(bandAt(wide), region, scale)), PADDING)] : []),
     ],
+    ...(wide && bandAt ? { widened: () => pad(lineOf(bandAt(wide), region, scale), PADDING) } : {}),
   };
 }
