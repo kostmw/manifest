@@ -2,7 +2,159 @@
   "holodeck-trk-346-on-table.jpg": {
     "game": "mtg",
     "id": "19366f88-8411-428b-9903-8c9527686cac",
-    "tags": ["showcase", "borderless", "touching-cards"],
+    "tags": [
+      "showcase",
+      "borderless",
+      "touching-cards"
+    ],
     "notes": "iPhone photo, 923×2000. The Holodeck (TRK 346, borderless, art to the edge) whole in the middle, other cards touching it on all sides and cut off by the frame. Scan a photo said 'No card found' (2026-11-11)."
+  },
+  "testlog-2026-11-15-8ca43850.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T05:35, build 0.0.0+a5079c7, live: read as Constable Odo (TRK 230) at 0.9; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-c3f70747.jpg": {
+    "game": "mtg",
+    "id": "ce59648a-dc9d-494d-ba5e-97e8d4636017",
+    "name": "A Good Day to Die",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T05:37, build 0.0.0+a5079c7, live: read as A Good Day to Die (TRK 428) at 0.535; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-2af85641.jpg": {
+    "game": "mtg",
+    "id": "5a8d4b2c-ec98-46e2-bf8d-da441d9c9cdf",
+    "name": "Officer",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T05:37, build 0.0.0+a5079c7, live: read as Wall of Lava (ICE 223) at 0.129; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-f1709574.jpg": {
+    "game": "mtg",
+    "id": "76bf7521-5024-4fdc-9ea1-5e10f2647efb",
+    "name": "U.S.S. Cerritos, Following Up",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T05:37, build 0.0.0+a5079c7, live: read as U.S.S. Cerritos, Following Up (TRK 272) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-0e45dc16.jpg": {
+    "game": "mtg",
+    "id": "74029de7-fb85-440d-b149-4b820c41eaa5",
+    "name": "Organic Avulsion Unit",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T05:37, build 0.0.0+a5079c7, live: read as Organic Avulsion Unit (TRK 376) at 0.614; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-60e7b530.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T05:38, build 0.0.0+a5079c7, live: read as Minion (TDDE 2) at 0.178; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-4f33f269.jpg": {
+    "game": "mtg",
+    "id": "aac57a7f-a28b-486a-8d85-c620702a9cc0",
+    "name": "Stray from History",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T05:38, build 0.0.0+a5079c7, live: read as Stray from History (TRK 130) at 0.762; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-e4b2fa33.jpg": {
+    "game": "mtg",
+    "id": "c1855a4c-c7d1-407c-b134-4c43968cbdd3",
+    "name": "Blastoneuron",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T05:38, build 0.0.0+a5079c7, live: read as Blastoneuron (TRK 96) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-0e8a1f40.jpg": {
+    "game": "mtg",
+    "id": "c1855a4c-c7d1-407c-b134-4c43968cbdd3",
+    "name": "Blastoneuron",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T05:38, build 0.0.0+a5079c7, live: read as Blastoneuron (TRK 96) at 0.867; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-7ab105b7.jpg": {
+    "game": "mtg",
+    "id": "6b2fba64-b85f-42bc-991e-4bb6201b78fb",
+    "name": "Plains",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T05:39, build 0.0.0+a5079c7, live: read as Plains (TRK 307) at 0.232; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-4a631e99.jpg": {
+    "game": "mtg",
+    "id": "ce59648a-dc9d-494d-ba5e-97e8d4636017",
+    "name": "A Good Day to Die",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T05:40, build 0.0.0+a5079c7, live: read as A Good Day to Die (TRK 428) at 0.377; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-9285d79b.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T05:40, build 0.0.0+a5079c7, live: read as Constable Odo (TRK 230) at 0.9; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
   }
 }
