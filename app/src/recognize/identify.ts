@@ -510,6 +510,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   // is all there is.)
   const artSettled = Math.min(...[...distances.values()].map((d) => d.distance), Number.POSITIVE_INFINITY) <= ART_MATCH;
   const contradicted = (distance: number | null) => artSettled && distance !== null && distance > GLOBAL_MAX_DISTANCE;
+  // A title sure of one card isn't outvoted by a collector line naming another, unless that
+  // card's art agrees: a set code fished out of OCR junk and a stray number can name any card
+  // (round 8: "Dominion Saboteur" read perfectly, the collector line "…MARIT…P46" named Light of
+  // Promise MAR 46, art 72 bits off).
+  const sureTitleName = title.confidence >= SURE_TITLE ? title.candidates[0]?.name : undefined;
+  const overrulesTitle = (name: string, distance: number | null) =>
+    sureTitleName !== undefined && name !== sureTitleName && (distance === null || distance > GLOBAL_MAX_DISTANCE);
   const scored: PrintingCandidate[] = [];
   const outsideNames = new Set<string>();
   for (const [name, { entries: all, sources }] of pool) {
@@ -521,7 +528,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     for (const { printing } of entries) {
       const hashDistance = distances.get(printing.id)?.distance ?? null;
       const read = collector ? game.matchCollector(collector, printing) : null;
-      const match = read && contradicted(hashDistance) ? { ...read, score: Math.min(0, read.score) } : read;
+      const match = read && (contradicted(hashDistance) || overrulesTitle(name, hashDistance)) ? { ...read, score: Math.min(0, read.score) } : read;
       const titleScore = titleSimilarity.get(name) ?? 0;
       scored.push({
         printing,

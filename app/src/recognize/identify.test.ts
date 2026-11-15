@@ -281,6 +281,22 @@ describe('identifyPrinting when the title and the collector line agree (round 7)
   });
 });
 
+describe('identifyPrinting when a garbled collector line names another card (round 8)', () => {
+  it('doesn’t let it outvote a sure title when that card’s art is plainly not this one', async () => {
+    // The photo is Sol Ring under glare; the collector line "names" Opt DOM 60, whose art is far off.
+    const result = await identify(1, { title: sure('Sol Ring'), collector: ['C0060', 'DOM•EN JOHN DOE'], picture: glared(1) });
+    expect(result.candidates[0]?.printing.name).toBe('Sol Ring');
+    const opt = result.candidates.find((c) => c.printing.name === 'Opt');
+    expect(opt?.collector?.score ?? 0).toBeLessThanOrEqual(0);
+    expect(result.nameConfidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('still lets a collector line win when its card’s art agrees with the photo', async () => {
+    const result = await identify(9, { title: sure('Sol Ring'), collector: ['C0060', 'DOM•EN JOHN DOE'] });
+    expect(result.candidates[0]?.printing.id).toBe('dom-60');
+  });
+});
+
 describe('identifyPrinting between names one letter apart (round 7: A Good Day to Die / to Pie)', () => {
   const lookalike = (art: number) => [{ printing: printing('Sol Rang', 'unf', '12', '2019-12-07'), art }];
   const title: TitleMatch = {
