@@ -1,7 +1,7 @@
 /**
  * Turns a phone's test log into real-scan fixtures:
  *
- *   npx tsx tests/eval/testlog-to-fixtures.ts manifest-testlog-20261113-0915.json
+ *   npx tsx tests/eval/testlog-to-fixtures.ts manifest-debuglog-20261113-0915.json   (any file name; older logs are manifest-testlog-…)
  *   npx tsx tests/eval/testlog-to-fixtures.ts log.json --out tests/fixtures/real-scans --dry-run
  *
  * Every read the user labelled (a review accepted as a printing, or a batch
@@ -25,7 +25,7 @@ const { values, positionals } = parseArgs({
 });
 const [logPath] = positionals;
 if (!logPath) {
-  console.error('Usage: npx tsx tests/eval/testlog-to-fixtures.ts <test log .json> [--out dir] [--dry-run]');
+  console.error('Usage: npx tsx tests/eval/testlog-to-fixtures.ts <debug log .json> [--out dir] [--dry-run]');
   process.exit(1);
 }
 

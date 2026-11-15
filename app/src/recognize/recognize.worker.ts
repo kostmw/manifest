@@ -10,17 +10,16 @@ import type { CollectorIndex } from '../games/collectorIndex';
 import { browserIndexSource, loadNameDictionary } from '../games/indexClient';
 import { getGame } from '../games/registry';
 import type { GameId } from '../games/types';
-import { detectCards } from '../vision/detect';
 import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
-import { assessQuality, type QualityAdvice, type QualityIssue, type QualityMetrics, type QualityReport } from '../vision/quality';
-import { warpQuad } from '../vision/rectify';
-import { canvasFromFrame, cornersMapping, deglared, FINGERPRINT_VERSION, fingerprintAt, toWords } from './fingerprint';
+import type { QualityAdvice, QualityIssue, QualityMetrics } from '../vision/quality';
+import { FINGERPRINT_VERSION } from './fingerprint';
 import type { PrintingCandidate } from './identify';
-import { LiveSession, NO_IDENTITY, type CardIdentity, type LivePhase } from './liveSession';
+import { LiveScanner, type LiveRead, type TrailFrame } from './liveScanner';
+import type { LivePhase, ReadTrigger } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
-import { detectOptions, recognizeFrame, type Decision, type Recognition } from './pipeline';
+import { recognizeFrame, type Decision, type Recognition } from './pipeline';
 import { createTesseractEngine } from './tesseract';
 
 declare const __OCR_DIR__: string;
@@ -85,6 +84,10 @@ export interface FrameOutcome {
   sameCard?: boolean;
   /** That read, and why it was taken for the same card, for the test log. */
   repeat?: { result: ScanResult; why: string };
+  /** For a live read (counted or not): why live mode read the card, and the frames before it, for the test log. */
+  liveRead?: { trigger: ReadTrigger; distance: number | null; frames: TrailFrame[] };
+  /** Another frame was still being read, so this one was dropped: nothing to show. */
+  busy?: true;
 }
 
 /**
@@ -103,7 +106,7 @@ let catalog: Catalog | null = null;
 let collectors: CollectorIndex | null = null;
 /** The batch's set lock; empty for any set. */
 let lockSets: string[] = [];
-const live = new LiveSession();
+const live = new LiveScanner();
 
 function pixels(bitmap: ImageBitmap, maxSide: number): RgbaImage {
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
@@ -122,42 +125,6 @@ async function toJpeg(image: RgbaImage): Promise<Blob> {
   const context = canvas.getContext('2d')!;
   context.putImageData(new ImageData(new Uint8ClampedArray(image.data), image.width, image.height), 0, 0);
   return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
-}
-
-/**
- * The card in view's fingerprint, to tell a new card put on top from the one
- * read last. With a flashlight's hotspot on it, also its look with the hotspot
- * painted over (see glare.ts), end to end: the two compare as their closest pair.
- */
-function cardSignature(frame: RgbaImage, corners: Quad, regions: ReturnType<typeof getGame>['regions']): Uint32Array | null {
-  const mapping = cornersMapping(corners, regions.size);
-  if (!mapping) return null;
-  const canvas = canvasFromFrame(frame, mapping, regions.size, 0);
-  const raw = toWords(fingerprintAt(canvas, regions));
-  const fixed = deglared(canvas, regions.size);
-  if (!fixed) return raw;
-  const both = new Uint32Array(8);
-  both.set(raw, 0);
-  both.set(toWords(fingerprintAt(fixed, regions)), 4);
-  return both;
-}
-
-/**
- * Live frames are watched on a copy this size on its long side: about 40%
- * cheaper per frame than 640, and it finds cards at least as often. A read
- * detects the card again at 640, as the eval does: reading from the 480
- * outline cost one wrong auto-accept (a promo twin) on the standard set.
- */
-const LIVE_DETECT_SIZE = 480;
-
-/** Below this name confidence a read doesn't say which card it was. */
-const IDENTITY_NAME_MIN = 0.5;
-
-/** What a read says the card is, for telling it from the next one. */
-function identityOf(recognition: Recognition): CardIdentity {
-  const name = recognition.nameConfidence >= IDENTITY_NAME_MIN ? (recognition.names[0] ?? null) : null;
-  const printingId = recognition.decision === 'accept' ? (recognition.printings[0]?.printing.id ?? null) : null;
-  return name || printingId ? { name, printingId } : NO_IDENTITY;
 }
 
 function ready() {
@@ -191,25 +158,16 @@ async function toResult(recognition: Recognition, started: number, frame: { widt
   };
 }
 
-/** What live mode reports for a card it has given up on: no names, the crop, and why it may have failed. */
-function unreadable(card: RgbaImage, quality: QualityReport, timings: Record<string, number>): Recognition {
-  return {
-    decision: 'review',
-    detection: null,
-    quality,
-    title: null,
-    names: [],
-    titleCandidates: [],
-    printings: [],
-    nameConfidence: 0,
-    confidence: 0,
-    collector: null,
-    timings,
-    card,
-    guessedOutline: false,
-    outsideLock: false,
-    trace: ['gave-up'],
-  };
+/** A live read as the main thread gets it: a new card (`result`), or the card already counted (`repeat`). */
+async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcome): Promise<void> {
+  const result = await toResult(read.recognition, started, outcome.frame, read.gaveUp);
+  outcome.liveRead = { trigger: read.trigger, distance: read.distance, frames: read.frames };
+  if (read.counted) {
+    outcome.result = result;
+  } else {
+    outcome.sameCard = true;
+    outcome.repeat = { result, why: read.why ?? 'same card' };
+  }
 }
 
 const api = {
@@ -241,87 +199,32 @@ const api = {
     void nextCatalog.fingerprintTable().catch(() => null);
   },
 
-  /** One live camera frame. Reads the card once it has been steady for a few frames. */
+  /**
+   * One live camera frame. Reads the card once it has been steady for a few
+   * frames. A frame that comes while another is still being read is dropped
+   * (`busy`): reads never overlap.
+   */
   async live(bitmap: ImageBitmap): Promise<FrameOutcome> {
+    if (live.busy) {
+      const frame = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      return { frame, corners: null, steadyFrames: 0, phase: 'empty', issues: [], advice: [], metrics: null, timings: {}, result: null, busy: true };
+    }
     const started = performance.now();
     const context = ready();
     const frame = pixels(bitmap, Number.POSITIVE_INFINITY);
     const copied = performance.now();
-    const detections = detectCards(frame, detectOptions(context.regions, LIVE_DETECT_SIZE));
-    const best = detections[0] ?? null;
-    // When detection loses the card read last, whether it is still lying where it was.
-    const step = live.next(best?.corners ?? null, (corners) => cardSignature(frame, corners, context.regions));
-    const timings: Record<string, number> = { pixels: copied - started, detect: performance.now() - copied };
-    const outcome: FrameOutcome = {
-      frame: { width: frame.width, height: frame.height },
-      corners: best?.corners ?? null,
-      steadyFrames: step.steadyFrames,
-      phase: step.phase,
-      issues: [],
-      advice: [],
-      metrics: null,
-      timings,
-      result: null,
-    };
-    const finish = () => {
-      timings.total = performance.now() - started;
-      return outcome;
-    };
-    if (!best) return finish();
+    const seen = await live.frame(frame, context);
+    const { read, busy: _busy, ...rest } = seen;
+    const outcome: FrameOutcome = { ...rest, timings: { pixels: copied - started, ...seen.timings }, result: null };
+    if (read) await liveOutcome(read, started, outcome);
+    outcome.timings.total = performance.now() - started;
+    return outcome;
+  },
 
-    const card = warpQuad(frame, best.corners, context.regions.size);
-    const quality = assessQuality({ frame, corners: best.corners, card, titleBox: context.regions.title.search });
-    outcome.issues = quality.issues;
-    outcome.advice = quality.advice;
-    outcome.metrics = quality.metrics;
-    // A card put on top of the one read last: read it like any new card.
-    let recognize = step.recognize;
-    let signature: Uint32Array | null = null;
-    if (step.checkCard) {
-      signature = cardSignature(frame, best.corners, context.regions);
-      if (live.changed(signature)) {
-        recognize = true;
-        outcome.phase = 'reading';
-      }
-    }
-    if (!recognize || !quality.ok) return finish();
-    signature ??= cardSignature(frame, best.corners, context.regions);
-
-    // A read that throws or finds nothing usable is tried again on the next steady frame, a few
-    // times; then the card is reported as unreadable, so live mode never waits forever.
-    let recognition: Recognition | null = null;
-    try {
-      recognition = await recognizeFrame(frame, { ...context, keepImages: true });
-    } catch (error) {
-      console.warn('Reading a live frame failed', error);
-    }
-    if (!recognition || recognition.decision === 'retake') {
-      const verdict = live.failed(signature, best.corners);
-      if (verdict === 'retry') {
-        outcome.phase = 'reading';
-        return finish();
-      }
-      outcome.phase = 'read';
-      const result = await toResult(unreadable(card, quality, recognition?.timings ?? {}), started, outcome.frame, true);
-      if (verdict === 'same-card') {
-        outcome.sameCard = true;
-        outcome.repeat = { result, why: live.lastSameCard ?? 'same card' };
-        return finish();
-      }
-      outcome.result = result;
-      return finish();
-    }
-    outcome.phase = 'read';
-    // The read's own stages; its detection at full size is timed as `read-detect`.
-    for (const [stage, ms] of Object.entries(recognition.timings)) timings[stage === 'detect' ? 'read-detect' : stage] = ms;
-    // A card that only looked different (glare, foil shimmer) is the card already counted.
-    if (!live.settle(signature, best.corners, identityOf(recognition))) {
-      outcome.sameCard = true;
-      outcome.repeat = { result: await toResult(recognition, started, outcome.frame), why: live.lastSameCard ?? 'same card' };
-      return finish();
-    }
-    outcome.result = await toResult(recognition, started, outcome.frame);
-    return finish();
+  /** The flashlight was switched: hold the card read last while the camera re-exposes, then check it. */
+  cameraChanged(): void {
+    live.cameraChanged();
   },
 
   /** Read the card in view again, even though it hasn't left. */

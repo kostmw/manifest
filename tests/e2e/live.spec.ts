@@ -67,7 +67,6 @@ test('counts copies and stacked cards without a confirm step, while the camera k
   await expect(tip).toContainText('silent switch');
   await tip.getByRole('button', { name: 'Beep even in silent mode' }).click();
   await expect(tip).toHaveCount(0);
-  await page.getByText('Sound and testing', { exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Sound' })).toHaveValue('always');
   expect(await page.evaluate(() => (navigator as Navigator & { audioSession: { type: string } }).audioSession.type)).toBe('playback');
 });

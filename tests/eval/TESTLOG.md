@@ -1,12 +1,14 @@
-# Test log
+# Test log (the app's "debug log")
 
-A phone test can be recorded as one file instead of screenshots. On the Scan tab, open **Sound and testing**:
+A phone test can be recorded as one file instead of screenshots. The app calls it the **debug log**; the code and this format call it the test log. On the Scan tab, open **Debugging** (collapsed, under the Sound setting):
 
-1. Turn on **Record a test log**. **Include card pictures** (on by default) keeps a small picture of each card.
+1. Turn on **Record a debug log**. **Include card pictures** (on by default) keeps a small picture of each card.
 2. Scan as usual: live, or photos. Resolve reviews, use Undo, change printings: those are logged too.
-3. **Share test log** (Save to Files, AirDrop, Mail…) or **Download test log**. **Clear log** empties it.
+3. **Share debug log** (Save to Files, AirDrop, Mail…) or **Download debug log**. **Clear debug log** empties it.
 
 The log stays in the browser's IndexedDB until it is shared. No network calls are made. It keeps the last 300 scans, with their follow-ups.
+
+Files are named `manifest-debuglog-YYYYMMDD-HHMM.json`; logs saved before round 6 are `manifest-testlog-…`. The format inside is the same either way, and the scripts below take any file name.
 
 ## Format: `manifest-testlog`, version 1
 
@@ -42,8 +44,17 @@ Each read has these fields:
 | `trace` | The paths recognition took (below). |
 | `candidates` | The top 5 printings, each with `id`, `name`, `set`, `number`, `score`, and the per-signal values `title` (similarity), `art` (fingerprint distance of 128 bits, null without one), `collector` (`number`/`set` verdicts and `score`) and `sources`. |
 | `nameConfidence`, `confidence` | 0–1. |
-| `outcome` | `{ kind: "added", printingId, finish }`, `{ kind: "review", reason }`, or `{ kind: "same-card", why }`. The last is a live re-read of the card already counted (glare, foil shimmer), so nothing was counted. |
+| `outcome` | `{ kind: "added", printingId, finish }`, `{ kind: "review", reason }`, or `{ kind: "same-card", why }`. The last is a live re-read of the card already counted (glare, foil shimmer, the flashlight), so nothing was counted. |
+| `live` | Live reads only, from builds after round 6: why live mode read the card, and what it saw in the frames before (below). |
 | `crop` | Optional: the upright card as a 244×340 JPEG, base64. |
+
+`live` is for telling why a card was counted twice (see `app/src/recognize/liveSession.ts`):
+
+| Field | What it holds |
+|---|---|
+| `trigger` | `fresh` (the first card, or the first after the card read last was gone), `different` (it looked unlike the card read last), `camera` (a check after the flashlight switched) or `again` (Read again). Only `fresh` and `again` reads always count; the others count only when the read finds another card. |
+| `distance` | For `different` and `camera`: fingerprint distance (of 128 bits) from the card read last. |
+| `frames` | Up to 24 frames before the read, oldest first: `ms` since the frame before, `outline` (detection found one), `moved` (how far it was from where the card read last lay, as a share of its diagonal), `probe` (fingerprint distance from the card read last to what lay where it was, when that was looked at), `gone` (frames in a row so far without the card read last: 3 make it gone) and `hold` (the camera was settling after the flashlight switched). |
 
 `trace` values:
 
@@ -87,11 +98,12 @@ The types:
 - `review-discarded`
 - `undo`: a thumbnail's Undo.
 - `printing-changed`: a batch row's printing changed from `from` to `printing`. This is the ground truth for every read that went into the row; the row keeps its last 20.
+- `flashlight`: the flashlight was switched on or off (`on`). It is about no read, so `readIds` is empty.
 
 ## From a log to eval fixtures
 
 ```
-npx tsx tests/eval/testlog-to-fixtures.ts manifest-testlog-20261113-0915.json
+npx tsx tests/eval/testlog-to-fixtures.ts manifest-debuglog-20261113-0915.json
 ```
 
 The script works like this:
@@ -103,3 +115,17 @@ The script works like this:
 `--dry-run` lists what it would add. `--out dir` writes elsewhere.
 
 These pictures are the app's own crops, not whole photos, so they don't test detection or framing. `npm run eval -- --only real` runs them with the owner's other photos.
+
+## Replaying live mode
+
+```
+npx tsx tests/eval/live-replay.ts manifest-testlog-20261115-0359.json
+```
+
+This puts the log's card pictures back into camera frames, in the order they were read, and runs them through the scanner's live mode (the same `LiveScanner` the app's worker uses, with real detection, OCR and the card index). The frames in between are made up, the same way every run:
+- the hand-held phone drifts, and now and then jumps by a tenth to a fifth of the card's diagonal;
+- some frames blur, so detection loses the card;
+- where the log's flashlight setting changes, the picture blows out or darkens for a few frames;
+- the box is empty for a moment between cards.
+
+Each run of reads with the same top name counts as one card lying there, so it should count once. It prints how often each was counted and why each read happened. `--no-camera-events` leaves out the app's flashlight notice; `--seed N` shakes the phone differently.

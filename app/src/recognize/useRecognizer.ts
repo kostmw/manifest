@@ -65,6 +65,11 @@ export function useRecognizer(game: GameId, lockSets: readonly string[] = []) {
     void remoteRef.current?.again();
   }, []);
 
+  /** The flashlight is switching: live mode holds the card read last while the camera re-exposes. */
+  const cameraChanged = useCallback(() => {
+    void remoteRef.current?.cameraChanged();
+  }, []);
+
   // The batch's set lock, sent again whenever the worker (re)starts.
   const lockKey = lockSets.join(',');
   useEffect(() => {
@@ -73,5 +78,5 @@ export function useRecognizer(game: GameId, lockSets: readonly string[] = []) {
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
-  return { status, live, photo, again, retry };
+  return { status, live, photo, again, cameraChanged, retry };
 }

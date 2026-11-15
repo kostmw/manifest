@@ -24,6 +24,10 @@ export interface FakeCardOptions {
   noCard?: boolean;
   /** A flashlight's reflection on the art: its radius, in card units (488 across). */
   hotspot?: number;
+  /** Where the reflection's centre is, in card units: it moves as a hand-held phone does. The middle of the art when not given. */
+  hotspotAt?: { x: number; y: number };
+  /** The whole picture brightened (above 1) or darkened, as while the camera re-exposes after the flashlight switches. */
+  exposure?: number;
   /** A foil's shimmer: bright and dark bands across the art, shifted by this many card units. */
   shimmer?: number;
   /** Blur the whole picture by this many pixels, as when the camera refocuses: detection loses the card. */
@@ -112,7 +116,8 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
     ctx.restore();
   }
   if (options.hotspot) {
-    const spot = ctx.createRadialGradient(244 * s, 228 * s, 0, 244 * s, 228 * s, options.hotspot * 1.8 * s);
+    const { x: hx, y: hy } = options.hotspotAt ?? { x: 244, y: 228 };
+    const spot = ctx.createRadialGradient(hx * s, hy * s, 0, hx * s, hy * s, options.hotspot * 1.8 * s);
     spot.addColorStop(0, 'rgba(255, 255, 255, 1)');
     spot.addColorStop(0.45, 'rgba(255, 255, 255, 0.95)');
     spot.addColorStop(1, 'rgba(255, 255, 255, 0)');
@@ -121,12 +126,12 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
   }
   ctx.restore();
 
-  if (options.blur) {
+  if (options.blur || options.exposure) {
     const copy = document.createElement('canvas');
     copy.width = width;
     copy.height = height;
     const copyContext = copy.getContext('2d')!;
-    copyContext.filter = `blur(${options.blur}px)`;
+    copyContext.filter = [options.blur ? `blur(${options.blur}px)` : '', options.exposure ? `brightness(${options.exposure})` : ''].join(' ').trim();
     copyContext.drawImage(canvas, 0, 0);
     return copy.toDataURL('image/png');
   }

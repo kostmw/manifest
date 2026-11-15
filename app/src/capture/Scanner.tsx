@@ -4,7 +4,7 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { printingCode } from '../review/explain';
 import { ReviewCard } from '../review/ReviewCard';
 import { intake, UNREADABLE_BELOW } from '../session/intake';
-import { testLogEnabled, type TestLogSettings } from '../session/testLog';
+import { logFlashlight, testLogEnabled, type TestLogLive, type TestLogSettings } from '../session/testLog';
 import { logOutcome, recordRead } from '../session/testLogRecord';
 import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
@@ -214,7 +214,17 @@ export function Scanner({
   onOpenReview: (reviewId?: string) => void;
 }) {
   const recognizer = useRecognizer(batch?.game ?? 'mtg', batch?.settings.lockSets ?? []);
-  const camera = useCamera();
+  const { cameraChanged } = recognizer;
+  // The camera re-exposes when the flashlight switches: live mode holds the card in view meanwhile.
+  const camera = useCamera(
+    useCallback(
+      (on: boolean, done: boolean) => {
+        cameraChanged();
+        if (done) logFlashlight(on);
+      },
+      [cameraChanged],
+    ),
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frame, setFrame] = useState<FrameOutcome | null>(null);
   const [lastRead, setLastRead] = useState<Record<string, number> | null>(null);
@@ -260,7 +270,7 @@ export function Scanner({
   }), []);
 
   /** A read of the card already counted (glare, shimmer): nothing is filed, but the test log keeps it. */
-  const logRepeat = useCallback((repeat: { result: ScanResult; why: string }, timings: Record<string, number>) => {
+  const logRepeat = useCallback((repeat: { result: ScanResult; why: string }, timings: Record<string, number>, live: TestLogLive | null) => {
     const target = batchRef.current;
     if (!target || !testLogEnabled()) return;
     void recordRead({
@@ -270,17 +280,18 @@ export function Scanner({
       outcome: logOutcome({ kind: 'same-card', why: repeat.why }),
       settings: logSettings(target),
       timings,
+      live,
     });
   }, [logSettings]);
 
   /** Files a scanned card: into the batch or the review queue, with sound, vibration and a flash. */
-  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>) => {
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null) => {
     const target = batchRef.current;
     if (!target) return null;
     try {
       const scanId = crypto.randomUUID();
       const outcome = await intake(target, scan, source, scanId);
-      if (testLogEnabled()) void recordRead({ id: scanId, source, scan, outcome: logOutcome(outcome), settings: logSettings(target), timings });
+      if (testLogEnabled()) void recordRead({ id: scanId, source, scan, outcome: logOutcome(outcome), settings: logSettings(target), timings, live });
       const best = scan.printings[0]?.printing;
       const sure = scan.nameConfidence >= UNREADABLE_BELOW;
       const entry = pushRecent({
@@ -304,28 +315,33 @@ export function Scanner({
     }
   }, [logSettings]);
 
+  // The frame the worker is working on, if any: a loop started while it is still being read waits for it.
+  const inFlightRef = useRef<Promise<unknown> | null>(null);
   useEffect(() => {
     if (recognizer.status !== 'ready' || !streaming || photoState === 'reading') return;
     let stopped = false;
     void (async () => {
+      // A loop stopped by a re-render may still have a frame being read: never read two at once.
+      await inFlightRef.current;
       while (!stopped) {
         const started = performance.now();
         const video = videoRef.current;
         try {
-          const outcome = video ? await live(video) : null;
-          if (stopped) break;
-          if (outcome) {
-            setFrame(outcome);
-            // The camera keeps watching: a read card is filed, and the next one is looked for at once.
-            if (outcome.result) {
-              setLastRead(outcome.timings);
-              void file(outcome.result, 'live', outcome.timings);
-            } else if (outcome.sameCard) {
-              setLastRead(outcome.timings);
-              setRepeats((count) => count + 1);
-              if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings);
-            }
+          const call = video ? live(video) : Promise.resolve(null);
+          inFlightRef.current = call.catch(() => null);
+          const outcome = await call;
+          // A read card is filed even when this loop has been stopped meanwhile: the worker has counted it.
+          if (outcome?.result) {
+            setLastRead(outcome.timings);
+            void file(outcome.result, 'live', outcome.timings, outcome.liveRead ?? null);
+          } else if (outcome?.sameCard) {
+            setLastRead(outcome.timings);
+            setRepeats((count) => count + 1);
+            if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
           }
+          if (stopped) break;
+          // A dropped frame (another was still being read) has nothing to show.
+          if (outcome && !outcome.busy) setFrame(outcome);
         } catch {
           // A dropped frame is harmless: the next one is a fresh try.
         }
@@ -571,31 +587,34 @@ export function Scanner({
         </section>
       )}
 
+      <section aria-label="Sound" className="flex flex-col gap-1 text-xs text-zinc-500">
+        <label className="flex min-h-11 items-center gap-2">
+          Sound
+          <select
+            value={sound}
+            onChange={(event) => {
+              const next = event.target.value as SoundMode;
+              setSoundMode(next);
+              setSound(next);
+              unlockAudio();
+            }}
+            className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
+          >
+            <option value="on">On (the silent switch mutes it)</option>
+            <option value="always">On, even in silent mode (pauses music)</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <p>
+          A high beep means the card was added; two lower notes mean it waits for review.
+          {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
+        </p>
+      </section>
+
       {/* For phone tests: a home-screen app has no address bar for ?debug=1. */}
       <details className="text-xs text-zinc-500">
-        <summary className="flex min-h-11 cursor-pointer items-center select-none">Sound and testing</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center select-none">Debugging</summary>
         <div className="mt-1 flex flex-col gap-2">
-          <label className="flex min-h-11 items-center gap-2">
-            Sound
-            <select
-              value={sound}
-              onChange={(event) => {
-                const next = event.target.value as SoundMode;
-                setSoundMode(next);
-                setSound(next);
-                unlockAudio();
-              }}
-              className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
-            >
-              <option value="on">On (the silent switch mutes it)</option>
-              <option value="always">On, even in silent mode (pauses music)</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <p>
-            A high beep means the card was added; two lower notes mean it waits for review.
-            {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
-          </p>
           <label className="flex min-h-11 items-center gap-2">
             <input
               type="checkbox"
