@@ -1,83 +1,365 @@
-/** The Review tab: the batch's scanned cards that wait for the user's say, one at a time. */
+/**
+ * The Review tab: the batch's scanned cards that wait for the user's say.
+ * Those whose top guess looks right are listed, to be added together with one
+ * tap ("quick confirm", see quickConfirm.ts); the rest are looked at one at a
+ * time. With none that look right, it opens straight on the first card.
+ */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useEffect, useState } from 'react';
-import { getReviews } from '../session/reviews';
-import type { Batch } from '../session/types';
-import { BUTTON_SECONDARY } from '../ui/styles';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { getGame } from '../games/registry';
+import type { Printing } from '../games/types';
+import { acceptReviewGroup, getReviews, reviewFinish, undoAcceptedGroup, updateReview, type AcceptedGroup } from '../session/reviews';
+import { knownIds, logEvent, logPrinting } from '../session/testLog';
+import type { Batch, ReviewItem } from '../session/types';
+import { cue } from '../ui/feedback';
+import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
+import { printingCode } from './explain';
+import { bannerTargets, groupReviews, LOOKS_RIGHT_NAME, type PlacedReview } from './quickConfirm';
 import { ReviewCard } from './ReviewCard';
+import { QuickConfirmRow } from './QuickConfirmRow';
+
+/** How long "Added N cards" offers its Undo before it gives way (the group stays undoable from the top of the tab). */
+const TOAST_MS = 9000;
+
+/** The last group added with "Add N cards", undoable until the next one (or the app reloads), wherever the user went meanwhile. */
+let lastGroup: { group: AcceptedGroup; count: number } | null = null;
+const groupListeners = new Set<() => void>();
+function setLastGroup(next: typeof lastGroup): void {
+  lastGroup = next;
+  for (const listener of groupListeners) listener();
+}
+function useLastGroup(batchId: string) {
+  const value = useSyncExternalStore(
+    (listener) => {
+      groupListeners.add(listener);
+      return () => groupListeners.delete(listener);
+    },
+    () => lastGroup,
+  );
+  return value?.group.batchId === batchId ? value : null;
+}
+
+type View = { kind: 'list' } | { kind: 'one'; order: string[]; currentId: string };
 
 export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?: string | null; onScan: () => void }) {
   const reviews = useLiveQuery(() => getReviews(batch.id), [batch.id]);
-  const [currentId, setCurrentId] = useState<string | null>(startAt ?? null);
+  const game = getGame(batch.game);
+  const [view, setView] = useState<View | null>(startAt ? { kind: 'one', order: [startAt], currentId: startAt } : null);
   const [done, setDone] = useState(0);
+  /** Rows of "looks right" the user marked wrong, not yet sent (they become `markedWrong` when the rest are added). */
+  const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
+  /** Printings the user just chose for a name, offered for the other reviews of it ("use … for all"). */
+  const [choices, setChoices] = useState<Map<string, Printing>>(new Map());
+  const [toast, setToast] = useState<{ count: number; key: number } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const undoable = useLastGroup(batch.id);
 
-  const index = reviews ? Math.max(0, reviews.findIndex((review) => review.id === currentId)) : 0;
-  const current = reviews?.[index] ?? null;
-
-  // Left and right arrows step through the queue.
-  useEffect(() => {
-    if (!reviews || reviews.length < 2) return;
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement | null)?.closest('input, textarea, select')) return;
-      if (event.key === 'ArrowRight') setCurrentId(reviews[Math.min(reviews.length - 1, index + 1)]!.id);
-      else if (event.key === 'ArrowLeft') setCurrentId(reviews[Math.max(0, index - 1)]!.id);
+  const grouped = useMemo(() => {
+    if (!reviews) return null;
+    const lockedFor = (review: ReviewItem) => {
+      const codes = (review.lockSets ?? batch.settings.lockSets ?? []).map((code) => code.toLowerCase());
+      return new Set(game.lockedSets?.(codes) ?? codes);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [reviews, index]);
+    return groupReviews(reviews, lockedFor);
+  }, [reviews, batch.settings.lockSets, game]);
 
-  if (!reviews) return <p className="text-sm text-zinc-400">Opening the review queue…</p>;
-  if (!current) {
+  // Opening the tab: the list when some look right, else straight to the first card, as before.
+  const effective: View | null = (() => {
+    if (!grouped || !reviews) return null;
+    if (view?.kind === 'one' && reviews.some((review) => review.id === view.currentId)) return view;
+    if (view?.kind === 'one') {
+      // The card was resolved: on to the next in the order that still waits.
+      const next = view.order.find((id) => reviews.some((review) => review.id === id));
+      if (next) return { ...view, currentId: next };
+      if (grouped.looksRight.length === 0 && grouped.needsLook.length > 0) {
+        return { kind: 'one', order: grouped.needsLook.map((entry) => entry.review.id), currentId: grouped.needsLook[0]!.review.id };
+      }
+      return { kind: 'list' };
+    }
+    if (view?.kind === 'list') return view;
+    if (grouped.looksRight.length === 0 && grouped.needsLook.length > 0) {
+      return { kind: 'one', order: grouped.needsLook.map((entry) => entry.review.id), currentId: grouped.needsLook[0]!.review.id };
+    }
+    return { kind: 'list' };
+  })();
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  if (!reviews || !grouped || !effective) return <p className="text-sm text-zinc-400">Opening the review queue…</p>;
+
+  const banners = [...choices]
+    .map(([name, printing]) => ({ name, printing, targets: bannerTargets(reviews, name, printing) }))
+    .filter((banner) => banner.targets.length > 0);
+  const applyBanner = async (name: string, printing: Printing, targets: readonly ReviewItem[]) => {
+    try {
+      await Promise.all(targets.map((review) => updateReview(review.id, { chosen: printing })));
+      setChoices((current) => {
+        const next = new Map(current);
+        next.delete(name);
+        return next;
+      });
+    } catch {
+      setFailed(true);
+    }
+  };
+  const bannerList = banners.length > 0 && (
+    <ul aria-label="Use one printing for all" className="flex flex-col gap-2">
+      {banners.map(({ name, printing, targets }) => (
+        <li key={name} className="flex flex-wrap items-center gap-2 rounded-xl bg-sky-950/60 p-2 text-sm">
+          <button type="button" onClick={() => void applyBanner(name, printing, targets)} className={BUTTON_SECONDARY}>
+            Use {printingCode(printing)} for all {targets.length} {printing.exportName ?? printing.name}
+          </button>
+          <button
+            type="button"
+            aria-label={`No, keep each ${name} as it is`}
+            onClick={() =>
+              setChoices((current) => {
+                const next = new Map(current);
+                next.delete(name);
+                return next;
+              })
+            }
+            className="ml-auto size-11 rounded-md text-zinc-400 hover:bg-zinc-800"
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+
+  const undoGroup = async () => {
+    const current = lastGroup;
+    if (!current) return;
+    try {
+      await undoAcceptedGroup(current.group);
+      logEvent({ type: 'bulk-undone', readIds: knownIds(...current.group.entries.map((entry) => entry.review.scanId)) });
+      setLastGroup(null);
+      setToast(null);
+    } catch {
+      setFailed(true);
+    }
+  };
+  const addBarShown = effective.kind === 'list' && grouped.looksRight.length > 0;
+  const undoLink = undoable && !toast && (
+    <button type="button" onClick={() => void undoGroup()} className={`${BUTTON_SECONDARY} self-start`}>
+      Undo adding {undoable.count} {undoable.count === 1 ? 'card' : 'cards'}
+    </button>
+  );
+  const undoBar = toast ? (
+    <div
+      role="status"
+      className={`fixed inset-x-0 z-30 px-4 ${addBarShown ? 'bottom-[calc(env(safe-area-inset-bottom)+4.75rem)]' : 'bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]'}`}
+    >
+      <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-xl bg-zinc-100 p-3 text-sm text-zinc-900 shadow-lg">
+        <span className="flex-1">
+          Added {toast.count} {toast.count === 1 ? 'card' : 'cards'}
+        </span>
+        <button type="button" onClick={() => void undoGroup()} className="min-h-11 rounded-lg px-3 font-semibold text-sky-800 hover:bg-zinc-200">
+          Undo
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  if (effective.kind === 'one') {
+    const current = reviews.find((review) => review.id === effective.currentId)!;
+    const order = effective.order.filter((id) => reviews.some((review) => review.id === id));
+    const index = Math.max(0, order.indexOf(current.id));
+    const go = (id: string) => setView({ kind: 'one', order: effective.order, currentId: id });
+    return (
+      <div className="flex flex-col gap-3">
+        <OneByOneKeys order={order} index={index} go={go} />
+        {undoLink}
+        <div className="flex items-center gap-2">
+          {grouped.looksRight.length > 0 && (
+            <button type="button" onClick={() => setView({ kind: 'list' })} className={BUTTON_SECONDARY}>
+              ‹ List
+            </button>
+          )}
+          <h2 className="flex-1 text-base font-semibold" data-testid="review-position">
+            {index + 1} of {order.length} to review
+          </h2>
+          <button type="button" aria-label="Previous card" disabled={index === 0} onClick={() => go(order[index - 1]!)} className={BUTTON_SECONDARY}>
+            ‹
+          </button>
+          <button
+            type="button"
+            aria-label="Next card"
+            disabled={index >= order.length - 1}
+            onClick={() => go(order[index + 1]!)}
+            className={BUTTON_SECONDARY}
+          >
+            ›
+          </button>
+        </div>
+        {bannerList}
+        <ReviewCard
+          key={current.id}
+          batch={batch}
+          review={current}
+          // "Use … for all" never changes a row the user marked wrong.
+          pending={reviews.filter((review) => !review.markedWrong && !marked.has(review.id))}
+          onResolved={(_outcome, printing) => {
+            setDone((value) => value + 1);
+            if (printing) setChoices((choicesNow) => new Map(choicesNow).set(printing.name, printing));
+            // Stay at this place in the order: the next card slides into it.
+            const rest = order.filter((id) => id !== current.id);
+            const next = rest[index] ?? rest[index - 1];
+            setView(next ? { kind: 'one', order: rest, currentId: next } : { kind: 'list' });
+          }}
+        />
+        <p className="hidden text-xs text-zinc-500 sm:block">
+          Keys: 1–5 pick · Enter add · X discard · F foil · +/− quantity · S search · ←/→ previous and next
+        </p>
+        {undoBar}
+      </div>
+    );
+  }
+
+  const { looksRight, needsLook } = grouped;
+  const toAdd = looksRight.filter((entry) => !marked.has(entry.review.id));
+  const lockLabel = (batch.settings.lockSets ?? []).map((code) => code.toUpperCase()).join(', ');
+
+  const addAll = async () => {
+    const rejected = looksRight.filter((entry) => marked.has(entry.review.id));
+    try {
+      setFailed(false);
+      const group = await acceptReviewGroup(
+        batch,
+        toAdd.map(({ review, placement }) => ({
+          review,
+          resolution: { printing: placement.printing!, finish: reviewFinish(batch, review, placement.printing!), qty: review.qty },
+        })),
+      );
+      await Promise.all(rejected.map(({ review }) => updateReview(review.id, { markedWrong: true })));
+      for (const { review, placement } of toAdd) {
+        logEvent({
+          type: 'review-accepted',
+          readIds: knownIds(review.scanId),
+          printing: logPrinting(placement.printing!),
+          finish: reviewFinish(batch, review, placement.printing!),
+          qty: review.qty,
+          via: 'bulk',
+          cutoff: LOOKS_RIGHT_NAME,
+        });
+      }
+      for (const { review, placement } of rejected) {
+        logEvent({ type: 'bulk-rejected', readIds: knownIds(review.scanId), ...(placement.printing ? { printing: logPrinting(placement.printing) } : {}), cutoff: LOOKS_RIGHT_NAME });
+      }
+      const count = group.entries.reduce((sum, entry) => sum + entry.qty, 0);
+      setLastGroup({ group, count });
+      setToast({ count, key: Date.now() });
+      setMarked(new Set());
+      // Stay on the list, where the cards marked wrong now wait under "needs a look".
+      setView({ kind: 'list' });
+      setDone((value) => value + group.entries.length);
+      cue('added');
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  const open = (entry: PlacedReview) => setView({ kind: 'one', order: [entry.review.id], currentId: entry.review.id });
+  const cardsToAdd = toAdd.reduce((sum, entry) => sum + entry.review.qty, 0);
+
+  if (looksRight.length === 0 && needsLook.length === 0) {
     return (
       <div className="flex flex-col items-start gap-2 rounded-xl bg-zinc-800/40 p-4">
         <p className="text-sm text-zinc-300">{done > 0 ? 'All done: nothing left to review.' : 'Nothing to review.'}</p>
         <p className="text-sm text-zinc-400">Cards the scanner wasn't sure of wait here for you to check.</p>
+        {undoLink}
         <button type="button" onClick={onScan} className={BUTTON_SECONDARY}>
           Scan cards
         </button>
+        {undoBar}
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <h2 className="flex-1 text-base font-semibold" data-testid="review-position">
-          {index + 1} of {reviews.length} to review
-        </h2>
-        <button
-          type="button"
-          aria-label="Previous card"
-          disabled={index === 0}
-          onClick={() => setCurrentId(reviews[index - 1]!.id)}
-          className={BUTTON_SECONDARY}
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          aria-label="Next card"
-          disabled={index === reviews.length - 1}
-          onClick={() => setCurrentId(reviews[index + 1]!.id)}
-          className={BUTTON_SECONDARY}
-        >
-          ›
-        </button>
-      </div>
-      <ReviewCard
-        key={current.id}
-        batch={batch}
-        review={current}
-        pending={reviews}
-        onResolved={() => {
-          setDone((value) => value + 1);
-          // Stay at this place in the queue: the next card slides into it.
-          setCurrentId(reviews[index + 1]?.id ?? reviews[index - 1]?.id ?? null);
-        }}
-      />
-      <p className="hidden text-xs text-zinc-500 sm:block">
-        Keys: 1–5 pick · Enter add · X discard · F foil · +/− quantity · S search · ←/→ previous and next
-      </p>
+    <div className={`flex flex-col gap-4 ${looksRight.length > 0 ? 'pb-28' : ''}`}>
+      {undoLink}
+      {bannerList}
+      {failed && (
+        <p role="alert" className="text-sm text-amber-300">
+          Couldn't save that. Your browser's storage may be full.
+        </p>
+      )}
+
+      {looksRight.length > 0 && (
+        <section aria-label="Looks right" className="flex flex-col gap-2">
+          <h2 className="text-base font-semibold">Looks right ({looksRight.length})</h2>
+          <p className="text-xs text-zinc-400">Check each guess against your scan. Tap its ✓ to mark one wrong; tap a card to look closer.</p>
+          <ul className="flex flex-col gap-2">
+            {looksRight.map((entry) => (
+              <QuickConfirmRow
+                key={entry.review.id}
+                entry={entry}
+                lockLabel={lockLabel}
+                wrong={marked.has(entry.review.id)}
+                onToggle={() =>
+                  setMarked((current) => {
+                    const next = new Set(current);
+                    if (next.has(entry.review.id)) next.delete(entry.review.id);
+                    else next.add(entry.review.id);
+                    return next;
+                  })
+                }
+                onOpen={() => open(entry)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {needsLook.length > 0 && (
+        <section aria-label="Needs a look" className="flex flex-col gap-2">
+          <h2 className="text-base font-semibold">Needs a look ({needsLook.length})</h2>
+          <button
+            type="button"
+            onClick={() => setView({ kind: 'one', order: needsLook.map((entry) => entry.review.id), currentId: needsLook[0]!.review.id })}
+            className={`${BUTTON_SECONDARY} self-start`}
+          >
+            Check them one by one
+          </button>
+          <ul className="flex flex-col gap-2">
+            {needsLook.map((entry) => (
+              <QuickConfirmRow key={entry.review.id} entry={entry} lockLabel={lockLabel} onOpen={() => open(entry)} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {looksRight.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-900/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+          <div className="mx-auto flex max-w-3xl">
+            <button type="button" disabled={toAdd.length === 0} onClick={() => void addAll()} className={`${BUTTON_PRIMARY} min-h-12 flex-1`}>
+              {toAdd.length === 0 ? 'Nothing to add' : `Add ${cardsToAdd} ${cardsToAdd === 1 ? 'card' : 'cards'}`}
+            </button>
+          </div>
+        </div>
+      )}
+      {undoBar}
     </div>
   );
+}
+
+/** Left and right arrows step through the cards looked at one by one. */
+function OneByOneKeys({ order, index, go }: { order: readonly string[]; index: number; go: (id: string) => void }) {
+  useEffect(() => {
+    if (order.length < 2) return;
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement | null)?.closest('input, textarea, select')) return;
+      if (event.key === 'ArrowRight') go(order[Math.min(order.length - 1, index + 1)]!);
+      else if (event.key === 'ArrowLeft') go(order[Math.max(0, index - 1)]!);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [order, index, go]);
+  return null;
 }

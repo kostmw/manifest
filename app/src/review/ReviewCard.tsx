@@ -21,7 +21,7 @@ const KEY = 'hidden rounded border border-zinc-600 px-1 font-mono text-[10px] te
 export type ReviewOutcome = 'accepted' | 'discarded';
 
 /** An object URL for a review's crop, made once per review (the queue hands over fresh copies whenever it changes). */
-function useCropUrl(review: ReviewItem): string | null {
+export function useCropUrl(review: ReviewItem): string | null {
   const [url, setUrl] = useState<string | null>(null);
   const bytes = review.crop;
   useEffect(() => {
@@ -69,13 +69,15 @@ export function ReviewCard({
   pending: readonly ReviewItem[];
   /** Answer the review queue's single-key shortcuts. */
   keyboard?: boolean;
-  onResolved: (outcome: ReviewOutcome) => void;
+  /** `printing`: what it was added as, when it was added on its own (not with all similar). */
+  onResolved: (outcome: ReviewOutcome, printing?: Printing) => void;
 }) {
   const game = getGame(batch.game);
   const crop = useCropUrl(review);
   const candidates = review.candidates.slice(0, 5);
-  const [selected, setSelected] = useState<number | null>(candidates.length > 0 ? 0 : null);
-  const [custom, setCustom] = useState<Printing | null>(null);
+  // A printing the user already set from the list (a "use … for all" banner) comes chosen.
+  const [selected, setSelected] = useState<number | null>(candidates.length > 0 && !review.chosen ? 0 : null);
+  const [custom, setCustom] = useState<Printing | null>(review.chosen ?? null);
   /** How the custom printing was found, for the test log: all printings of a name, or a search. */
   const [customVia, setCustomVia] = useState<'printings' | 'search'>('printings');
   const [picking, setPicking] = useState<{ name?: string; searchFirst?: boolean } | null>(null);
@@ -92,11 +94,11 @@ export function ReviewCard({
   const otherNames = review.nameConfidence >= 0.9 && review.reason !== 'outside-lock' ? [] : review.names.filter((name) => !candidateNames.has(name));
   const unreadable = review.reason === 'unreadable' || (review.reason === 'unsure-name' && review.nameConfidence < UNREADABLE_BELOW);
 
-  const run = async (action: () => Promise<unknown>, outcome: ReviewOutcome) => {
+  const run = async (action: () => Promise<unknown>, outcome: ReviewOutcome, printing?: Printing) => {
     try {
       setFailed(false);
       await action();
-      onResolved(outcome);
+      onResolved(outcome, printing);
     } catch {
       setFailed(true);
     }
@@ -108,7 +110,7 @@ export function ReviewCard({
     void run(async () => {
       await acceptReview(batch, review, { printing: chosen, finish, qty });
       logEvent({ type: 'review-accepted', readIds: knownIds(review.scanId), printing: logPrinting(chosen), finish, qty, via });
-    }, 'accepted');
+    }, 'accepted', chosen);
   };
   const acceptSimilar = () => {
     if (!chosen) return;
