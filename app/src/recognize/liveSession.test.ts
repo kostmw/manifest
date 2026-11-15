@@ -514,6 +514,7 @@ describe('LiveSession when the flashlight switches', () => {
 describe('sameCardReason', () => {
   it('says which rule took two reads for one card', () => {
     expect(sameCardReason(id('Opt', 'dom-60'), id('Opt', 'dom-60'), 30)).toBe('same printing (dom-60), artwork 30 bits from how it looked before');
-    expect(sameCardReason(NO_IDENTITY, NO_IDENTITY, 28)).toBe('name not read, artwork 28 bits from how it looked before');
+    expect(sameCardReason(NO_IDENTITY, NO_IDENTITY, 28)).toBe('card not named, artwork 28 bits from how it looked before');
+    expect(sameCardReason(NO_IDENTITY, id('Plains'), 30)).toBe('card read last not named, artwork 30 bits from how it looked before');
   });
 });

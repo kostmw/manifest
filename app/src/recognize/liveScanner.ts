@@ -21,14 +21,32 @@ import { detectOptions, recognizeFrame, type Recognition, type RecognizeOptions 
  */
 export const LIVE_DETECT_SIZE = 480;
 
-/** Below this name confidence a read doesn't say which card it was. */
+/** Below this name confidence a read doesn't say which card it was by its name alone. */
 const IDENTITY_NAME_MIN = 0.5;
+/** A best guess whose artwork is this close (of 128 bits) names its card: as close as a title-less read needs (identify.ts). */
+const IDENTITY_ART_MAX = 26;
+
+/**
+ * Whether a read's best guess names its card on evidence of its own, though
+ * the read was unsure of its name: the collector line read its set and number
+ * cleanly, or its artwork matches. Under a flashlight's hotspot the artwork
+ * of two foils can be as alike as one foil's two looks (round 9: Gray and
+ * Adira and a Plains, 34 bits), so the fingerprint alone can't tell them apart.
+ */
+function namesItsCard(recognition: Recognition): boolean {
+  const best = recognition.printings[0];
+  if (!best) return false;
+  const collector = best.collector;
+  if (collector?.number === 'exact' && collector.set === 'exact' && !recognition.collector?.looseNumbers) return true;
+  return best.hashDistance !== null && best.hashDistance <= IDENTITY_ART_MAX;
+}
 
 /** What a read says the card is, for telling it from the next one. */
 export function identityOf(recognition: Recognition): CardIdentity {
-  const name = recognition.nameConfidence >= IDENTITY_NAME_MIN ? (recognition.names[0] ?? null) : null;
-  const printingId = recognition.decision === 'accept' ? (recognition.printings[0]?.printing.id ?? null) : null;
-  const guess = recognition.printings[0]?.printing.id ?? null;
+  const best = recognition.printings[0];
+  const name = recognition.nameConfidence >= IDENTITY_NAME_MIN ? (recognition.names[0] ?? null) : namesItsCard(recognition) ? best!.printing.name : null;
+  const printingId = recognition.decision === 'accept' ? (best?.printing.id ?? null) : null;
+  const guess = best?.printing.id ?? null;
   return name || printingId || guess ? { name, printingId, guess } : NO_IDENTITY;
 }
 

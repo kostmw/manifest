@@ -25,7 +25,12 @@ export interface LiveStep {
 
 /** What a read said the card is, for telling the card read last from a new one. */
 export interface CardIdentity {
-  /** The best name, when the read was at least fairly sure of it. */
+  /**
+   * The card's name, when the read was at least fairly sure of it, or when its
+   * best guess has evidence of its own (the collector line read cleanly, or
+   * matching artwork): two reads naming different cards are two cards,
+   * however alike they look.
+   */
   name: string | null;
   /** The best printing's id, when the read was sure of it. */
   printingId: string | null;
@@ -164,7 +169,7 @@ export function sameCardReason(before: CardIdentity, after: CardIdentity, distan
   if (before.guess && after.guess && before.guess === after.guess) return `same best printing (${after.guess}), unsure, ${art}`;
   if (camera && before.name && after.name) return `same name (${after.name}) after the flashlight changed, ${art}`;
   if (before.name && after.name) return `same name (${after.name}), printing unsure, ${art}`;
-  return `name not read, ${art}`;
+  return `${after.name ? 'card read last not named' : 'card not named'}, ${art}`;
 }
 
 /**
