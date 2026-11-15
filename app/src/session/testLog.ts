@@ -269,9 +269,10 @@ export async function createTestLogFile(app: TestLogFile['app'], now: Date = new
   };
 }
 
+/** The file's name. The app calls it the debug log; the format inside keeps its name (TESTLOG_FORMAT). */
 export function testLogFileName(now: Date = new Date()): string {
   const stamp = now.toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
-  return `manifest-testlog-${stamp}.json`;
+  return `manifest-debuglog-${stamp}.json`;
 }
 
 /** Reads a test log file; throws when it isn't one this version understands. */

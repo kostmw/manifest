@@ -1,12 +1,14 @@
-# Test log
+# Test log (the app's "debug log")
 
-A phone test can be recorded as one file instead of screenshots. On the Scan tab, open **Sound and testing**:
+A phone test can be recorded as one file instead of screenshots. The app calls it the **debug log**; the code and this format call it the test log. On the Scan tab, open **Debugging** (collapsed, under the Sound setting):
 
-1. Turn on **Record a test log**. **Include card pictures** (on by default) keeps a small picture of each card.
+1. Turn on **Record a debug log**. **Include card pictures** (on by default) keeps a small picture of each card.
 2. Scan as usual: live, or photos. Resolve reviews, use Undo, change printings: those are logged too.
-3. **Share test log** (Save to Files, AirDrop, Mail…) or **Download test log**. **Clear log** empties it.
+3. **Share debug log** (Save to Files, AirDrop, Mail…) or **Download debug log**. **Clear debug log** empties it.
 
 The log stays in the browser's IndexedDB until it is shared. No network calls are made. It keeps the last 300 scans, with their follow-ups.
+
+Files are named `manifest-debuglog-YYYYMMDD-HHMM.json`; logs saved before round 6 are `manifest-testlog-…`. The format inside is the same either way, and the scripts below take any file name.
 
 ## Format: `manifest-testlog`, version 1
 
@@ -101,7 +103,7 @@ The types:
 ## From a log to eval fixtures
 
 ```
-npx tsx tests/eval/testlog-to-fixtures.ts manifest-testlog-20261113-0915.json
+npx tsx tests/eval/testlog-to-fixtures.ts manifest-debuglog-20261113-0915.json
 ```
 
 The script works like this:

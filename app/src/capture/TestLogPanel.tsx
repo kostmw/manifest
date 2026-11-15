@@ -1,4 +1,4 @@
-/** Under "Sound and testing": record a test log of scans, then share it as one file. */
+/** Under "Debugging": record a debug log of scans (the test log, testLog.ts), then share it as one file. */
 import { useEffect, useState } from 'react';
 import { canShare, downloadText, shareText } from '../export/deliver';
 import {
@@ -41,13 +41,13 @@ export function TestLogPanel() {
       const text = JSON.stringify(await createTestLogFile({ build: BUILD, userAgent: navigator.userAgent }));
       const name = testLogFileName();
       if (share) {
-        if (await shareText(name, text, 'application/json')) setMessage('Test log shared.');
+        if (await shareText(name, text, 'application/json')) setMessage('Debug log shared.');
       } else {
         downloadText(name, text, 'application/json');
         setMessage(`Saved ${name}.`);
       }
     } catch {
-      setMessage("Couldn't make the test log file.");
+      setMessage("Couldn't make the debug log file.");
     }
   };
 
@@ -62,7 +62,7 @@ export function TestLogPanel() {
             setOn(event.target.checked);
           }}
         />
-        Record a test log
+        Record a debug log
       </label>
       <p>
         Keeps what each scan read, how long it took and what you corrected, for sending to the developer as one file. It
@@ -83,31 +83,31 @@ export function TestLogPanel() {
       )}
       {count !== null && (
         <p data-testid="testlog-count">
-          {count} scan{count === 1 ? '' : 's'} in the log (it keeps the last 300).
+          {count} scan{count === 1 ? '' : 's'} in the debug log (it keeps the last 300).
         </p>
       )}
       <div className="flex flex-wrap gap-2">
         {canShare() && (
           <button type="button" disabled={!count} onClick={() => void exportLog(true)} className={BUTTON_SECONDARY}>
-            Share test log
+            Share debug log
           </button>
         )}
         <button type="button" disabled={!count} onClick={() => void exportLog(false)} className={BUTTON_SECONDARY}>
-          Download test log
+          Download debug log
         </button>
         <button
           type="button"
           disabled={!count}
           onClick={() => {
-            if (!window.confirm('Delete every scan in the test log?')) return;
+            if (!window.confirm('Delete every scan in the debug log?')) return;
             void clearTestLog().then(() => {
               setCount(0);
-              setMessage('Test log cleared.');
+              setMessage('Debug log cleared.');
             });
           }}
           className={BUTTON_SECONDARY}
         >
-          Clear log
+          Clear debug log
         </button>
       </div>
       {message && (

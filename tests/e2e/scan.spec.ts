@@ -215,14 +215,14 @@ test('shows live frame timings with ?debug=1', async ({ page }) => {
 });
 
 test('turns the timings on and off from inside the app', async ({ page }) => {
-  await page.getByText('Sound and testing', { exact: true }).click();
+  await page.getByText('Debugging', { exact: true }).click();
   await page.getByLabel('Show timings').check();
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByTestId('debug-live')).toBeVisible();
   // Remembered, like ?debug=1.
   await page.reload();
   await openScanner(page);
-  await page.getByText('Sound and testing', { exact: true }).click();
+  await page.getByText('Debugging', { exact: true }).click();
   await expect(page.getByLabel('Show timings')).toBeChecked();
   await page.getByLabel('Show timings').uncheck();
   await page.getByRole('button', { name: 'Start camera' }).click();
@@ -230,9 +230,12 @@ test('turns the timings on and off from inside the app', async ({ page }) => {
   await expect(page.getByTestId('debug-live')).toHaveCount(0);
 });
 
-test('records a test log of scans and corrections, and saves it as one file', async ({ page }) => {
-  await page.getByText('Sound and testing', { exact: true }).click();
-  await page.getByLabel('Record a test log').check();
+test('records a debug log of scans and corrections, and saves it as one file', async ({ page }) => {
+  // Sound is a plain setting; the timings, the sharper camera and the debug log are tucked away.
+  await expect(page.getByRole('combobox', { name: 'Sound' })).toBeVisible();
+  await expect(page.getByLabel('Record a debug log')).toBeHidden();
+  await page.getByText('Debugging', { exact: true }).click();
+  await page.getByLabel('Record a debug log').check();
   await expect(page.getByLabel('Include card pictures (small, about 10 KB each)')).toBeChecked();
 
   // One card added and then undone, one sent to review and settled by hand.
@@ -246,10 +249,11 @@ test('records a test log of scans and corrections, and saves it as one file', as
   await result.getByRole('button', { name: /^Add M11 149/ }).click();
   await expect(result).toHaveCount(0);
 
-  await expect(page.getByTestId('testlog-count')).toHaveText(/^2 scans in the log/, { timeout: 10_000 });
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download test log' }).click()]);
-  expect(download.suggestedFilename()).toMatch(/^manifest-testlog-\d{8}-\d{4}\.json$/);
+  await expect(page.getByTestId('testlog-count')).toHaveText(/^2 scans in the debug log/, { timeout: 10_000 });
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download debug log' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^manifest-debuglog-\d{8}-\d{4}\.json$/);
   const log = JSON.parse(await readFile((await download.path())!, 'utf8'));
+  // The file is named for the debug log; the format inside keeps its name, so older logs and the fixtures script still work.
   expect(log).toMatchObject({ format: 'manifest-testlog', version: 1 });
   expect(log.reads).toHaveLength(2);
   const [solRing, bolt] = log.reads;
@@ -265,6 +269,6 @@ test('records a test log of scans and corrections, and saves it as one file', as
   ]);
 
   page.once('dialog', (dialog) => void dialog.accept());
-  await page.getByRole('button', { name: 'Clear log' }).click();
+  await page.getByRole('button', { name: 'Clear debug log' }).click();
   await expect(page.getByTestId('testlog-count')).toHaveText(/^0 scans/);
 });

@@ -587,31 +587,34 @@ export function Scanner({
         </section>
       )}
 
+      <section aria-label="Sound" className="flex flex-col gap-1 text-xs text-zinc-500">
+        <label className="flex min-h-11 items-center gap-2">
+          Sound
+          <select
+            value={sound}
+            onChange={(event) => {
+              const next = event.target.value as SoundMode;
+              setSoundMode(next);
+              setSound(next);
+              unlockAudio();
+            }}
+            className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
+          >
+            <option value="on">On (the silent switch mutes it)</option>
+            <option value="always">On, even in silent mode (pauses music)</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <p>
+          A high beep means the card was added; two lower notes mean it waits for review.
+          {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
+        </p>
+      </section>
+
       {/* For phone tests: a home-screen app has no address bar for ?debug=1. */}
       <details className="text-xs text-zinc-500">
-        <summary className="flex min-h-11 cursor-pointer items-center select-none">Sound and testing</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center select-none">Debugging</summary>
         <div className="mt-1 flex flex-col gap-2">
-          <label className="flex min-h-11 items-center gap-2">
-            Sound
-            <select
-              value={sound}
-              onChange={(event) => {
-                const next = event.target.value as SoundMode;
-                setSoundMode(next);
-                setSound(next);
-                unlockAudio();
-              }}
-              className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
-            >
-              <option value="on">On (the silent switch mutes it)</option>
-              <option value="always">On, even in silent mode (pauses music)</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <p>
-            A high beep means the card was added; two lower notes mean it waits for review.
-            {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
-          </p>
           <label className="flex min-h-11 items-center gap-2">
             <input
               type="checkbox"

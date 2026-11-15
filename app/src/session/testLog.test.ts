@@ -97,7 +97,7 @@ describe('test log', () => {
     expect(parseTestLog(JSON.stringify(file)).reads[0]!.id).toBe('a');
     expect(() => parseTestLog('{"format":"manifest-backup"}')).toThrow("isn't a Manifest test log");
     expect(() => parseTestLog('{"format":"manifest-testlog","version":2,"reads":[],"events":[]}')).toThrow('version 2');
-    expect(testLogFileName(new Date('2026-11-13T09:05:00Z'))).toBe('manifest-testlog-20261113-0905.json');
+    expect(testLogFileName(new Date('2026-11-13T09:05:00Z'))).toBe('manifest-debuglog-20261113-0905.json');
   });
 
   it('records follow-ups only while the log is on, and only about known reads', async () => {
