@@ -431,7 +431,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the round-8 log's 9 labelled reviews were added (21 in all; labels committed, pictures gitignored). `--only real`: auto-accepted 14.3% → 19.0% (A Good Day to Die, 0.66 → 0.94, TRK 428), number read right 9.5% → 23.8%, 0 wrong; names 61.9% and printings 47.6% before and after (Plains TRK 307 now right, Swamp TRK 309 now wrong from a half-size "0300"; both stay reviews).
     - **Not fixed:** partial outlines (Blastoneuron), as in round 7.
     - **Tests:** 404 unit and 50 e2e pass on Linux in Docker.
-  - **Round 9 (2026-11-15, PR #13, not yet merged or phone-tested).** PR #12 was merged.
+  - **Round 9 (2026-11-15, PR #13, merged, not yet phone-tested).** PR #12 was merged.
     - **The test:** the owner's round-9 debug log (iPhone, 720p, build 416f0b9) had 103 live reads in 7 minutes (flashlight on, then off, then locked to TRK). 74 cards were auto-added with none undone, about 80% of real cards (round 8: 61%), plus 20 reviews.
     - **A card merged into the card before it** (`liveScanner.identityOf`):
       - #20, a foil Plains put on Gray and Adira under the flashlight, was never counted or reviewed. The title didn't read and the collector line looked up Plains TRK 307, but the art fallback (≤ 44 bits) merged it.
@@ -460,7 +460,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the 18 review-accepted reads, plus #20 labelled by hand (Plains TRK 307, foil): 40 labelled fixtures with pictures. `--only real`: name 57.5%, printing 47.5%, auto-accepted 15.0%, 0 wrong, before and after.
     - **Not fixed:** dark-bordered cards on a dark, dim floor; partial outlines; special frames (Grand Nagus Zek TRK 458, Captain Pike TRK 468).
     - **Tests:** 416 unit and 50 e2e pass on Linux in Docker.
-  - **Title's first letter cut off (2026-11-15, PR #15, not yet merged or phone-tested).** Found in round 9's log by a side session.
+  - **Title's first letter cut off (2026-11-15, PR #15, merged, not yet phone-tested).** Found in round 9's log by a side session.
     - **The symptom:** 14 of 94 non-repeat reads lost or misread the title's first letter ("Jnexplored Territory", "ionstable Odo", "Jommand Decision"). Five of the round's 13 unsure-name reviews came from this alone.
     - **The cause:** when the outline lands on the card's frame line (a dark border in the red deck box), the first letter starts at about x=15 of 488. MTG's `title.search` starts at x=26. The wide band (x=10) was only the last rescue: read below 0.85, cleaned, counting from 0.75. These readings mostly scored 0.85–0.89, so they never tried it.
     - **The fix** (`pipeline.readTitle`, `TitleCrop.widened`): below the auto-accept bar (0.9), the same line is read from the wide band, binarized like the first reading (trace `title:rendering-6`).
