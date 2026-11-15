@@ -431,7 +431,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the round-8 log's 9 labelled reviews were added (21 in all; labels committed, pictures gitignored). `--only real`: auto-accepted 14.3% → 19.0% (A Good Day to Die, 0.66 → 0.94, TRK 428), number read right 9.5% → 23.8%, 0 wrong; names 61.9% and printings 47.6% before and after (Plains TRK 307 now right, Swamp TRK 309 now wrong from a half-size "0300"; both stay reviews).
     - **Not fixed:** partial outlines (Blastoneuron), as in round 7.
     - **Tests:** 404 unit and 50 e2e pass on Linux in Docker.
-  - **Round 9 (2026-11-15, PR #13, not yet merged or phone-tested).** PR #12 was merged.
+  - **Round 9 (2026-11-15, PR #13, merged as 64e7f51, phone-tested in round 10).** PR #12 was merged.
     - **The test:** the owner's round-9 debug log (iPhone, 720p, build 416f0b9) had 103 live reads in 7 minutes (flashlight on, then off, then locked to TRK). 74 cards were auto-added with none undone, about 80% of real cards (round 8: 61%), plus 20 reviews.
     - **A card merged into the card before it** (`liveScanner.identityOf`):
       - #20, a foil Plains put on Gray and Adira under the flashlight, was never counted or reviewed. The title didn't read and the collector line looked up Plains TRK 307, but the art fallback (≤ 44 bits) merged it.
@@ -460,7 +460,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the 18 review-accepted reads, plus #20 labelled by hand (Plains TRK 307, foil): 40 labelled fixtures with pictures. `--only real`: name 57.5%, printing 47.5%, auto-accepted 15.0%, 0 wrong, before and after.
     - **Not fixed:** dark-bordered cards on a dark, dim floor; partial outlines; special frames (Grand Nagus Zek TRK 458, Captain Pike TRK 468).
     - **Tests:** 416 unit and 50 e2e pass on Linux in Docker.
-  - **Title's first letter cut off (2026-11-15, PR #15, not yet merged or phone-tested).** Found in round 9's log by a side session.
+  - **Title's first letter cut off (2026-11-15, PR #15, merged as 4b51b8c, phone-tested in round 10: `title:rendering-6` won 12 times).** Found in round 9's log by a side session.
     - **The symptom:** 14 of 94 non-repeat reads lost or misread the title's first letter ("Jnexplored Territory", "ionstable Odo", "Jommand Decision"). Five of the round's 13 unsure-name reviews came from this alone.
     - **The cause:** when the outline lands on the card's frame line (a dark border in the red deck box), the first letter starts at about x=15 of 488. MTG's `title.search` starts at x=26. The wide band (x=10) was only the last rescue: read below 0.85, cleaned, counting from 0.75. These readings mostly scored 0.85–0.89, so they never tried it.
     - **The fix** (`pipeline.readTitle`, `TitleCrop.widened`): below the auto-accept bar (0.9), the same line is read from the wide band, binarized like the first reading (trace `title:rendering-6`).
@@ -474,6 +474,42 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - Auto-accepted: phone-flash 33.6% → 34.2%, real (40) 15.0% → 17.5%.
       - Latency (Node, M-series Mac): about +10 ms at p50, +50–160 ms at p95.
     - **Tests:** 418 unit and 50 e2e pass on Linux in Docker.
+  - **Round 10 (2026-11-15, PR #16, not yet merged or phone-tested).** PRs #13–#15 were merged (main 879d71e).
+    - **The test:** the owner's round-10 debug log (iPhone, 720p, TRK lock throughout, foil switch on for the last 29 reads) had 152 live reads in 14 minutes. 95 cards were auto-added and 2 undone, both double counts (#4, #36), so 0 wrong cards. That is about 75% of real cards. The owner: much better in the orange light, but a foil Constable Odo was hard, and copies put on top should count without +1.
+    - **A much surer re-read stands in for the read it was counted as** (`liveScanner.muchSurer`, `Scanner.upgrade`):
+      - #143, the foil Odo, was counted as a junk outside-lock review (Sage's Reverie, 0.05). Its re-read at 0.90 (#144), and four more, settled as the same card and were dropped.
+      - A same-card re-read now replaces the counted read when it names a card that read didn't, clears the bar to be added, or is 0.3 more confident; never in place of a card that was added.
+      - The Scanner removes the waiting review and files the new read, added if it clears the bar. Debug-log event `replaced` [old, new].
+    - **Junk after a name read whole** (`titleMatch.ts`): 0.15 a letter (not 0.3) after a name read exactly as whole words, then a space, for names of ≥ 6 letters.
+      - "Constable Odo Btots" (mana symbols) went 0.875 → 0.94.
+      - A shorter name the best one goes on from ("Forest" for "Forest Bear") is no rival when the best one reads ≥ 0.95.
+      - Short names keep 0.3: the first try let "Ow", "Ile" (Island's French name) and "stand" outscore the artwork.
+    - **The set lock steers candidates** (`identify.ts`):
+      - A name with no printing in the locked sets loses 1.0 (not 0.3) unless its title reads ≥ 0.85. Grim Physician THB at title 0.72 no longer beats Photosynthetic Physician TRK at art 26. Clearly read out-of-lock cards (Bristly Bill SDS 15, Ezri Dax TRC 221) still come first, flagged.
+      - In-lock global fingerprint hits count out to 34 bits (26 otherwise).
+      - TRC is not added to a TRK lock: the owner has TRC cards.
+    - **A long name read only as its last words** (`titleMatch.ts`), the mirror of round 9's cut-short rule: ≥ 7 letters read well, missing words at 0.6 a letter, capped at 0.75, added beyond the top 5. "ie Physician 44", "getaformer", "ansporter Ops".
+    - **Moved, not gone** (`liveSession.ts`):
+      - #36, Rogue AI slid partly out of frame, was found 59% and 110% of its diagonal off at 48–50 bits, forgotten, and counted again.
+      - When two of the three frames that took the card for gone still had an outline, it was moved. The same name or best printing read afresh within 4 s isn't counted.
+      - Two frames with nothing in view end that, so a copy after a real removal counts.
+    - **Detection gaps** (`vision/stability.ts`): up to 8 frames without an outline don't end a steady run (a foil under the flashlight was found 1 frame in 7–10 and lay 10 s unread). Why detection loses foils is still open: the synthetic flash set detects 97%.
+    - **Debug log:**
+      - a `gone` event with the frames that led to it (#4 was counted again 48 s on, with no trace why);
+      - quiet spells go on after 5 as a summary every 30 s;
+      - frames record `away` (the probe at an outline found far off);
+      - a quiet spell with outlines on under half its frames carries a 180 px frame JPEG (while pictures are on).
+    - **Copy on top** (Scan setting "Count a copy put straight on top (testing)", remembered, off by default): a cover shorter than 3 frames (a hand), then the card settling ≥ 5% of its diagonal off, reads it again (trigger `copy`) and counts. A nudge without a cover doesn't. Off until it is tuned on the owner's labelled test (4 copies stacked, nudges, a lift and put back).
+    - **Eval, main → after** (0 wrong auto-accepts in every set at 0.9):
+      - Auto-accepted: standard 44.4% → 44.7%, phone 41.4% → 42.1%, phone-flash 34.2% → 34.9%, phone-redbox 53.3% → 54.6%, real (68) 14.7% → 17.6%.
+      - Names and printings unchanged or up; real names 55.9% → 57.4%.
+      - Sweeps: standard 1 wrong at 0.80 and hires 1 at 0.85 (both printing twins; main had 0), so 0.9 stays.
+      - Locked to the true set: real names 55.9% → 63.2%, printing 52.9% → 60.3%, auto-accepted 16.2% → 19.1%.
+      - Locked to another set: 0% auto-accepted.
+    - **Live replay, rounds 6–10, seeds 1 and 2:** the same extra counts as main (Swamp runs grouped by name, a Borg, Cetacean Ops after a flashlight switch). Missed cards 12 → 9. With copy-on-top on: the same (the replay has no hand covers).
+    - **Real-scan fixtures:** the 28 review-accepted reads, 68 in all.
+    - **Not fixed:** why detection loses foils, special frames (Grand Nagus Zek TRK 458), partial outlines.
+    - **Tests:** 429 unit and 50 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
