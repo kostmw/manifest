@@ -113,6 +113,20 @@ export interface TestLogFrame {
   gone: number;
   /** The camera was settling after the flashlight changed. */
   hold: boolean;
+  /** Live mode's phase (`empty`, `settling`, `reading`, `read`). Logs before round 9 have none of the fields below. */
+  phase?: string;
+  /** Steady frames so far: a card is read, or checked for a new card on top, once it has been steady for a couple. */
+  steady?: number;
+  /**
+   * The check for a new card on top: fingerprint distance (of 128 bits) from
+   * the steady card in view to the closest look of the card read last. Over 24
+   * on two checks in a row reads it. Null when not checked.
+   */
+  far?: number | null;
+  /** The frame's mean brightness, 0–255. */
+  light?: number;
+  /** What the quality gate found wrong with the card in view (it isn't read while there is any). */
+  issues?: string[];
 }
 
 export type TestLogEventType =
@@ -126,7 +140,13 @@ export type TestLogEventType =
   /** The flashlight was switched on or off (`on`); about no read. */
   | 'flashlight'
   /** "+1": one more copy of the card just added (an identical copy put straight on top isn't counted by itself). */
-  | 'copy-added';
+  | 'copy-added'
+  /**
+   * Live mode went 2 seconds without reading anything: `frames` says what it
+   * saw meanwhile (a card not found, never steady, failing the quality gate,
+   * or too like the card read last), `ms` how long since the last read. About no read.
+   */
+  | 'quiet';
 
 export interface TestLogEvent {
   id: string;
@@ -144,6 +164,9 @@ export interface TestLogEvent {
   via?: string;
   /** For `flashlight`: switched on, or off. */
   on?: boolean;
+  /** For `quiet`: milliseconds since the last read, and the frames since it (or the quiet spell before), oldest first. */
+  ms?: number;
+  frames?: TestLogFrame[];
 }
 
 export type TestLogEntry = TestLogRead | TestLogEvent;
@@ -225,6 +248,12 @@ export function logEvent(event: Omit<TestLogEvent, 'id' | 'kind' | 'at'>): void 
 export function logFlashlight(on: boolean): void {
   if (!testLogEnabled()) return;
   void addTestLogEvent({ type: 'flashlight', readIds: [], on }).catch(() => {});
+}
+
+/** A quiet spell in live mode, recorded only while the log is on. */
+export function logQuiet(ms: number, frames: TestLogFrame[]): void {
+  if (!testLogEnabled()) return;
+  void addTestLogEvent({ type: 'quiet', readIds: [], ms, frames }).catch(() => {});
 }
 
 export async function testLogCount(): Promise<number> {

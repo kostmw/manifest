@@ -54,7 +54,7 @@ Each read has these fields:
 |---|---|
 | `trigger` | `fresh` (the first card, or the first after the card read last was gone), `different` (it looked unlike the card read last), `camera` (a check after the flashlight switched) or `again` (Read again). Only `fresh` and `again` reads always count; the others count only when the read finds another card. |
 | `distance` | For `different` and `camera`: fingerprint distance (of 128 bits) from the card read last. |
-| `frames` | Up to 24 frames before the read, oldest first: `ms` since the frame before, `outline` (detection found one), `moved` (how far it was from where the card read last lay, as a share of its diagonal), `probe` (fingerprint distance from the card read last to what lay where it was, when that was looked at), `gone` (frames in a row so far without the card read last: 3 make it gone) and `hold` (the camera was settling after the flashlight switched). |
+| `frames` | Up to 24 frames before the read, oldest first: `ms` since the frame before, `outline` (detection found one), `moved` (how far it was from where the card read last lay, as a share of its diagonal), `probe` (fingerprint distance from the card read last to what lay where it was, when that was looked at), `gone` (frames in a row so far without the card read last: 3 make it gone) and `hold` (the camera was settling after the flashlight switched). Builds after round 9 add `phase` (`empty`, `settling`, `reading`, `read`), `steady` (steady frames so far: a card is read, or checked for a new card on top, once it has been steady for 2), `far` (the check for a new card on top: fingerprint distance from the steady card in view to the closest look of the card read last; over 24 on two checks in a row reads it; null when not checked), `light` (the frame's mean brightness, 0–255) and `issues` (what the quality gate found wrong with the card in view, which keeps it from being read). |
 
 `trace` values:
 
@@ -93,6 +93,7 @@ Each event has these fields:
 | `finish` | The finish chosen. |
 | `qty` | The quantity chosen. |
 | `via` | How the printing was found, for an accepted review. |
+| `ms`, `frames` | For `quiet`: milliseconds since the last read, and the frames since it (or since the quiet spell before), as in a read's `live.frames`. |
 
 The types:
 
@@ -102,6 +103,7 @@ The types:
 - `printing-changed`: a batch row's printing changed from `from` to `printing`. This is the ground truth for every read that went into the row; the row keeps its last 20.
 - `flashlight`: the flashlight was switched on or off (`on`). It is about no read, so `readIds` is empty.
 - `copy-added`: **+1** on the newest thumbnail added one more copy of that card (an identical copy put straight on top isn't counted by itself). `readIds` is the scan it copies.
+- `quiet` (builds after round 9): live mode went 2 seconds without reading anything. `frames` show why: no outline (the card isn't found), outlines that never settle, `issues` from the quality gate, or `far` at most 24 (the card looked like the card read last). Reported every 2 seconds, at most 5 times in a row until the next read. About no read, so `readIds` is empty.
 
 ## From a log to eval fixtures
 

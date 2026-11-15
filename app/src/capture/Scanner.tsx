@@ -4,7 +4,7 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { printingCode } from '../review/explain';
 import { ReviewCard } from '../review/ReviewCard';
 import { intake, UNREADABLE_BELOW } from '../session/intake';
-import { logFlashlight, testLogEnabled, type TestLogLive, type TestLogSettings } from '../session/testLog';
+import { logFlashlight, logQuiet, testLogEnabled, type TestLogLive, type TestLogSettings } from '../session/testLog';
 import { logOutcome, recordRead } from '../session/testLogRecord';
 import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
@@ -361,6 +361,7 @@ export function Scanner({
             setRepeats((count) => count + 1);
             if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
           }
+          if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames);
           if (stopped) break;
           // A dropped frame (another was still being read) has nothing to show.
           if (outcome && !outcome.busy) setFrame(outcome);

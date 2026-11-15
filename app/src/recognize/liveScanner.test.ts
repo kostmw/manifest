@@ -135,6 +135,53 @@ describe('LiveScanner and things that are no card (round 7)', () => {
   });
 });
 
+describe('LiveScanner quiet spells (round 9: cards left unread left no trace in the log)', () => {
+  it('reports 2 s without a read, with what each frame saw, a few times in a row at most, and afresh after a read', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const ocr = fakeOcr();
+    const context = { regions: MTG_REGIONS, names, ocr };
+    const spells: NonNullable<Awaited<ReturnType<LiveScanner['frame']>>['quiet']>[] = [];
+    const show = async (corners: Quad | null, frames: number) => {
+      for (let i = 0; i < frames; i++) {
+        const seen = await scanner.frame(frameWith(corners), context);
+        if (seen.quiet) spells.push(seen.quiet);
+        now += 120;
+      }
+    };
+    // Read on the second steady frame, then left lying for 12 s: a spell every 2 s, five at most.
+    await show(where(), 100);
+    expect(ocr.calls).toBeGreaterThan(0);
+    expect(spells).toHaveLength(5);
+    expect(spells[0]!.ms).toBe(2040);
+    expect(spells[1]!.ms).toBe(4080);
+    const frame = spells[0]!.frames.at(-1)!;
+    // The card read last, steady, checked for a new card on top: the same look (distance 0).
+    expect(frame).toMatchObject({ outline: true, phase: 'read', far: 0 });
+    expect(frame.steady).toBeGreaterThan(2);
+    expect(frame.light).toBeGreaterThan(40);
+    expect(spells[0]!.frames.length).toBe(17);
+    // Taken away and put back: read again, so the spells start afresh.
+    await show(null, 4);
+    await show(where(), 30);
+    expect(spells).toHaveLength(6);
+    expect(spells[5]!.ms).toBeLessThan(2500);
+    expect(spells[5]!.frames.every((entry) => entry.phase === 'read')).toBe(true);
+  }, 60_000);
+
+  it('starts a quiet spell afresh after the frames stopped for a while (the camera was off)', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const context = { regions: MTG_REGIONS, names, ocr: fakeOcr() };
+    const quiet = [];
+    for (let i = 0; i < 10; i++) {
+      if ((await scanner.frame(frameWith(null), context)).quiet) quiet.push(i);
+      now += i === 4 ? 60_000 : 120;
+    }
+    expect(quiet).toEqual([]);
+  });
+});
+
 describe('identityOf (round 9: a card put on top under the flashlight)', () => {
   const printing = (name: string, set: string, number: string): Printing => ({ id: `${set}-${number}`, name, set, setName: set.toUpperCase(), number, finishes: ['foil'], lang: 'en' });
   const candidate = (p: Printing, hashDistance: number | null, collector: PrintingCandidate['collector'] = null): PrintingCandidate => ({
