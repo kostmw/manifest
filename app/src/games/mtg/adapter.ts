@@ -52,8 +52,10 @@ export const MTG_REGIONS: CardRegions = {
     expectedCenterY: 53,
   },
   // Two lines (number, then set • language • artist) at the bottom left since 2014; the
-  // 2003–2014 frames end the copyright line, at the same height, with the number.
-  collector: { search: { x: 16, y: 626, width: 300, height: 48 }, lineHeight: 9, maxLines: 2 },
+  // 2003–2014 frames end the copyright line, at the same height, with the number. The band runs
+  // to the card's bottom edge and a little higher than the lines sit, since an outline a few
+  // pixels off moves them (round 8: the set line below the band, or the number line above it).
+  collector: { search: { x: 16, y: 620, width: 300, height: 60 }, lineHeight: 9, maxLines: 2 },
   art: { x: 38, y: 76, width: 412, height: 302 },
   // Measured on the synthetic eval set: on a dark mat, detection stops at the frame line
   // (its bottom varies by frame, 610–660, so it's placed by aspect ratio); sleeves add ~2.8%.

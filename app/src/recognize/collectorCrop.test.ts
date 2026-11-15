@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createGray } from '../vision/image';
-import { cutAtGap, findTextLines } from './collectorCrop';
+import { MTG_REGIONS } from '../games/mtg/adapter';
+import { createGray, createRgba } from '../vision/image';
+import { cropCollectorLines, cutAtGap, findTextLines } from './collectorCrop';
+import { cornersMapping } from './fingerprint';
 
 /** A row profile with text-like bumps of `height` rows at the given tops. */
 function profile(length: number, lines: { top: number; height: number; energy: number }[]): Float32Array {
@@ -41,5 +43,27 @@ describe('cutAtGap', () => {
     expect(cut.data[20]).toBe(255);
     expect(cut.data[30]).toBe(255);
     expect(cutAtGap(image, 20)).toBe(image);
+  });
+});
+
+describe('cropCollectorLines', () => {
+  /** A card whose collector block is a short "U 0230" line over a long "TRK • EN  ARTIST NAME" one. */
+  function card(): ReturnType<typeof createRgba> {
+    const image = createRgba(488, 680);
+    image.data.fill(255);
+    const strokes = (x0: number, x1: number, y0: number, y1: number) => {
+      for (let x = x0; x < x1; x += 4) for (let y = y0; y < y1; y++) for (const dx of [0, 1]) image.data.fill(0, (y * 488 + x + dx) * 4, (y * 488 + x + dx) * 4 + 3);
+    };
+    strokes(20, 56, 646, 654);
+    strokes(20, 300, 659, 667);
+    return image;
+  }
+
+  it('reads both lines, though the short number line has a fraction of the long line’s ink (round 8: TRK)', () => {
+    const mapping = cornersMapping([{ x: 0, y: 0 }, { x: 487, y: 0 }, { x: 487, y: 679 }, { x: 0, y: 679 }], MTG_REGIONS.size)!;
+    const lines = cropCollectorLines(card(), mapping, MTG_REGIONS.collector);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.box.y).toBeLessThan(650);
+    expect(lines[1]!.box.y).toBeGreaterThan(650);
   });
 });
