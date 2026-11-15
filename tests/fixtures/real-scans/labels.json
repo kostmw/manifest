@@ -268,5 +268,225 @@
       "glare"
     ],
     "notes": "Test log 2026-11-15T06:59, build 0.0.0+d37d501, live: read as Minion (TDDE 2) at 0.25; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-9635572f.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T17:33, build 0.0.0+416f0b9, live: read as Constable Odo (TRK 230) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-e2f329f9.jpg": {
+    "game": "mtg",
+    "id": "214a9e76-b7fd-4cc9-89e7-104a71919a84",
+    "name": "Swamp",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T17:34, build 0.0.0+416f0b9, live: read as Swamp (TRK 322) at 0.313; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-cbaa0e58.jpg": {
+    "game": "mtg",
+    "id": "74029de7-fb85-440d-b149-4b820c41eaa5",
+    "name": "Organic Avulsion Unit",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T17:35, build 0.0.0+416f0b9, live: read as Organic Avulsion Unit (TRK 376) at 0.718; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-6f36b843.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T17:35, build 0.0.0+416f0b9, live: read as Glaze Fiend (ALA 77) at 0.101; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-a242ef6b.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:36, build 0.0.0+416f0b9, live: read as Constable Odo (TRK 230) at 0.867; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-01d038d8.jpg": {
+    "game": "mtg",
+    "id": "14e4f5a4-b1ea-4816-b2d7-cf148468a388",
+    "name": "Order // Chaos",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as Order // Chaos (APC 132) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-6c2ff460.jpg": {
+    "game": "mtg",
+    "id": "7eb112eb-2abf-4ba3-b9bd-b45ffa80f7eb",
+    "name": "The Duras Sisters",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as The Duras Sisters (TRK 235) at 0.867; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-c2ea3d2d.jpg": {
+    "game": "mtg",
+    "id": "2d1651f5-7bc9-4d65-9387-f4646a04e816",
+    "name": "Grand Nagus Zek",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as S.S. Botany Bay (TRC 355) at 0.116; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-fde1fe18.jpg": {
+    "game": "mtg",
+    "id": "86b790e6-3c99-4a95-8327-eb90ed9380f2",
+    "name": "Guidance Failure",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as Guidance Failure (TRK 60) at 0.853; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-c0d0af67.jpg": {
+    "game": "mtg",
+    "id": "62c9b897-bc43-47f9-8939-13faaa0b7c6b",
+    "name": "Captain Pike, Fullness of Time",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as Pest (TEOC 9) at 0.189; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-ebba1cda.jpg": {
+    "game": "mtg",
+    "id": "9f1f789b-5c08-4a4d-b3a3-4d51ad9f1a4d",
+    "name": "Command Decision",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as Command Decision (TRK 8) at 0.893; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-4c8597bc.jpg": {
+    "game": "mtg",
+    "id": "02d29047-a7b8-43fb-8b90-b35ba34da5f9",
+    "name": "Hologram Janeway",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:37, build 0.0.0+416f0b9, live: read as Hologram Janeway (TRK 21) at 0.893; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-00fa81cf.jpg": {
+    "game": "mtg",
+    "id": "fca1528c-84cc-42d2-99ae-9f10f0e28743",
+    "name": "DOT-7 Repair Squad",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:38, build 0.0.0+416f0b9, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-f58a1608.jpg": {
+    "game": "mtg",
+    "id": "fc3fe0da-8d93-4f1c-9aad-c2fdc9fe34fc",
+    "name": "Vulcan",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T17:38, build 0.0.0+416f0b9, live: read as Vulcan (TRK 305) at 0.899; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-90ae4a13.jpg": {
+    "game": "mtg",
+    "id": "6b2fba64-b85f-42bc-991e-4bb6201b78fb",
+    "name": "Plains",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T17:39, build 0.0.0+416f0b9, live: read as Plains (TRK 307) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-fe5626e4.jpg": {
+    "game": "mtg",
+    "id": "9845bd74-326f-4506-87f9-ead7d2fa6cfa",
+    "name": "Bristly Bill, Spine Sower",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T17:39, build 0.0.0+416f0b9, live: read as Bristly Bill, Spine Sower (SDS 15) at 0.994; review (outside-lock); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-cfe9c62c.jpg": {
+    "game": "mtg",
+    "id": "662d060a-719c-42bf-8bee-cf602a045ff0",
+    "name": "Borg",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T17:39, build 0.0.0+416f0b9, live: read as Borg (TTRK 20) at 0.987; review (outside-lock); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-dbb068b8.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T17:39, build 0.0.0+416f0b9, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-a877e384.jpg": {
+    "game": "mtg",
+    "id": "6b2fba64-b85f-42bc-991e-4bb6201b78fb",
+    "name": "Plains",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T17:35, build 0.0.0+416f0b9, live: read as Plains (TRK 307) at 0; same-card; merged into the card before it, so never reviewed; labelled by hand as the owner later picked this card (Plains TRK 307, foil). The picture is the app's crop, padded."
   }
 }
