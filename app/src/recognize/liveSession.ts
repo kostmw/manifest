@@ -48,8 +48,12 @@ const JUNK: CardIdentity = { ...NO_IDENTITY, junk: true };
  */
 export type SignatureProbe = (corners: Quad) => Uint32Array | null;
 
-/** What to do after a failed read: try again, report the card as unreadable, or nothing (it was the card read last). */
-export type FailedRead = 'retry' | 'report' | 'same-card';
+/**
+ * What to do after a failed read: try again, report the card as unreadable,
+ * or nothing: it was the card read last (`same-card`), or no card at all
+ * (`no-card`: every try found none).
+ */
+export type FailedRead = 'retry' | 'report' | 'same-card' | 'no-card';
 
 /**
  * Why the card in view is being read: the first card (or the first after the
@@ -193,6 +197,8 @@ export class LiveSession {
   /** Frames in a row without an outline, while no card is read: a card that never got read has left. */
   private missing = 0;
   private failures = 0;
+  /** How many of those failures found no card at all. */
+  private noCards = 0;
   /** How the card read last has looked, newest last. Empty when there is no card read last. */
   private signatures: Uint32Array[] = [];
   private readCorners: Quad | null = null;
@@ -276,10 +282,11 @@ export class LiveSession {
       this.missing = this.known ? 0 : this.missing + 1;
       // A card that never got read (its reads failed, or it was just passing) has left: start afresh.
       if (!this.known && this.missing >= this.goneFrames) this.failures = 0;
-      return { steadyFrames: 0, recognize: false, phase: this.read ? 'read' : this.known ? 'reading' : 'empty', checkCard: false };
+      return { steadyFrames: 0, recognize: false, phase: this.read && !this.identity.junk ? 'read' : this.known && !this.identity.junk ? 'reading' : 'empty', checkCard: false };
     }
     this.missing = 0;
-    const phase: LivePhase = this.read ? 'read' : steadyFrames >= this.stability.frames - 1 ? 'reading' : 'settling';
+    // Something that was no card (an empty box's floor) shows as no card in view.
+    const phase: LivePhase = this.read ? (this.identity.junk ? 'empty' : 'read') : steadyFrames >= this.stability.frames - 1 ? 'reading' : 'settling';
     return { steadyFrames, recognize: stable && !this.read, phase, checkCard: stable && this.read && !hold };
   }
 
@@ -393,9 +400,24 @@ export class LiveSession {
    * unreadable (it counts as read); or `same-card`: it was only the card read
    * last looking different, so nothing is reported.
    */
-  failed(signature: Uint32Array | null = null, corners: Quad | null = null): FailedRead {
+  failed(signature: Uint32Array | null = null, corners: Quad | null = null, noCard = false): FailedRead {
     this.failures += 1;
+    this.noCards = (this.failures === 1 ? 0 : this.noCards) + (noCard ? 1 : 0);
     if (this.failures < this.maxAttempts) return 'retry';
+    if (this.noCards === this.failures) {
+      // Every try found no card at all where live mode saw one (a hand passing, part of the box):
+      // nothing is reported. A card counted before stays the card read last; otherwise what lies
+      // there is remembered as no card, so it isn't read again.
+      if (this.known && !this.identity.junk) {
+        this.read = true;
+        this.failures = 0;
+        this.trigger = 'fresh';
+        this.triggerDistance = Number.POSITIVE_INFINITY;
+      } else {
+        this.dismiss(signature, corners);
+      }
+      return 'no-card';
+    }
     return this.settle(signature, corners, NO_IDENTITY) ? 'report' : 'same-card';
   }
 

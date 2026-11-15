@@ -256,21 +256,22 @@ export class LiveScanner {
     let recognition: Recognition | null = null;
     try {
       recognition = await recognizeFrame(frame, { ...context, keepImages: true });
-      // The read's own detection (at a larger size) found no card where live mode saw one: read
-      // the card from live mode's outline rather than report an empty card.
-      if (recognition.decision === 'no-card') {
-        recognition = await recognizeFrame(frame, { ...context, keepImages: true, detections: [best] });
-        recognition.trace = ['outline:live', ...(recognition.trace ?? [])];
-      }
     } catch (error) {
       console.warn('Reading a live frame failed', error);
     }
-    if (recognition?.decision === 'no-card') recognition = null;
     const frames = this.trail;
-    if (!recognition || recognition.decision === 'retake') {
-      const verdict = this.session.failed(signature, best.corners);
+    if (!recognition || recognition.decision === 'retake' || recognition.decision === 'no-card') {
+      // The read's own detection (at a larger size) finding no card where live mode saw one is a
+      // failed try too; when every try says so, it was no card (round 7: all four such were junk).
+      const verdict = this.session.failed(signature, best.corners, recognition?.decision === 'no-card');
       if (verdict === 'retry') {
         outcome.phase = 'reading';
+        return outcome;
+      }
+      if (verdict === 'no-card') {
+        this.trail = [];
+        outcome.phase = 'empty';
+        outcome.dismissed = true;
         return outcome;
       }
       this.trail = [];

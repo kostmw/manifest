@@ -65,7 +65,6 @@ Each read has these fields:
 | `title:upside-down` | The card was read upside down. |
 | `outline:N` | A later detected outline was used. |
 | `outline:fallback` | The other outline was identified because the first named nothing. |
-| `outline:live` | Live mode: the read's own detection found no card, so the card was read from live mode's outline. |
 | `center-guess` | The card was guessed from the middle of a photo. |
 | `orientation-unknown` | The fingerprint was tried both ways up. |
 | `deglared` | A flashlight hotspot was painted over for the fingerprint. |

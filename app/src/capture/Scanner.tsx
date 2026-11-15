@@ -36,7 +36,8 @@ const LAST_CARD_MS = 4000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function liveHint(frame: FrameOutcome | null, torch: Torch, canCopy = false): string {
-  if (!frame?.corners) return 'Slide a card into view. A plain background that contrasts with the cards works best.';
+  // No outline, or one that holds no card (an empty box's floor).
+  if (!frame?.corners || frame.phase === 'empty') return 'Slide a card into view. A plain background that contrasts with the cards works best.';
   const issue = frame.issues[0];
   if (issue === 'too-dark' && torch.supported && !torch.on) return 'Too dark: turn on the flashlight, or add light.';
   // Seen at a steep angle, the far edge is stretched when the card is straightened: it looks
