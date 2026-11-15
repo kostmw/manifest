@@ -55,8 +55,8 @@ function SetLockEditor({ batch, onClose }: { batch: Batch; onClose: () => void }
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl bg-zinc-800/40 p-3">
       <p className="text-xs text-zinc-400">
-        Only printings from these sets are considered, which settles look-alike printings. A card from another set waits
-        for review instead of being added.
+        Only printings from these sets, and their tokens, are considered, which settles look-alike printings. A card
+        from another set waits for review instead of being added.
       </p>
       {locked.length > 0 && (
         <ul aria-label="Locked sets" className="flex flex-wrap gap-2">

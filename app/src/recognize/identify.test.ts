@@ -213,6 +213,15 @@ describe('identifyPrinting with the batch locked to sets', () => {
     expect(result.candidates.filter((c) => c.printing.name === 'Sol Ring')).toHaveLength(3);
   });
 
+  it("takes a locked set's tokens as from the locked set (round 9: Borg TTRK 20 under a TRK lock)", async () => {
+    const tokens = [{ printing: printing('Borg', 'ttrk', '20', '2026-11-13'), art: 31 }, { printing: printing('Ghost of Illyria', 'trk', '20', '2026-11-13'), art: 32 }];
+    const result = await identify(31, { title: sure('Borg'), lockSets: ['trk'], extra: tokens, picture: artCard(31) });
+    expect(result.candidates[0]?.printing.id).toBe('ttrk-20');
+    expect(result.outsideLock).toBe(false);
+    // Another set's tokens are still outside it.
+    expect((await identify(31, { title: sure('Borg'), lockSets: ['dom'], extra: tokens, picture: artCard(31) })).outsideLock).toBe(true);
+  });
+
   it('names a card by its collector number alone within the locked sets, when the set code is unreadable', async () => {
     const unlocked = await identify(1, { title: junk, fingerprints: false, collector: ['263/300 U', ''] });
     expect(unlocked.candidates).toEqual([]);

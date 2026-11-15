@@ -68,7 +68,7 @@ export interface IdentifyInput {
   /** Whether the title read well enough to trust which way up the card is. */
   orientationKnown: boolean;
   title: TitleMatch;
-  game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior'>;
+  game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior' | 'lockedSets'>;
   catalog: Catalog;
   collectors: CollectorIndex | null;
   ocr: OcrEngine;
@@ -353,7 +353,8 @@ function share(scores: readonly number[], index: number): number {
 export async function identifyPrinting(input: IdentifyInput): Promise<PrintingIdentification> {
   const { frame, game, catalog, title } = input;
   const locked = (input.lockSets ?? []).filter(Boolean).map((set) => set.toLowerCase());
-  const lock = locked.length > 0 ? new Set(locked) : null;
+  // The game may add sets whose cards come with the locked ones (MTG: their tokens).
+  const lock = locked.length > 0 ? new Set(input.game.lockedSets?.(locked) ?? locked) : null;
   const { regions } = game;
   const size = regions.size;
   const lap = input.lap ?? (() => {});

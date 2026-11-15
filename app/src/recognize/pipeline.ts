@@ -33,7 +33,7 @@ export const DEFAULT_DECISION: DecisionThresholds = { autoAccept: 0.9, retryRota
 
 /** What exact-printing identification needs; without it, recognition stops at the name. */
 export interface PrintingSources {
-  game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior'>;
+  game: Pick<GameAdapter, 'regions' | 'parseCollectorLine' | 'matchCollector' | 'printingPrior' | 'lockedSets'>;
   catalog: Catalog;
   collectors: CollectorIndex | null;
   /** The batch's set lock (see identify.ts); a card from outside it is never auto-accepted. */
