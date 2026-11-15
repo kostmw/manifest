@@ -110,6 +110,22 @@ const TOP = 5;
  */
 const OUTSIDE_LOCK_PENALTY = 0.3;
 /**
+ * …unless its title wasn't read about as clearly as a card is added on: then
+ * the lock decides. Round 10, locked to TRK: "ie Physician 44" put Grim
+ * Physician THB (title 0.72, art 50) ahead of Photosynthetic Physician TRK
+ * (art 26). A clearly read card from another set (Bristly Bill SDS 15, Ezri
+ * Dax TRC 221) still comes first, flagged.
+ */
+const OUTSIDE_LOCK_CLEAR_TITLE = 0.85;
+const OUTSIDE_LOCK_PENALTY_UNCLEAR = 1;
+/**
+ * With a set lock, nearest fingerprints from the locked sets this close join
+ * the candidates too, though farther than GLOBAL_MAX_DISTANCE: the lock makes
+ * them likely, and a foil under glare stays near 30 (round 10: Isolinear
+ * Processor TRK 266 untitled, while Battlefield Forge TRC came at 24).
+ */
+const LOCKED_GLOBAL_MAX = 34;
+/**
  * A sure title whose printings' art is at least this close needs no search of
  * every fingerprint: a flashlight's hotspot keeps true matches around 12–24.
  */
@@ -400,9 +416,13 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       const hits = nearestRows(queries, table);
       // Only hits that could be the card: near the best, and not hopelessly far from a match.
       const best = hits[0]?.distance ?? Number.POSITIVE_INFINITY;
-      const close = hits.filter((hit) => hit.distance <= Math.min(GLOBAL_MAX_DISTANCE, Math.max(18, best + 4)));
-      const found = await Promise.all(close.map((hit) => catalog.printingAt(hit.shard, hit.row)));
-      await addNames([...new Set(found.filter((entry) => entry !== null).map((entry) => entry!.printing.name))], 'hash');
+      const near = (hit: { distance: number }) => hit.distance <= Math.min(GLOBAL_MAX_DISTANCE, Math.max(18, best + 4));
+      // With a lock, also the hits from the locked sets a little farther off.
+      const close = hits.filter((hit) => near(hit) || (lock !== null && hit.distance <= LOCKED_GLOBAL_MAX));
+      const found = (await Promise.all(close.map((hit) => catalog.printingAt(hit.shard, hit.row)))).filter(
+        (entry, i) => entry !== null && (near(close[i]!) || lock!.has(entry.printing.set)),
+      );
+      await addNames([...new Set(found.map((entry) => entry!.printing.name))], 'hash');
       measure();
     }
     trace.push('hash-search');
@@ -525,7 +545,8 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
     const locked = lock ? all.filter((entry) => lock.has(entry.printing.set)) : all;
     if (lock && locked.length === 0 && all.length > 0) outsideNames.add(name);
     const entries = locked.length > 0 ? locked : all;
-    const penalty = outsideNames.has(name) ? OUTSIDE_LOCK_PENALTY : 0;
+    const clearTitle = (titleSimilarity.get(name) ?? 0) >= OUTSIDE_LOCK_CLEAR_TITLE;
+    const penalty = outsideNames.has(name) ? (clearTitle ? OUTSIDE_LOCK_PENALTY : OUTSIDE_LOCK_PENALTY_UNCLEAR) : 0;
     for (const { printing } of entries) {
       const hashDistance = distances.get(printing.id)?.distance ?? null;
       const read = collector ? game.matchCollector(collector, printing) : null;

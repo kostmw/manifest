@@ -488,5 +488,332 @@
       "glare"
     ],
     "notes": "Test log 2026-11-15T17:35, build 0.0.0+416f0b9, live: read as Plains (TRK 307) at 0; same-card; merged into the card before it, so never reviewed; labelled by hand as the owner later picked this card (Plains TRK 307, foil). The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-6c6850aa.jpg": {
+    "game": "mtg",
+    "id": "9845bd74-326f-4506-87f9-ead7d2fa6cfa",
+    "name": "Bristly Bill, Spine Sower",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:17, build 0.0.0+879d71e, live: read as Bristly Bill, Spine Sower (SDS 15) at 0.948; review (outside-lock); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-dbc99a91.jpg": {
+    "game": "mtg",
+    "id": "98a38e3f-e5ff-402f-9bcd-a03edc264688",
+    "name": "MACO Strike Team",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:19, build 0.0.0+879d71e, live: read as MACO Strike Team (TRK 206) at 0.647; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-acc5b08c.jpg": {
+    "game": "mtg",
+    "id": "98a38e3f-e5ff-402f-9bcd-a03edc264688",
+    "name": "MACO Strike Team",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:19, build 0.0.0+879d71e, live: read as MACO Strike Team (TRK 206) at 0.757; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-fecaa35b.jpg": {
+    "game": "mtg",
+    "id": "4f2d1830-baea-4735-b029-cb8c0b538d83",
+    "name": "Cold-Blooded Crew",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:19, build 0.0.0+879d71e, live: read as Cold-Blooded Crew (TRK 189) at 0.853; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-0fa5961b.jpg": {
+    "game": "mtg",
+    "id": "f3c68b20-f202-4d55-bef1-398d96e55c57",
+    "name": "Mugato",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:19, build 0.0.0+879d71e, live: read as Mugato (TRK 208) at 0.85; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-27538bab.jpg": {
+    "game": "mtg",
+    "id": "f1e43d7f-682b-4cb6-ad3c-4dfb2b9253c6",
+    "name": "Ezri Dax, Newly Joined",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:20, build 0.0.0+879d71e, live: read as Ezri Dax, Newly Joined (TRC 221) at 0.866; review (outside-lock); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-d01a0917.jpg": {
+    "game": "mtg",
+    "id": "142b8804-3bfd-4735-998f-3592b10deb80",
+    "name": "Subcommander T'Pol",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:20, build 0.0.0+879d71e, live: read as Subcommander T'Pol (TRK 453) at 0.762; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-af97d263.jpg": {
+    "game": "mtg",
+    "id": "a8dc7ecd-e6f0-4050-9d5b-8436f60a1395",
+    "name": "Cetacean Ops",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:20, build 0.0.0+879d71e, live: read as Cetacean Ops (TRK 48) at 0.891; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-e3697e1f.jpg": {
+    "game": "mtg",
+    "id": "a98d0f01-8e5e-4ff1-88e5-684b8f4c015c",
+    "name": "Gabriel Lorca, Mirror Menace",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:21, build 0.0.0+879d71e, live: read as Gabriel Lorca, Mirror Menace (TRK 108) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-b4da2b42.jpg": {
+    "game": "mtg",
+    "id": "c1855a4c-c7d1-407c-b134-4c43968cbdd3",
+    "name": "Blastoneuron",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:22, build 0.0.0+879d71e, live: read as Blastoneuron (TRK 96) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-a5e5ac11.jpg": {
+    "game": "mtg",
+    "id": "e046c0ef-0af3-4f48-8329-7d659e7d1a89",
+    "name": "Swamp",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T22:22, build 0.0.0+879d71e, live: read as Swamp (TRK 314) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-94336d26.jpg": {
+    "game": "mtg",
+    "id": "0faeffee-bb07-4b9d-8cdd-e9731bbd2396",
+    "name": "Malfunctioning Holodeck",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:22, build 0.0.0+879d71e, live: read as Malfunctioning Holodeck (TRK 22) at 0.854; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-4b01ba5c.jpg": {
+    "game": "mtg",
+    "id": "fc3fe0da-8d93-4f1c-9aad-c2fdc9fe34fc",
+    "name": "Vulcan",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T22:23, build 0.0.0+879d71e, live: read as Vulcan (TRK 305) at 0.661; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-ba16c8e8.jpg": {
+    "game": "mtg",
+    "id": "2d1651f5-7bc9-4d65-9387-f4646a04e816",
+    "name": "Grand Nagus Zek",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:23, build 0.0.0+879d71e, live: read as Secret Base (UST 165a) at 0.108; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-c6e41ef2.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:23, build 0.0.0+879d71e, live: read as Constable Odo (TRK 230) at 0.859; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-4a266a60.jpg": {
+    "game": "mtg",
+    "id": "660ec8bc-dc03-4b42-84f3-091c19e2a853",
+    "name": "Academy Instructor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:23, build 0.0.0+879d71e, live: read as Academy Instructor (TRK 137) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-30654d76.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T22:23, build 0.0.0+879d71e, live: read as Constable Odo (TRK 230) at 0.845; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-58be9a9f.jpg": {
+    "game": "mtg",
+    "id": "f1558d93-8a8a-45e0-bcdc-e6cd42f716dc",
+    "name": "Qo'noS",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Qo'noS (TRK 291) at 0.8; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-aa56fc9c.jpg": {
+    "game": "mtg",
+    "id": "24e72db3-a8d9-4553-92fe-ba6e40c4f62e",
+    "name": "Energize",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Energize (TRK 56) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-736cf157.jpg": {
+    "game": "mtg",
+    "id": "6359ab5d-4151-4a0c-af13-d59c1b381bb0",
+    "name": "Silicate Surveyor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Silicate Surveyor (TRK 172) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-ad63f519.jpg": {
+    "game": "mtg",
+    "id": "88b87ddb-fbf8-4e6e-9895-1b30ae5ad63a",
+    "name": "Photosynthetic Physician",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Grim Physician (THB 100) at 0.25; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-475d3d11.jpg": {
+    "game": "mtg",
+    "id": "e4f041b3-e785-45ba-9a7e-33878614d3b0",
+    "name": "Miles O'Brien, Transporter Ops",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Transporter Malfunction (TRK 178) at 0; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-272e0168.jpg": {
+    "game": "mtg",
+    "id": "aaf8a0b2-c6cb-41cb-913d-7ae1d75e555d",
+    "name": "U.S.S. Voyager, Lone Wanderer",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-74464371.jpg": {
+    "game": "mtg",
+    "id": "ca1e60f1-11a9-4bb8-9f6e-5b652b49c517",
+    "name": "Unexplored Territory",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Unexplored Territory (TRK 303) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-ab737acc.jpg": {
+    "game": "mtg",
+    "id": "8bcf6bb5-f689-4d61-8f69-3290eeab539d",
+    "name": "Combadge",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Combadge (TRK 260) at 0.857; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-590834aa.jpg": {
+    "game": "mtg",
+    "id": "8c1a2c13-5e36-4707-9d90-18c2e58a2b26",
+    "name": "Isolinear Processor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Battlefield Forge (TRC 514) at 0; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-ef39438e.jpg": {
+    "game": "mtg",
+    "id": "2ef7c30c-3ee6-413d-bd24-476322f36cb8",
+    "name": "Astute Terraformer",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Terraformer (RAV 70) at 0.529; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-90693174.jpg": {
+    "game": "mtg",
+    "id": "722eeb21-be3c-4ae6-abd2-c3281d53c035",
+    "name": "Test of Loyalty",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Test of Loyalty (TRK 134) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
   }
 }

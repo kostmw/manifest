@@ -31,6 +31,22 @@ const SHORTLIST = 300;
 const SHORT_READING = 8;
 /** Per character of junk before or after the name. */
 export const JUNK_COST = 0.3;
+/**
+ * Per character of junk after a name read exactly, as whole words, and a
+ * space: mana symbols read as letters ("Constable Odo Btots", round 10, whose
+ * 0.3 a letter kept a plainly read name at 0.875). A shorter name that the best one goes on from
+ * is then no rival to it (see matchConfidence), or "Forest" would undercut
+ * "Forest Bear" read exactly.
+ */
+const TRAIL_COST = 0.15;
+/**
+ * Letters a name needs for TRAIL_COST: two letters of junk spell "Ow", "Ile"
+ * (Island's French name) or "stand" as easily as junk follows them, and the
+ * first try of this let them outscore the artwork.
+ */
+const TRAIL_MIN_LETTERS = 6;
+/** A shorter name the best one goes on from is no rival only when the best one was read about whole. */
+const WHOLE = 0.95;
 /** A missing or extra space inside the name. */
 const SPACE_COST = 0.3;
 /**
@@ -81,38 +97,22 @@ export function alignmentCost(name: string, reading: string, wordStarts?: Uint8A
   return align(name, reading, wordStarts, false).cost;
 }
 
-/** The name read only up to the end of one of its words: what that cost, and how many letters were left out. */
+/** The name read only in part, to or from the edge of one of its words: what that cost, and how many letters were left out. */
 export interface CutAlignment {
   cost: number;
   missing: number;
 }
 
 /**
- * The alignment cost of the whole name, and with `cut`, of the best match of
- * its first words alone (at least CUT_MIN letters, at least one word left
- * out), with the reading's characters after it free up to as many as were
- * left out. The cut's own cost doesn't include CUT_COST for the missing letters.
+ * Fills the alignment table of `name` against `reading`, row by row from
+ * `first` (the costs of starting the match at each reading position), and
+ * returns the last row. `onRow(i, row)` sees each row as it is finished.
  */
-export function align(name: string, reading: string, wordStarts: Uint8Array | undefined, cut: boolean): { cost: number; cut: CutAlignment | null } {
+function fill(name: string, reading: string, first: Float64Array, onRow?: (i: number, row: Float64Array) => void): Float64Array {
   const n = name.length;
   const m = reading.length;
-  // Non-space characters of the reading from each position on, for the junk after a cut.
-  const after = new Int32Array(m + 1);
-  for (let j = m - 1; j >= 0; j--) after[j] = after[j + 1]! + (reading[j] === ' ' ? 0 : 1);
-  const totalLetters = cut ? name.replace(/ /g, '').length : 0;
-  let lettersRead = 0;
-  let bestCut: CutAlignment | null = null;
-  let previous = new Float64Array(m + 1);
+  let previous = Float64Array.from(first);
   let current = new Float64Array(m + 1);
-  // Skipping a leading stretch of the reading is junk, except letters glued to the start of the
-  // match within one word: those cut a word in two.
-  let junk = 0;
-  for (let j = 1; j <= m; j++) {
-    junk += reading[j - 1] === ' ' ? 0 : JUNK_COST;
-    let glued = 0;
-    if (wordStarts?.[j] && isLetter(reading[j])) for (let k = j - 1; k >= 0 && isLetter(reading[k]); k--) glued += 1;
-    previous[j] = junk + (glued >= GLUED_MIN ? (GLUED_COST - JUNK_COST) * glued : 0);
-  }
   let beforePrevious = new Float64Array(m + 1);
   for (let i = 1; i <= n; i++) {
     const a = name[i - 1]!;
@@ -127,25 +127,77 @@ export function align(name: string, reading: string, wordStarts: Uint8Array | un
       current[j] = best;
     }
     [beforePrevious, previous, current] = [previous, current, beforePrevious];
-    if (!cut) continue;
-    if (a !== ' ') lettersRead += 1;
+    onRow?.(i, previous);
+  }
+  return previous;
+}
+
+/**
+ * The alignment cost of the whole name, and with `cut`, of the best match of
+ * part of it: its first words alone, or its last words alone (at least CUT_MIN
+ * letters, read well, at least one word left out), with the reading's
+ * characters where the missing words would be free up to as many as were left
+ * out. The cut's own cost doesn't include CUT_COST for the missing letters.
+ */
+export function align(name: string, reading: string, wordStarts: Uint8Array | undefined, cut: boolean): { cost: number; cut: CutAlignment | null } {
+  const n = name.length;
+  const m = reading.length;
+  // Non-space characters of the reading before and from each position, for junk around the match.
+  const before = new Int32Array(m + 1);
+  for (let j = 1; j <= m; j++) before[j] = before[j - 1]! + (reading[j - 1] === ' ' ? 0 : 1);
+  const after = new Int32Array(m + 1);
+  for (let j = m - 1; j >= 0; j--) after[j] = after[j + 1]! + (reading[j] === ' ' ? 0 : 1);
+  // Junk after the end of the name.
+  const ending = (row: Float64Array) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let j = 0; j <= m; j++) best = Math.min(best, row[j]! + after[j]! * JUNK_COST);
+    return best;
+  };
+  // Skipping a leading stretch of the reading is junk, except letters glued to the start of the
+  // match within one word: those cut a word in two.
+  const first = new Float64Array(m + 1);
+  for (let j = 1; j <= m; j++) {
+    let glued = 0;
+    if (wordStarts?.[j] && isLetter(reading[j])) for (let k = j - 1; k >= 0 && isLetter(reading[k]); k--) glued += 1;
+    first[j] = before[j]! * JUNK_COST + (glued >= GLUED_MIN ? (GLUED_COST - JUNK_COST) * glued : 0);
+  }
+  const totalLetters = cut ? name.replace(/ /g, '').length : 0;
+  let bestCut: CutAlignment | null = null;
+  const offer = (cost: number, read: number, missing: number) => {
+    const better = !bestCut || cost + CUT_COST * missing < bestCut.cost + CUT_COST * bestCut.missing;
+    if (cost <= CUT_READ_COST * read && better) bestCut = { cost, missing };
+  };
+  let lettersRead = 0;
+  const last = fill(name, reading, first, (i, row) => {
+    if (!cut) return;
+    if (name[i - 1] !== ' ') lettersRead += 1;
     // The end of a word, with more words after it: the name may have been read only this far.
-    if (i < n && name[i] === ' ' && a !== ' ' && lettersRead >= CUT_MIN) {
+    if (i < n && name[i] === ' ' && name[i - 1] !== ' ' && lettersRead >= CUT_MIN) {
       const missing = totalLetters - lettersRead;
       let cost = Number.POSITIVE_INFINITY;
-      for (let j = 0; j <= m; j++) cost = Math.min(cost, previous[j]! + Math.max(0, after[j]! - missing) * JUNK_COST);
-      const better = !bestCut || cost + CUT_COST * missing < bestCut.cost + CUT_COST * bestCut.missing;
-      if (cost <= CUT_READ_COST * lettersRead && better) bestCut = { cost, missing };
+      for (let j = 0; j <= m; j++) cost = Math.min(cost, row[j]! + Math.max(0, after[j]! - missing) * JUNK_COST);
+      offer(cost, lettersRead, missing);
+    }
+  });
+  if (cut) {
+    // The start of a word, with words before it: the name may have been read only from here
+    // (round 10: "ie Physician 44", "getaformer" for Astute Terraformer).
+    let lettersBefore = 0;
+    for (let b = 1; b < n; b++) {
+      if (name[b - 1] !== ' ') lettersBefore += 1;
+      if (name[b - 1] !== ' ' || name[b] === ' ' || totalLetters - lettersBefore < CUT_MIN) continue;
+      const start = new Float64Array(m + 1);
+      for (let j = 0; j <= m; j++) start[j] = Math.max(0, before[j]! - lettersBefore) * JUNK_COST;
+      offer(ending(fill(name.slice(b), reading, start)), totalLetters - lettersBefore, lettersBefore);
     }
   }
-  // Trailing junk after the end of the name.
-  let best = Number.POSITIVE_INFINITY;
-  let tail = 0;
-  for (let j = m; j >= 0; j--) {
-    best = Math.min(best, previous[j]! + tail);
-    if (j > 0 && reading[j - 1] !== ' ') tail += JUNK_COST;
+  // The name read exactly, as whole words, then a space and junk: the junk costs TRAIL_COST.
+  let cost = ending(last);
+  const letters = totalLetters || name.replace(/ /g, '').length;
+  for (let p = letters >= TRAIL_MIN_LETTERS ? reading.indexOf(name) : -1; p >= 0; p = reading.indexOf(name, p + 1)) {
+    if ((p === 0 || reading[p - 1] === ' ') && reading[p + n] === ' ') cost = Math.min(cost, first[p]! + after[p + n]! * TRAIL_COST);
   }
-  return { cost: best, cut: bestCut };
+  return { cost, cut: bestCut };
 }
 
 export function similarityFor(name: string, distance: number): number {
@@ -170,7 +222,9 @@ export function matchConfidence(candidates: readonly Scored[]): number {
   if (!first) return 0;
   // A name read only in part is no rival to a name read whole: it would make a garbled but
   // right reading look less sure than junk, and the reading of the title is chosen by this.
-  const rival = (candidate: Scored) => candidate.key !== first.key && !(candidate.cut && !first.cut);
+  // Nor is a shorter name the best one goes on from, its other words taken as junk.
+  const rival = (candidate: Scored) =>
+    candidate.key !== first.key && !(candidate.cut && !first.cut) && !(first.similarity >= WHOLE && first.key.startsWith(`${candidate.key} `));
   const second = candidates.find(rival)?.similarity ?? 0;
   const lead = Math.min(1, Math.max(0, first.similarity - second) / CLEAR_LEAD);
   return Math.min(first.similarity * (0.5 + 0.5 * lead), shortNameCap(first.key));

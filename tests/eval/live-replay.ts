@@ -9,6 +9,7 @@
  *   … --no-camera-events   # don't tell the scanner when the flashlight switched (as if the app missed it)
  *   … --seed 2             # another shake of the phone
  *   … --verbose            # every read's frames before it (as the test log's `live.frames`), and every quiet spell's
+ *   … --copies             # with "Count a copy put straight on top" switched on
  *
  * The frames between pictures are made up, the same way every run (seeded):
  * the hand-held phone drifts and now and then jumps a tenth or more of the
@@ -41,6 +42,7 @@ const { values, positionals } = parseArgs({
   options: {
     'no-camera-events': { type: 'boolean', default: false },
     verbose: { type: 'boolean', default: false },
+    copies: { type: 'boolean', default: false },
     seed: { type: 'string', default: '1' },
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
@@ -166,6 +168,7 @@ const context = { regions: MTG_REGIONS, names, ocr, printings: { game: mtg, cata
 let now = 0;
 const clock = () => now;
 const scanner = new LiveScanner(new LiveSession(undefined, undefined, undefined, clock), clock);
+scanner.setCountCopies(values.copies!);
 const centre = { x: FRAME.width / 2, y: FRAME.height / 2 };
 const diagonal = Math.hypot(CARD_HEIGHT, (CARD_HEIGHT * 488) / 680);
 let flashlight: boolean | null = null;
@@ -227,7 +230,7 @@ for (const card of cards) {
 }
 await ocr.dispose();
 
-console.log(`Live replay of ${logPath}: ${cards.length} cards, ${log.reads.length} reads in the log${values['no-camera-events'] ? ', no flashlight events' : ''}, seed ${values.seed}`);
+console.log(`Live replay of ${logPath}: ${cards.length} cards, ${log.reads.length} reads in the log${values['no-camera-events'] ? ', no flashlight events' : ''}${values.copies ? ', counting copies put on top' : ''}, seed ${values.seed}`);
 for (const { name, looks, tally } of results) {
   const verdict = tally.counted === 1 ? 'ok' : tally.counted === 0 ? 'MISSED' : `COUNTED ${tally.counted}×`;
   console.log(`  ${verdict.padEnd(12)} ${name} (${looks} pictures): ${tally.triggers.join(', ') || 'never read'}`);

@@ -145,6 +145,37 @@ export interface QuietSpell {
   ms: number;
   /** The frames since the last read or the spell before, oldest first, at most `TRAIL_FRAMES`. */
   frames: TrailFrame[];
+  /** After `QUIET_SPELLS` spells in a row, one report every `QUIET_SUMMARY_MS`: what all its frames showed, in sum. */
+  summary?: QuietSummary;
+}
+
+/** What the frames of a long quiet stretch showed, in sum. */
+export interface QuietSummary {
+  frames: number;
+  /** Frames with an outline. */
+  outline: number;
+  steadyMax: number;
+  phases: Partial<Record<LivePhase, number>>;
+  light: [number, number];
+  issues: Partial<Record<QualityIssue, number>>;
+}
+
+function summarize(frames: readonly TrailFrame[]): QuietSummary {
+  const phases: QuietSummary['phases'] = {};
+  const issues: QuietSummary['issues'] = {};
+  let outline = 0;
+  let steadyMax = 0;
+  let low = 255;
+  let high = 0;
+  for (const frame of frames) {
+    if (frame.outline) outline += 1;
+    steadyMax = Math.max(steadyMax, frame.steady);
+    phases[frame.phase] = (phases[frame.phase] ?? 0) + 1;
+    low = Math.min(low, frame.light);
+    high = Math.max(high, frame.light);
+    for (const issue of frame.issues ?? []) issues[issue] = (issues[issue] ?? 0) + 1;
+  }
+  return { frames: frames.length, outline, steadyMax, phases, light: [low, high], issues };
 }
 
 /** A read live mode made, and what became of it. */
@@ -162,6 +193,13 @@ export interface LiveRead {
   distance: number | null;
   /** The frames since the read before, oldest first, at most `TRAIL_FRAMES`. */
   frames: TrailFrame[];
+  /**
+   * The card already counted (`counted` false), read much more surely than
+   * the read it was counted as (it names a card that read didn't, clears the
+   * bar to be added, or is far more confident): the caller should let it stand
+   * in for that read (round 10: a foil Constable Odo stayed a junk review).
+   */
+  upgrade?: true;
 }
 
 export interface LiveFrame {
@@ -181,6 +219,8 @@ export interface LiveFrame {
   dismissed?: true;
   /** Nothing was read for a while: what live mode saw meanwhile (see QuietSpell). */
   quiet?: QuietSpell;
+  /** The card read last was forgotten on this frame: what it was, whether it seemed only moved, and the frames that led to it. */
+  gone?: { card: string | null; moved: boolean; frames: TrailFrame[] };
 }
 
 /** Frames kept for a read's trail in the test log. */
@@ -189,6 +229,33 @@ const TRAIL_FRAMES = 24;
 export const QUIET_MS = 2000;
 /** Quiet spells reported in a row before live mode stops reporting them until something is read (a long pause). */
 const QUIET_SPELLS = 5;
+/** After that, a long quiet stretch is reported this often, in sum (round 10: a card was forgotten in a stretch with no reports). */
+const QUIET_SUMMARY_MS = 30_000;
+/** Frames kept for a quiet stretch's summary. */
+const QUIET_KEPT = 400;
+/** How much more confident a re-read of the card already counted must be to stand in for the read it was counted as. */
+const MUCH_SURER = 0.3;
+
+/** How sure a read was, to tell when a re-read of the same card is much surer. */
+export interface Sureness {
+  nameConfidence: number;
+  confidence: number;
+  accepted: boolean;
+}
+
+const surenessOf = (recognition: Recognition): Sureness => ({
+  nameConfidence: recognition.nameConfidence,
+  confidence: recognition.confidence,
+  accepted: recognition.decision === 'accept',
+});
+
+/** Whether `after` should stand in for `before` (never for a read that was added). */
+export function muchSurer(before: Sureness, after: Sureness): boolean {
+  if (before.accepted) return false;
+  if (after.accepted) return true;
+  if (before.nameConfidence < IDENTITY_NAME_MIN && after.nameConfidence >= IDENTITY_NAME_MIN) return true;
+  return after.confidence >= before.confidence + MUCH_SURER;
+}
 
 /** The frame's mean brightness, from a sparse sample. */
 function meanLight(frame: RgbaImage): number {
@@ -247,6 +314,10 @@ export class LiveScanner {
   private lastReadAt: number | null = null;
   private quietSince: number | null = null;
   private quietSpells = 0;
+  /** Every frame since the last quiet report, for a long stretch's summary. */
+  private idle: TrailFrame[] = [];
+  /** How sure the read was that the card read last was counted as; null without one. */
+  private counted: Sureness | null = null;
 
   constructor(
     readonly session: LiveSession = new LiveSession(),
@@ -281,6 +352,11 @@ export class LiveScanner {
     // When detection doesn't find the card read last where it lay, whether it is still lying there.
     const step = this.session.next(best?.corners ?? null, (corners) => presenceSignature(frame, corners, regions));
     const outcome: LiveFrame = { ...emptyFrame(frame), corners: best?.corners ?? null, steadyFrames: step.steadyFrames, phase: step.phase };
+    if (step.forgot) {
+      outcome.gone = { ...step.forgot, frames: [] };
+      // A card that seems only moved may be read again as itself: keep how sure it was counted as.
+      if (!step.forgot.moved) this.counted = null;
+    }
     outcome.timings.detect = this.clock() - started;
     if (!best) return this.note(started, frame, outcome, null, false);
 
@@ -303,6 +379,7 @@ export class LiveScanner {
     // or not: it isn't read, counted or sent to review, and a card put there later still counts.
     if (recognize && isBlank(card)) {
       this.session.dismiss(signature ?? cardSignature(frame, best.corners, regions), best.corners);
+      this.counted = null;
       outcome.phase = 'empty';
       outcome.dismissed = true;
       return this.note(started, frame, outcome, quality.issues, true);
@@ -338,6 +415,7 @@ export class LiveScanner {
       this.trail = [];
       outcome.phase = 'read';
       const counted = verdict === 'report';
+      if (counted) this.counted = { nameConfidence: 0, confidence: 0, accepted: false };
       outcome.read = {
         recognition: unreadable(card, quality, recognition?.timings ?? {}),
         card,
@@ -356,6 +434,10 @@ export class LiveScanner {
     for (const [stage, ms] of Object.entries(recognition.timings)) outcome.timings[stage === 'detect' ? 'read-detect' : stage] = ms;
     // A card that only looked different (glare, foil shimmer, the flashlight) is the card already counted.
     const counted = this.session.settle(signature, best.corners, identityOf(recognition));
+    // The same card read much more surely than it was counted as: it stands in for that read.
+    const sure = surenessOf(recognition);
+    const upgrade = !counted && this.counted !== null && muchSurer(this.counted, sure);
+    if (counted || upgrade) this.counted = sure;
     outcome.read = {
       recognition,
       card: recognition.card ?? card,
@@ -365,6 +447,7 @@ export class LiveScanner {
       trigger,
       distance,
       frames,
+      ...(upgrade ? { upgrade: true as const } : {}),
     };
     return outcome;
   }
@@ -379,9 +462,11 @@ export class LiveScanner {
     this.lastFrameAt = now;
     const entry: TrailFrame = { ms, ...this.session.lastFrame, phase: outcome.phase, light: meanLight(frame), ...(issues?.length ? { issues } : {}) };
     this.trail = [...this.trail, entry].slice(-TRAIL_FRAMES);
+    if (outcome.gone) outcome.gone.frames = this.trail;
     // Frames stopped for a while (the camera was off): a quiet spell starts afresh.
     if (decided || this.quietSince === null || ms > QUIET_MS) {
       this.quiet = decided ? [] : [entry];
+      this.idle = decided ? [] : [entry];
       this.quietSince = now;
       if (decided) {
         this.lastReadAt = now;
@@ -390,13 +475,26 @@ export class LiveScanner {
       return outcome;
     }
     this.quiet = [...this.quiet, entry].slice(-TRAIL_FRAMES);
-    if (now - this.quietSince >= QUIET_MS && this.quietSpells < QUIET_SPELLS) {
-      outcome.quiet = { ms: Math.round(now - (this.lastReadAt ?? this.quietSince)), frames: this.quiet };
+    this.idle = [...this.idle, entry].slice(-QUIET_KEPT);
+    const since = now - this.quietSince;
+    const spell = this.quietSpells < QUIET_SPELLS ? since >= QUIET_MS : since >= QUIET_SUMMARY_MS;
+    if (spell) {
+      outcome.quiet = {
+        ms: Math.round(now - (this.lastReadAt ?? this.quietSince)),
+        frames: this.quiet,
+        ...(this.quietSpells >= QUIET_SPELLS ? { summary: summarize(this.idle) } : {}),
+      };
       this.quiet = [];
+      this.idle = [];
       this.quietSince = now;
       this.quietSpells += 1;
     }
     return outcome;
+  }
+
+  /** Count identical copies put on top (a Scan setting; off by default). */
+  setCountCopies(on: boolean): void {
+    this.session.setCountCopies(on);
   }
 
   /** The flashlight was switched: the camera re-exposes, so the card read last is held and then checked. */

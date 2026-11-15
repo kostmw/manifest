@@ -532,3 +532,88 @@ describe('sameCardReason', () => {
     expect(sameCardReason(NO_IDENTITY, id('Plains'), 30)).toBe('card read last not named, artwork 30 bits from how it looked before');
   });
 });
+
+describe('LiveSession in round 10', () => {
+  const card = Uint32Array.of(0x12345678, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
+  const elsewhere = flipped(card, 50, 5);
+  const ROGUE_AI = id('Rogue Artificial Intelligence', 'trk-126');
+  const probeSeeing = (signature: Uint32Array): SignatureProbe => () => signature;
+  const far = (x: number): Quad => cardQuad({ x, y: 300 }, 400);
+
+  function lyingAndRead(identity = ROGUE_AI) {
+    const session = new LiveSession({ frames: 2, tolerance: 0.02 }, 3);
+    session.next(at(300));
+    expect(session.next(at(300)).recognize).toBe(true);
+    expect(session.settle(card, at(300), identity)).toBe(true);
+    return session;
+  }
+
+  it('takes a card moved far off, still in view, for itself when it is read again (#36: counted twice)', () => {
+    const session = lyingAndRead();
+    // Lost for a frame, then found 59% and 110% of its diagonal off, looking unlike itself (48–50 bits).
+    expect(session.next(null, probeSeeing(elsewhere)).forgot).toBeUndefined();
+    expect(session.next(far(560), probeSeeing(elsewhere)).forgot).toBeUndefined();
+    expect(session.next(far(740), probeSeeing(elsewhere)).forgot).toEqual({ card: 'Rogue Artificial Intelligence', moved: true });
+    // It settles where it now lies and is read afresh: the same card, not counted.
+    session.next(far(740));
+    expect(session.next(far(740)).recognize).toBe(true);
+    expect(session.settle(card, far(740), ROGUE_AI)).toBe(false);
+    expect(session.lastSameCard).toBe('the card read last, moved (Rogue Artificial Intelligence)');
+  });
+
+  it('still counts an identical copy put down after the card was taken away (nothing in view)', () => {
+    const session = lyingAndRead();
+    for (let i = 0; i < 2; i++) session.next(null, probeSeeing(elsewhere));
+    expect(session.next(null, probeSeeing(elsewhere)).forgot).toEqual({ card: 'Rogue Artificial Intelligence', moved: false });
+    session.next(at(300));
+    expect(session.next(at(300)).recognize).toBe(true);
+    expect(session.settle(card, at(300), ROGUE_AI)).toBe(true);
+  });
+
+  it('counts a copy put on top only with the switch on: a hand covers it, and it settles a little to one side', () => {
+    const run = (countCopies: boolean) => {
+      const session = lyingAndRead(id('Dominion Assault Force', 'trk-194'));
+      session.setCountCopies(countCopies);
+      session.next(at(300));
+      // The hand putting the copy down: no outline, the spot looks unlike the card, for one frame.
+      session.next(null, probeSeeing(elsewhere));
+      // The copy settles 8% of the diagonal off.
+      session.next(at(330));
+      const step = session.next(at(330));
+      expect(step.checkCard).toBe(true);
+      const read = session.changed(flipped(card, 10));
+      return read && session.settle(flipped(card, 10), at(330), id('Dominion Assault Force', 'trk-194'));
+    };
+    expect(run(false)).toBe(false);
+    expect(run(true)).toBe(true);
+  });
+
+  it("doesn't count a nudge without a cover, or a copy put back exactly in place, even with the switch on", () => {
+    const session = lyingAndRead();
+    session.setCountCopies(true);
+    session.next(at(300));
+    // Nudged 8% with no frame lost: no cover.
+    session.next(at(330));
+    session.next(at(330));
+    expect(session.changed(flipped(card, 6))).toBe(false);
+    // Covered for a frame and back in the same spot.
+    session.next(null, probeSeeing(elsewhere));
+    session.next(at(330));
+    session.next(at(330));
+    expect(session.changed(flipped(card, 6))).toBe(false);
+  });
+});
+
+describe('StabilityTracker across lost frames (round 10: a foil found 1 frame in 8)', () => {
+  it('counts on when the outline comes back in place within a short gap', () => {
+    const tracker = new StabilityTracker({ frames: 2, tolerance: 0.02 });
+    expect(tracker.update(at(300)).steadyFrames).toBe(1);
+    for (let i = 0; i < 7; i++) expect(tracker.update(null).steadyFrames).toBe(0);
+    expect(tracker.update(at(301))).toEqual({ steadyFrames: 2, stable: true });
+    // Elsewhere after a gap: starts over. A long gap starts over too.
+    for (let i = 0; i < 3; i++) tracker.update(null);
+    expect(tracker.update(at(360)).steadyFrames).toBe(1);
+    for (let i = 0; i < 9; i++) tracker.update(null);
+    expect(tracker.update(at(360)).steadyFrames).toBe(1);
+  });
+});

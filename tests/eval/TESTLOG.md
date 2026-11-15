@@ -52,9 +52,9 @@ Each read has these fields:
 
 | Field | What it holds |
 |---|---|
-| `trigger` | `fresh` (the first card, or the first after the card read last was gone), `different` (it looked unlike the card read last), `camera` (a check after the flashlight switched) or `again` (Read again). Only `fresh` and `again` reads always count; the others count only when the read finds another card. |
+| `trigger` | `fresh` (the first card, or the first after the card read last was gone), `different` (it looked unlike the card read last), `camera` (a check after the flashlight switched), `again` (Read again) or `copy` (with "Count a copy put straight on top" on: the card settled again, moved, after a hand covered it). `again` and `copy` reads always count. `fresh` reads count too, except a card read afresh just after the card read last seemed only moved (forgotten while outlines kept being found), naming the same card. The others count only when the read finds another card. |
 | `distance` | For `different` and `camera`: fingerprint distance (of 128 bits) from the card read last. |
-| `frames` | Up to 24 frames before the read, oldest first: `ms` since the frame before, `outline` (detection found one), `moved` (how far it was from where the card read last lay, as a share of its diagonal), `probe` (fingerprint distance from the card read last to what lay where it was, when that was looked at), `gone` (frames in a row so far without the card read last: 3 make it gone) and `hold` (the camera was settling after the flashlight switched). Builds after round 9 add `phase` (`empty`, `settling`, `reading`, `read`), `steady` (steady frames so far: a card is read, or checked for a new card on top, once it has been steady for 2), `far` (the check for a new card on top: fingerprint distance from the steady card in view to the closest look of the card read last; over 24 on two checks in a row reads it; null when not checked), `light` (the frame's mean brightness, 0–255) and `issues` (what the quality gate found wrong with the card in view, which keeps it from being read). |
+| `frames` | Up to 24 frames before the read, oldest first: `ms` since the frame before, `outline` (detection found one), `moved` (how far it was from where the card read last lay, as a share of its diagonal), `probe` (fingerprint distance from the card read last to what lay where it was, when that was looked at), `gone` (frames in a row so far without the card read last: 3 make it gone) and `hold` (the camera was settling after the flashlight switched). Builds after round 9 add `phase` (`empty`, `settling`, `reading`, `read`), `steady` (steady frames so far: a card is read, or checked for a new card on top, once it has been steady for 2), `far` (the check for a new card on top: fingerprint distance from the steady card in view to the closest look of the card read last; over 24 on two checks in a row reads it; null when not checked), `light` (the frame's mean brightness, 0–255) and `issues` (what the quality gate found wrong with the card in view, which keeps it from being read). Builds after round 10 add `away`: the fingerprint distance from the card read last to an outline found far from where it lay, when one was (`probe` is then the distance at its old spot). |
 
 `trace` values:
 
@@ -93,7 +93,10 @@ Each event has these fields:
 | `finish` | The finish chosen. |
 | `qty` | The quantity chosen. |
 | `via` | How the printing was found, for an accepted review. |
-| `ms`, `frames` | For `quiet`: milliseconds since the last read, and the frames since it (or since the quiet spell before), as in a read's `live.frames`. |
+| `ms`, `frames` | For `quiet`: milliseconds since the last read, and the frames since it (or since the quiet spell before), as in a read's `live.frames`. For `gone`: the frames that led to it. |
+| `summary` | For a long `quiet` stretch (after five spells in a row): `frames`, `outline` (frames with one), `steadyMax`, `phases` and `issues` (frame counts) and `light` (lowest and highest) over all its frames. |
+| `picture` | For `quiet` (builds after round 10), when detection found an outline on fewer than half its frames and pictures are included: the camera frame, 180 pixels wide, as a base64 JPEG, to see why it found no card. |
+| `card`, `moved` | For `gone`: the card forgotten (its name, or its best printing's id), and whether outlines kept being found while it went (it seemed moved, not taken away). |
 
 The types:
 
@@ -103,7 +106,9 @@ The types:
 - `printing-changed`: a batch row's printing changed from `from` to `printing`. This is the ground truth for every read that went into the row; the row keeps its last 20.
 - `flashlight`: the flashlight was switched on or off (`on`). It is about no read, so `readIds` is empty.
 - `copy-added`: **+1** on the newest thumbnail added one more copy of that card (an identical copy put straight on top isn't counted by itself). `readIds` is the scan it copies.
-- `quiet` (builds after round 9): live mode went 2 seconds without reading anything. `frames` show why: no outline (the card isn't found), outlines that never settle, `issues` from the quality gate, or `far` at most 24 (the card looked like the card read last). Reported every 2 seconds, at most 5 times in a row until the next read. About no read, so `readIds` is empty.
+- `quiet` (builds after round 9): live mode went 2 seconds without reading anything. `frames` show why: no outline (the card isn't found), outlines that never settle, `issues` from the quality gate, or `far` at most 24 (the card looked like the card read last). Reported every 2 seconds, 5 times in a row; then, until the next read, every 30 seconds with only the last 24 frames and a `summary` of all of them (builds before round 10 stopped after 5). About no read, so `readIds` is empty.
+- `gone` (builds after round 10): live mode forgot the card read last (it wasn't seen where it lay for 3 frames in a row), with `card`, `moved` and `frames`. About no read.
+- `replaced` (builds after round 10): a live re-read of the card already counted was much surer than the read it was counted as (it named a card that read didn't, cleared the bar to be added, or was 0.3 more confident), so it stood in for it. `readIds` is [the read replaced, the new read]. The replaced read's review was removed, and the new read was filed like any read.
 
 ## From a log to eval fixtures
 

@@ -88,8 +88,16 @@ export interface FrameOutcome {
   liveRead?: { trigger: ReadTrigger; distance: number | null; frames: TrailFrame[] };
   /** Another frame was still being read, so this one was dropped: nothing to show. */
   busy?: true;
-  /** Live mode went a while without reading anything: what it saw meanwhile, for the test log. */
-  quiet?: QuietSpell;
+  /**
+   * Live mode went a while without reading anything: what it saw meanwhile,
+   * for the test log; with a small picture of the frame when detection found
+   * an outline on fewer than half its frames (round 10: foils lost to it).
+   */
+  quiet?: QuietSpell & { picture?: Blob };
+  /** The card read last was forgotten on this frame, for the test log. */
+  gone?: { card: string | null; moved: boolean; frames: TrailFrame[] };
+  /** With `repeat`: the re-read is much surer than the read the card was counted as, and should stand in for it. */
+  upgrade?: true;
 }
 
 /**
@@ -120,6 +128,21 @@ function pixels(bitmap: ImageBitmap, maxSide: number): RgbaImage {
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
   return { width, height, data: context.getImageData(0, 0, width, height).data };
+}
+
+/** Width of the frame snapshot a quiet spell carries when detection kept failing. */
+const SNAPSHOT_WIDTH = 180;
+/** Below this share of a quiet spell's frames with an outline, it carries a snapshot. */
+const SNAPSHOT_OUTLINE_SHARE = 0.5;
+
+/** The frame, small, as a JPEG. */
+async function snapshot(image: RgbaImage): Promise<Blob> {
+  const full = new OffscreenCanvas(image.width, image.height);
+  full.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(image.data), image.width, image.height), 0, 0);
+  const height = Math.round((image.height * SNAPSHOT_WIDTH) / image.width);
+  const small = new OffscreenCanvas(SNAPSHOT_WIDTH, height);
+  small.getContext('2d')!.drawImage(full, 0, 0, SNAPSHOT_WIDTH, height);
+  return small.convertToBlob({ type: 'image/jpeg', quality: 0.7 });
 }
 
 async function toJpeg(image: RgbaImage): Promise<Blob> {
@@ -169,6 +192,7 @@ async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcom
   } else {
     outcome.sameCard = true;
     outcome.repeat = { result, why: read.why ?? 'same card' };
+    if (read.upgrade) outcome.upgrade = true;
   }
 }
 
@@ -220,6 +244,10 @@ const api = {
     const { read, busy: _busy, ...rest } = seen;
     const outcome: FrameOutcome = { ...rest, timings: { pixels: copied - started, ...seen.timings }, result: null };
     if (read) await liveOutcome(read, started, outcome);
+    const quiet = outcome.quiet;
+    if (quiet && quiet.frames.filter((entry) => entry.outline).length < quiet.frames.length * SNAPSHOT_OUTLINE_SHARE) {
+      outcome.quiet = { ...quiet, picture: await snapshot(frame).catch(() => undefined) };
+    }
     outcome.timings.total = performance.now() - started;
     return outcome;
   },
@@ -235,6 +263,11 @@ const api = {
   },
 
   /** The batch's set lock, for every read from now on. Empty for any set. */
+  /** Count an identical copy put on top (a Scan setting, off by default). */
+  setCountCopies(on: boolean): void {
+    live.setCountCopies(on);
+  },
+
   setLock(sets: string[]): void {
     lockSets = [...sets];
   },

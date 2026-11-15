@@ -5,7 +5,7 @@ import { createRgba, type RgbaImage } from '../vision/image';
 import { artCard, cardQuad, emptyBoxFloor, placeCard } from '../vision/testScene';
 import type { Printing } from '../games/types';
 import type { PrintingCandidate } from './identify';
-import { cardSignature, identityOf, isBlank, LiveScanner, presenceSignature } from './liveScanner';
+import { cardSignature, identityOf, isBlank, LiveScanner, muchSurer, presenceSignature } from './liveScanner';
 import { LiveSession, signatureDistance } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
@@ -247,4 +247,47 @@ describe('identityOf (round 9: a card put on top under the flashlight)', () => {
     expect(session.changed(grayAndAdira)).toBe(true);
     expect(session.settle(grayAndAdira, corners, identityOf(recognition({ printings: [candidate(PLAINS, 50)] })))).toBe(false);
   });
+});
+
+describe('round 10: a much surer re-read, cards forgotten, long quiet stretches', () => {
+  it('lets a re-read stand in for a read it was counted as only when much surer (#143 → #144: a foil Constable Odo)', () => {
+    // A junk read of the card (Sage's Reverie, 0.29 sure of the name) counted; the re-read names Constable Odo at 0.90.
+    expect(muchSurer({ nameConfidence: 0.29, confidence: 0.05, accepted: false }, { nameConfidence: 0.9, confidence: 0.9, accepted: true })).toBe(true);
+    // Named, though not sure enough to add.
+    expect(muchSurer({ nameConfidence: 0.29, confidence: 0.05, accepted: false }, { nameConfidence: 0.85, confidence: 0.85, accepted: false })).toBe(true);
+    // A little surer, or a card already added: no.
+    expect(muchSurer({ nameConfidence: 0.8, confidence: 0.6, accepted: false }, { nameConfidence: 0.85, confidence: 0.7, accepted: false })).toBe(false);
+    expect(muchSurer({ nameConfidence: 0.95, confidence: 0.95, accepted: true }, { nameConfidence: 1, confidence: 1, accepted: true })).toBe(false);
+  });
+
+  it('reports the card read last forgotten, with the frames that led to it', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const context = { regions: MTG_REGIONS, names, ocr: fakeOcr() };
+    const gone = [];
+    for (const corners of [where(), where(), where(), null, null, null, null]) {
+      const seen = await scanner.frame(frameWith(corners), context);
+      if (seen.gone) gone.push(seen.gone);
+      now += 120;
+    }
+    expect(gone).toHaveLength(1);
+    expect(gone[0]).toMatchObject({ card: 'Sol Ring', moved: false });
+    expect(gone[0]!.frames.at(-1)).toMatchObject({ outline: false, gone: 3 });
+  });
+
+  it('keeps reporting a long quiet stretch, in sum every 30 s, after the first five spells', async () => {
+    let now = 0;
+    const scanner = new LiveScanner(new LiveSession(), () => now);
+    const context = { regions: MTG_REGIONS, names, ocr: fakeOcr() };
+    const spells: NonNullable<Awaited<ReturnType<LiveScanner['frame']>>['quiet']>[] = [];
+    // An empty box, one frame a second, for 45 s.
+    for (let i = 0; i < 46; i++) {
+      const seen = await scanner.frame(frameWith(null), context);
+      if (seen.quiet) spells.push(seen.quiet);
+      now += 1000;
+    }
+    expect(spells).toHaveLength(6);
+    expect(spells.slice(0, 5).every((spell) => spell.summary === undefined)).toBe(true);
+    expect(spells[5]!.summary).toMatchObject({ frames: 30, outline: 0, phases: { empty: 30 } });
+  }, 30_000);
 });

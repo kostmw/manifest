@@ -18,6 +18,10 @@ export async function getReviews(batchId: string): Promise<ReviewItem[]> {
   return db.reviews.where('batchId').equals(batchId).sortBy('createdAt');
 }
 
+export async function getReview(id: string): Promise<ReviewItem | undefined> {
+  return db.reviews.get(id);
+}
+
 export async function discardReview(id: string): Promise<void> {
   await db.reviews.delete(id);
 }

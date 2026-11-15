@@ -4,7 +4,8 @@ import { useRecognizer } from '../recognize/useRecognizer';
 import { printingCode } from '../review/explain';
 import { ReviewCard } from '../review/ReviewCard';
 import { intake, UNREADABLE_BELOW } from '../session/intake';
-import { logFlashlight, logQuiet, testLogEnabled, type TestLogLive, type TestLogSettings } from '../session/testLog';
+import { getReview, discardReview } from '../session/reviews';
+import { logEvent, logFlashlight, logGone, logQuiet, testLogEnabled, type TestLogLive, type TestLogSettings } from '../session/testLog';
 import { logOutcome, recordRead } from '../session/testLogRecord';
 import type { Batch, ReviewItem } from '../session/types';
 import { cameraResolution, debugEnabled, formatTimings, setCameraResolution, setDebugEnabled } from '../ui/debug';
@@ -22,6 +23,7 @@ import {
 import { BUTTON_SECONDARY } from '../ui/styles';
 import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
+import { countCopiesEnabled, setCountCopiesEnabled } from './copies';
 import { copyRecent, pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
 import { ScanSettings } from './ScanSettings';
 import { TestLogPanel } from './TestLogPanel';
@@ -235,7 +237,8 @@ export function Scanner({
   /** Go to the review queue, at this card when given. */
   onOpenReview: (reviewId?: string) => void;
 }) {
-  const recognizer = useRecognizer(batch?.game ?? 'mtg', batch?.settings.lockSets ?? []);
+  const [copies, setCopies] = useState(() => countCopiesEnabled());
+  const recognizer = useRecognizer(batch?.game ?? 'mtg', batch?.settings.lockSets ?? [], copies);
   const { cameraChanged } = recognizer;
   // The camera re-exposes when the flashlight switches: live mode holds the card in view meanwhile.
   const camera = useCamera(
@@ -306,14 +309,21 @@ export function Scanner({
     });
   }, [logSettings]);
 
-  /** Files a scanned card: into the batch or the review queue, with sound, vibration and a flash. */
-  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null) => {
+  /** The last card live mode filed: a much surer re-read of it may stand in for it. */
+  const lastLiveRef = useRef<RecentScan | null>(null);
+
+  /**
+   * Files a scanned card: into the batch or the review queue, with sound,
+   * vibration and a flash. `replaces`: the scan id of the read it stands in for.
+   */
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null, replaces?: string) => {
     const target = batchRef.current;
     if (!target) return null;
     try {
       const scanId = crypto.randomUUID();
       const outcome = await intake(target, scan, source, scanId);
       if (testLogEnabled()) void recordRead({ id: scanId, source, scan, outcome: logOutcome(outcome), settings: logSettings(target), timings, live });
+      if (replaces) logEvent({ type: 'replaced', readIds: [replaces, scanId] });
       const best = scan.printings[0]?.printing;
       const sure = scan.nameConfidence >= UNREADABLE_BELOW;
       const entry = pushRecent({
@@ -326,6 +336,7 @@ export function Scanner({
         scanId,
         card: scan.card,
       });
+      if (source === 'live') lastLiveRef.current = entry;
       setLast({ entry });
       setFlash((previous) => ({ kind: entry.kind, key: (previous?.key ?? 0) + 1 }));
       setSaveFailed(false);
@@ -336,6 +347,25 @@ export function Scanner({
       return null;
     }
   }, [logSettings]);
+
+  /**
+   * The card already counted, read again much more surely than the read it was
+   * counted as (round 10: a foil Constable Odo stayed a junk review while a
+   * re-read named it at 0.90): that review, if it still waits, is taken out and
+   * the new read filed in its place, added if it clears the bar.
+   */
+  const upgrade = useCallback(async (repeat: { result: ScanResult; why: string }, timings: Record<string, number>, live: TestLogLive | null) => {
+    const previous = lastLiveRef.current;
+    const target = batchRef.current;
+    const waiting = previous?.kind === 'review' && previous.reviewId && previous.batchId === target?.id ? await getReview(previous.reviewId) : undefined;
+    if (!previous || !waiting) {
+      logRepeat(repeat, timings, live);
+      return;
+    }
+    await discardReview(waiting.id);
+    removeRecent(previous.id);
+    await file(repeat.result, 'live', timings, live, previous.scanId);
+  }, [file, logRepeat]);
 
   // The frame the worker is working on, if any: a loop started while it is still being read waits for it.
   const inFlightRef = useRef<Promise<unknown> | null>(null);
@@ -359,9 +389,11 @@ export function Scanner({
           } else if (outcome?.sameCard) {
             setLastRead(outcome.timings);
             setRepeats((count) => count + 1);
-            if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
+            if (outcome.repeat && outcome.upgrade) void upgrade(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
+            else if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
           }
-          if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames);
+          if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames, outcome.quiet.summary, outcome.quiet.picture);
+          if (outcome?.gone) logGone(outcome.gone.card, outcome.gone.moved, outcome.gone.frames);
           if (stopped) break;
           // A dropped frame (another was still being read) has nothing to show.
           if (outcome && !outcome.busy) setFrame(outcome);
@@ -374,7 +406,7 @@ export function Scanner({
     return () => {
       stopped = true;
     };
-  }, [recognizer.status, streaming, photoState, live, file, logRepeat]);
+  }, [recognizer.status, streaming, photoState, live, file, logRepeat, upgrade]);
 
   // The big status line shows the last card for a few seconds, then the live hint again.
   useEffect(() => {
@@ -644,6 +676,24 @@ export function Scanner({
         <p>
           A high beep means the card was added; two lower notes mean it waits for review.
           {canVibrate() ? ' The phone also vibrates.' : ' This browser can’t vibrate (iPhones can’t from a web page), so the frame flashes instead.'}
+        </p>
+      </section>
+
+      <section aria-label="Counting" className="flex flex-col gap-1 text-xs text-zinc-500">
+        <label className="flex min-h-11 items-center gap-2">
+          <input
+            type="checkbox"
+            checked={copies}
+            onChange={(event) => {
+              setCountCopiesEnabled(event.target.checked);
+              setCopies(event.target.checked);
+            }}
+          />
+          Count a copy put straight on top (testing)
+        </label>
+        <p>
+          Off: an identical copy counts once the card under it was taken away or covered by your hand for a moment, or
+          with +1. On: putting it straight on top counts too, but nudging a card may then count it again.
         </p>
       </section>
 

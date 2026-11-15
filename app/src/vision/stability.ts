@@ -25,29 +25,42 @@ export interface StabilityState {
  * far from all of them.
  */
 const RECENT_OUTLINES = 3;
+/**
+ * Frames without an outline that don't end a steady run: an outline that
+ * comes back where it was counts on from before the gap. Round 10: a foil
+ * under the flashlight was found on 1 frame in 7–10, never 2 in a row, and lay
+ * 10 s unread. A card that left and a new one put down elsewhere still start
+ * over, and one put down in the same spot is as good as lying there.
+ */
+const MAX_GAP = 8;
 
 /** Live mode recognizes a card only once it has stopped moving. Pure apart from its own memory. */
 export class StabilityTracker {
   /** The latest outlines, newest last. */
   private recent: Quad[] = [];
   private steady = 0;
+  /** Frames without an outline since the last one. */
+  private gap = 0;
 
   constructor(private readonly options: StabilityOptions = DEFAULT_STABILITY) {}
 
   update(corners: Quad | null): StabilityState {
     if (!corners) {
-      this.reset();
+      this.gap += 1;
+      if (this.gap > MAX_GAP) this.reset();
       return { steadyFrames: 0, stable: false };
     }
     const diagonal = Math.max(distance(corners[0], corners[2]), distance(corners[1], corners[3]));
     const near = (other: Quad) => Math.max(...corners.map((corner, i) => distance(corner, other[i]!))) <= diagonal * this.options.tolerance;
     this.steady = this.recent.some(near) ? this.steady + 1 : 1;
     this.recent = [...this.recent, corners].slice(-RECENT_OUTLINES);
+    this.gap = 0;
     return { steadyFrames: this.steady, stable: this.steady >= this.options.frames };
   }
 
   reset(): void {
     this.recent = [];
     this.steady = 0;
+    this.gap = 0;
   }
 }

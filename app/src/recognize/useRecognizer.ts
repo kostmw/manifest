@@ -15,7 +15,7 @@ function withMainThreadTimings(outcome: FrameOutcome, capture: number, started: 
  * it. Mounted only while the scanner is shown, so the OCR download (about
  * 3 MB, once) happens only for people who scan.
  */
-export function useRecognizer(game: GameId, lockSets: readonly string[] = []) {
+export function useRecognizer(game: GameId, lockSets: readonly string[] = [], countCopies = false) {
   const [status, setStatus] = useState<RecognizerStatus>('loading');
   const [attempt, setAttempt] = useState(0);
   const remoteRef = useRef<Remote<RecognizeWorker> | null>(null);
@@ -75,6 +75,11 @@ export function useRecognizer(game: GameId, lockSets: readonly string[] = []) {
   useEffect(() => {
     if (status === 'ready') void remoteRef.current?.setLock(lockKey ? lockKey.split(',') : []);
   }, [status, lockKey]);
+
+  // Counting copies put on top, also sent again whenever the worker (re)starts.
+  useEffect(() => {
+    if (status === 'ready') void remoteRef.current?.setCountCopies(countCopies);
+  }, [status, countCopies]);
 
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
 
