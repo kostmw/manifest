@@ -36,10 +36,17 @@ describe('alignmentCost', () => {
   });
 
   it('charges junk around the name less than real edits', () => {
-    expect(alignmentCost('sol ring', 'sol ring oo')).toBeCloseTo(2 * JUNK_COST);
+    expect(alignmentCost('sol ring', 'sol ring oo')).toBeCloseTo(2 * 0.15);
     expect(alignmentCost('sol ring', 'l sol ring')).toBeCloseTo(JUNK_COST);
     expect(alignmentCost('sol ring', 'sol ringx')).toBeCloseTo(JUNK_COST);
     expect(alignmentCost('sol ring', 'sal ring')).toBe(1);
+  });
+
+  it('charges half for junk after a name read exactly, as whole words, then a space (round 10: mana symbols)', () => {
+    expect(alignmentCost('constable odo', 'constable odo btots')).toBeCloseTo(5 * 0.15);
+    // Not after a name with an edit in it, nor junk glued to the name.
+    expect(alignmentCost('minion', 'minio oa')).toBeCloseTo(1 + 2 * JUNK_COST);
+    expect(alignmentCost('sol ring', 'sol ringoo')).toBeCloseTo(2 * JUNK_COST);
   });
 
   it('charges little for a lost or extra space', () => {
@@ -122,6 +129,19 @@ describe('matchTitle when only the first words of a long name were read (round 9
     expect(garbled.candidates[1]?.name).toBe('Dominion Supervisor');
     expect(garbled.candidates.map((c) => c.name)).not.toContain('Dominion Infiltration');
     expect(matchTitle(names, 'Dominio oa').candidates[0]?.name).toBe('Dominion Saboteur');
+  });
+
+  it('puts a long name among the candidates when only its last words were read (round 10)', () => {
+    const names = new NameIndex({ names: ['Grim Physician', 'Photosynthetic Physician', 'Terraformer', 'Astute Terraformer', 'Musician'], faces: {} });
+    const physician = matchTitle(names, 'ie Physician 44');
+    expect(physician.candidates.map((c) => c.name)).toContain('Photosynthetic Physician');
+    const photosynthetic = physician.candidates.find((c) => c.name === 'Photosynthetic Physician')!.similarity;
+    expect(photosynthetic).toBeGreaterThan(0.55);
+    expect(photosynthetic).toBeLessThanOrEqual(0.75);
+    // A misread last word, its first word missing: still a candidate, behind the name read whole.
+    const terraformer = matchTitle(names, 'getaformer');
+    expect(terraformer.candidates.slice(0, 2).map((c) => c.name)).toEqual(['Terraformer', 'Astute Terraformer']);
+    expect(terraformer.candidates[1]!.similarity).toBeGreaterThan(0.55);
   });
 
   it('adds names read only in part without pushing out names read whole', () => {
