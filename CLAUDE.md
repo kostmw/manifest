@@ -334,7 +334,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - The synthetic red light is milder than the owner's box.
     - **Open:** Guidance Failure was counted three times in a row while dedupe caught 5 re-reads; whether these were 3 real copies is unknown.
   - **Test log (2026-11-13, PR #9, not yet merged or phone-tested).** iPhone QA went through screenshots, and the backup holds only waiting reviews. Now the scanner can record a test log and share it as one file.
-    - **Where:** Scan → Sound and testing (`capture/TestLogPanel.tsx`).
+    - **Where:** Scan → Debugging since round 6, "Sound and testing" before (`capture/TestLogPanel.tsx`).
       - "Record a test log": off by default, remembered, with the line "It stays on this phone until you share it". Nothing is sent anywhere.
       - "Include card pictures": on by default; each card as a 244×340 JPEG, about 10 KB.
       - A count of logged scans; Share (Web Share) / Download / Clear.
@@ -354,6 +354,31 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - Change printing in the Batch tab (the ground truth for every read in the row).
     - **Storage and format:** a ring buffer of the last 300 reads in Dexie v3 table `testlog`. File format `manifest-testlog` version 1, documented in `tests/eval/TESTLOG.md`. `tests/eval/testlog-to-fixtures.ts` turns labelled reads into real-scan fixtures; a later Undo or discard removes a label.
     - **Tests:** 363 unit and 48 e2e, passing on Linux in Docker as deploy.yml's verify job runs them. The new e2e records a log, scans, undoes, resolves a review, downloads the file, checks it and clears it.
+  - **Round 6: double counting (2026-11-14, PR #10, not yet merged or phone-tested).** PR #9 was merged. The owner's first test log (iPhone, red deck box, flashlight, hand-held phone) had one foil, Stray from History (TRK 130), counted 9 times in a minute, with 3 more reviews.
+    - **Cause, measured on the log's own crops:**
+      - Under a moving flashlight hotspot the same foil is 4–56 bits from its own look (median 36, p90 48). Different cards in the log are 34–62 apart.
+      - So PR #6's "still there" check (≤ 24 bits) failed on 80% of frames. A card "disturbed" (outline moved > 10% for 2 frames) or "forgotten" (3 frames without an outline) was re-read as `copy` or `fresh`, and both counted whatever the read said.
+      - Switching the flashlight (exposure, a jolted phone) set this off too. Overlapping reads were not the cause.
+    - **Fix** (`recognize/liveSession.ts`; the worker's per-frame logic moved to `recognize/liveScanner.ts`, which runs in Node):
+      - **Still there** while:
+        - an outline is found within 25% of the card's diagonal from where it lies (`SAME_SPOT_SHARE`; the spot follows the card as the phone drifts); or
+        - an outline farther off looks like it; or
+        - the spot looks like it within 44 bits (`presenceSignature`: 25 placements shifted up to 12% each way, from one canvas).
+      - **Gone** only after 3 frames in a row with none of that (`GONE_FRAMES`). A blown-out (> 35% at grey ≥ 250) or black spot is no news either way. Then the next card counts whatever it is, which is how identical copies count.
+      - **Flashlight:** the app tells the worker (`cameraChanged`, at the tap and once applied). Nothing is gone for 1.5 s (`CAMERA_SETTLE_MS`), then the card is read once as a check (`camera` trigger), where the same name means the same card.
+      - **Same card:** two reads with the same best printing are one card, however unsure (`CardIdentity.guess`). Review reads mark the card in view this way too.
+      - **No overlap:** a frame that arrives during a read is dropped (`busy`). The Scanner never runs two loops' frames at once, and files a read even if its loop stopped meanwhile.
+      - **Trade-off:** an identical copy counts once the card was taken away, or covered by the hand, for about 3 frames (0.4 s). An outline jump alone no longer counts as a copy.
+    - **Debug log:** the UI now calls the test log the debug log.
+      - "Sound and testing" became a visible **Sound** setting and a collapsed **Debugging** section (Show timings, Sharper camera, Record a debug log, Share/Download/Clear debug log).
+      - Files are named `manifest-debuglog-YYYYMMDD-HHMM.json`; the format is unchanged (`manifest-testlog` version 1).
+      - Live reads now record `live`: the trigger (`fresh`/`different`/`camera`/`again`), the distance, and the 24 frames before (outline, moved, spot distance, gone run, hold). Flashlight switches are recorded as `flashlight` events.
+    - **Replay:** `npx tsx tests/eval/live-replay.ts <log>` (`--seed N`, `--no-camera-events`, `--verbose`) puts a log's card pictures back into made-up frames (phone drift and jumps, blur, flashlight blow-outs, an empty box between cards) and runs them through `LiveScanner` with real recognition. On the round-6 log, seeds 1–3, Stray from History was counted 8, 10 and 10 times on main; once now, with or without the flashlight notice. No other card was counted twice.
+    - **Tests:**
+      - New e2e `live-flashlight.spec.ts`: a foil under a wandering hotspot, the phone jumping, blow-outs with no flashlight notice, then a different card, then an identical copy after it was taken away. It fails on main and passes now.
+      - The standard eval is unchanged on all 320 cards (recognition untouched).
+      - 381 unit and 49 e2e pass on Linux in Docker.
+    - **Cost:** the presence look takes about 13 ms in Node against 6.5 ms for a card fingerprint, and runs only on frames where no outline is near the card.
 
 ## Working agreements for Claude Code
 
