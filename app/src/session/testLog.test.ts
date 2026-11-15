@@ -7,6 +7,7 @@ import {
   clearTestLog,
   createTestLogFile,
   logEvent,
+  logFlashlight,
   parseTestLog,
   setTestLogEnabled,
   testLogCount,
@@ -16,10 +17,14 @@ import {
 import { buildTestLogRead, logOutcome } from './testLogRecord';
 
 function read(id: string, at: string, crop?: ArrayBuffer): TestLogRead {
-  return buildTestLogRead({
+  return buildTestLogRead({ ...readInput(id, at), crop: crop ?? null });
+}
+
+function readInput(id = 'a', at = '2026-11-13T09:00:00Z') {
+  return {
     id,
     at: new Date(at),
-    source: 'live',
+    source: 'live' as const,
     scan: {
       names: ['Sol Ring'],
       printings: [
@@ -46,8 +51,7 @@ function read(id: string, at: string, crop?: ArrayBuffer): TestLogRead {
     settings: { camera: 720, flashlight: true, lockSets: [], foil: false, lang: 'en', condition: 'NM', sound: 'on' },
     timings: { detect: 41.6, ocr: 30.2 },
     userAgent: 'test',
-    crop: crop ?? null,
-  });
+  } satisfies Parameters<typeof buildTestLogRead>[0];
 }
 
 beforeEach(async () => {
@@ -103,6 +107,20 @@ describe('test log', () => {
     logEvent({ type: 'undo', readIds: ['a'] });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(await db.testlog.count()).toBe(1);
+  });
+
+  it('records the flashlight switching while the log is on, about no read', async () => {
+    logFlashlight(true);
+    setTestLogEnabled(true);
+    logFlashlight(false);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(await db.testlog.toArray()).toEqual([expect.objectContaining({ kind: 'event', type: 'flashlight', readIds: [], on: false })]);
+  });
+
+  it('keeps why live mode read a card, and the frames before, when given', () => {
+    const live = { trigger: 'camera', distance: 50, frames: [{ ms: 120, outline: false, moved: null, probe: 38, gone: 0, hold: true }] };
+    expect(buildTestLogRead({ ...readInput(), live }).live).toEqual(live);
+    expect(buildTestLogRead({ ...readInput(), live: null })).not.toHaveProperty('live');
   });
 
   it('says why a re-read was the same card', () => {

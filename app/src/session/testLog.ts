@@ -80,8 +80,39 @@ export interface TestLogRead {
   nameConfidence: number;
   confidence: number;
   outcome: TestLogOutcome;
+  /** Live reads: why live mode read the card, and what it saw in the frames before. */
+  live?: TestLogLive;
   /** The upright card as a small JPEG, when pictures are included. */
   crop?: ArrayBuffer;
+}
+
+/** How live mode came to read a card (see liveSession.ts), for telling a double count's cause. */
+export interface TestLogLive {
+  /**
+   * `fresh`: the first card, or the first after the card read last was gone;
+   * `different`: it looked unlike the card read last; `camera`: a check after
+   * the flashlight changed; `again`: Read again.
+   */
+  trigger: string;
+  /** For `different` and `camera`: fingerprint distance (of 128 bits) from the card read last. */
+  distance: number | null;
+  /** The frames since the read before, oldest first (at most 24). */
+  frames: TestLogFrame[];
+}
+
+export interface TestLogFrame {
+  /** Milliseconds since the frame before. */
+  ms: number;
+  /** Detection found an outline. */
+  outline: boolean;
+  /** How far it was from where the card read last lay, as a share of its diagonal. */
+  moved: number | null;
+  /** Fingerprint distance from the card read last to what lay where it was, when that was looked at. */
+  probe: number | null;
+  /** Frames in a row, so far, that showed the card read last gone. */
+  gone: number;
+  /** The camera was settling after the flashlight changed. */
+  hold: boolean;
 }
 
 export type TestLogEventType =
@@ -91,7 +122,9 @@ export type TestLogEventType =
   /** A thumbnail's Undo: the card was taken back out. */
   | 'undo'
   /** A batch row's printing changed: the ground truth for every read that went into it. */
-  | 'printing-changed';
+  | 'printing-changed'
+  /** The flashlight was switched on or off (`on`); about no read. */
+  | 'flashlight';
 
 export interface TestLogEvent {
   id: string;
@@ -107,6 +140,8 @@ export interface TestLogEvent {
   qty?: number;
   /** For an accepted review: `candidate-N` (its rank), `printings` (all printings of a name) or `search`. */
   via?: string;
+  /** For `flashlight`: switched on, or off. */
+  on?: boolean;
 }
 
 export type TestLogEntry = TestLogRead | TestLogEvent;
@@ -182,6 +217,12 @@ export async function addTestLogEvent(event: Omit<TestLogEvent, 'id' | 'kind' | 
 export function logEvent(event: Omit<TestLogEvent, 'id' | 'kind' | 'at'>): void {
   if (!testLogEnabled() || event.readIds.length === 0) return;
   void addTestLogEvent(event).catch(() => {});
+}
+
+/** The flashlight switched, recorded only while the log is on. */
+export function logFlashlight(on: boolean): void {
+  if (!testLogEnabled()) return;
+  void addTestLogEvent({ type: 'flashlight', readIds: [], on }).catch(() => {});
 }
 
 export async function testLogCount(): Promise<number> {

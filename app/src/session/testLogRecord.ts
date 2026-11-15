@@ -1,7 +1,7 @@
 /** Turns a scan and what became of it into a test log read (see testLog.ts). */
 import type { PrintingCandidate } from '../recognize/identify';
 import type { IntakeOutcome } from './intake';
-import { addTestLogRead, BUILD, testLogPictures, type TestLogCandidate, type TestLogOutcome, type TestLogRead, type TestLogSettings } from './testLog';
+import { addTestLogRead, BUILD, testLogPictures, type TestLogCandidate, type TestLogLive, type TestLogOutcome, type TestLogRead, type TestLogSettings } from './testLog';
 
 /** What a log entry needs from the worker's ScanResult. */
 export interface LoggedScan {
@@ -58,6 +58,7 @@ export function buildTestLogRead(input: {
   settings: TestLogSettings;
   timings: Record<string, number>;
   userAgent: string;
+  live?: TestLogLive | null;
   crop?: ArrayBuffer | null;
 }): TestLogRead {
   const { scan } = input;
@@ -90,6 +91,7 @@ export function buildTestLogRead(input: {
     nameConfidence: round(scan.nameConfidence),
     confidence: round(scan.confidence),
     outcome: input.outcome,
+    ...(input.live ? { live: input.live } : {}),
     ...(input.crop ? { crop: input.crop } : {}),
   };
 }

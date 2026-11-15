@@ -25,10 +25,17 @@ function hasTorch(track: MediaStreamTrack | undefined): boolean {
   return capabilities?.torch === true;
 }
 
-export function useCamera() {
+/**
+ * The camera, and its flashlight. `onTorchSwitch` is told when the flashlight
+ * is about to switch, and again once it has (`done`): the camera re-exposes
+ * then, which live mode must not take for the card going away.
+ */
+export function useCamera(onTorchSwitch?: (on: boolean, done: boolean) => void) {
   const [state, setState] = useState<CameraState>({ status: 'idle' });
   const [torch, setTorch] = useState<Torch>(NO_TORCH);
   const streamRef = useRef<MediaStream | null>(null);
+  const onTorchSwitchRef = useRef(onTorchSwitch);
+  onTorchSwitchRef.current = onTorchSwitch;
   // Bumped by every start and stop, so a slow permission prompt that resolves
   // after the user stopped or left can't turn the camera back on.
   const requestRef = useRef(0);
@@ -93,9 +100,11 @@ export function useCamera() {
   const setTorchOn = useCallback(async (on: boolean) => {
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
+    onTorchSwitchRef.current?.(on, false);
     try {
       await track.applyConstraints({ advanced: [{ torch: on } as MediaTrackConstraintSet] });
       setTorch({ supported: true, on });
+      onTorchSwitchRef.current?.(on, true);
     } catch {
       setTorch((current) => ({ ...current, on: false }));
     }
