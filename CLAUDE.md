@@ -460,6 +460,20 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the 18 review-accepted reads, plus #20 labelled by hand (Plains TRK 307, foil): 40 labelled fixtures with pictures. `--only real`: name 57.5%, printing 47.5%, auto-accepted 15.0%, 0 wrong, before and after.
     - **Not fixed:** dark-bordered cards on a dark, dim floor; partial outlines; special frames (Grand Nagus Zek TRK 458, Captain Pike TRK 468).
     - **Tests:** 416 unit and 50 e2e pass on Linux in Docker.
+  - **Title's first letter cut off (2026-11-15, PR #15, not yet merged or phone-tested).** Found in round 9's log by a side session.
+    - **The symptom:** 14 of 94 non-repeat reads lost or misread the title's first letter ("Jnexplored Territory", "ionstable Odo", "Jommand Decision"). Five of the round's 13 unsure-name reviews came from this alone.
+    - **The cause:** when the outline lands on the card's frame line (a dark border in the red deck box), the first letter starts at about x=15 of 488. MTG's `title.search` starts at x=26. The wide band (x=10) was only the last rescue: read below 0.85, cleaned, counting from 0.75. These readings mostly scored 0.85–0.89, so they never tried it.
+    - **The fix** (`pipeline.readTitle`, `TitleCrop.widened`): below the auto-accept bar (0.9), the same line is read from the wide band, binarized like the first reading (trace `title:rendering-6`).
+      - It counts when it reads the same name more surely, or another name at the rescue bar: 0.75, or 0.9 for a short name.
+      - "Short" means what matched, a face or a printed alias, not the full name. This applies to the old rescues too: junk "Il" had read as Island through its French alias "Ile", and "ar" as Far // Away.
+      - A short name needs the rescue bar even when it is the same name.
+    - **Dropped:** reading it only when ink touches the band's left edge, which fires on 83% of standard-set cards (the title bar's own outline). Making the wide band the first reading stays out, as round 5 found.
+    - **On the app's crops of the listed reads:** 6 of 14 now read in full (2 did on main), and 3 are added instead of reviewed.
+    - **Eval, main → after** (0 wrong auto-accepts in every set; sweeps identical, so 0.9 stays):
+      - Names: standard 92.8% → 93.1%, hires 96.0% → 96.7%, others unchanged.
+      - Auto-accepted: phone-flash 33.6% → 34.2%, real (40) 15.0% → 17.5%.
+      - Latency (Node, M-series Mac): about +10 ms at p50, +50–160 ms at p95.
+    - **Tests:** 418 unit and 50 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
