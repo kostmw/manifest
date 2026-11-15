@@ -194,6 +194,8 @@ export interface TestLogEvent {
   /** For `gone`: the card forgotten, and whether it seemed only moved. */
   card?: string | null;
   moved?: boolean;
+  /** For `quiet`, when detection found an outline on fewer than half its frames and pictures are included: the frame, small, as a JPEG. */
+  picture?: ArrayBuffer;
 }
 
 export type TestLogEntry = TestLogRead | TestLogEvent;
@@ -277,10 +279,13 @@ export function logFlashlight(on: boolean): void {
   void addTestLogEvent({ type: 'flashlight', readIds: [], on }).catch(() => {});
 }
 
-/** A quiet spell in live mode, recorded only while the log is on. */
-export function logQuiet(ms: number, frames: TestLogFrame[], summary?: TestLogEvent['summary']): void {
+/** A quiet spell in live mode, recorded only while the log is on; its frame snapshot only while pictures are included. */
+export function logQuiet(ms: number, frames: TestLogFrame[], summary?: TestLogEvent['summary'], snapshot?: Blob): void {
   if (!testLogEnabled()) return;
-  void addTestLogEvent({ type: 'quiet', readIds: [], ms, frames, ...(summary ? { summary } : {}) }).catch(() => {});
+  void (async () => {
+    const picture = snapshot && testLogPictures() ? await snapshot.arrayBuffer() : undefined;
+    await addTestLogEvent({ type: 'quiet', readIds: [], ms, frames, ...(summary ? { summary } : {}), ...(picture ? { picture } : {}) });
+  })().catch(() => {});
 }
 
 /** Live mode forgot the card read last, recorded only while the log is on. */
@@ -299,6 +304,8 @@ export async function clearTestLog(): Promise<void> {
 
 /** A read as it goes into the file: its picture, if any, as base64. */
 export type TestLogFileRead = Omit<TestLogRead, 'crop'> & { crop?: string };
+/** An event as it goes into the file: a quiet spell's frame snapshot, if any, as base64. */
+export type TestLogFileEvent = Omit<TestLogEvent, 'picture'> & { picture?: string };
 
 export interface TestLogFile {
   format: typeof TESTLOG_FORMAT;
@@ -309,7 +316,7 @@ export interface TestLogFile {
   /** Oldest first. */
   reads: TestLogFileRead[];
   /** Oldest first. */
-  events: TestLogEvent[];
+  events: TestLogFileEvent[];
 }
 
 function toBase64(buffer: ArrayBuffer): string {
@@ -329,7 +336,9 @@ export async function createTestLogFile(app: TestLogFile['app'], now: Date = new
     reads: entries
       .filter((entry): entry is TestLogRead => entry.kind === 'read')
       .map(({ crop, ...read }) => ({ ...read, ...(crop ? { crop: toBase64(crop) } : {}) })),
-    events: entries.filter((entry): entry is TestLogEvent => entry.kind === 'event'),
+    events: entries
+      .filter((entry): entry is TestLogEvent => entry.kind === 'event')
+      .map(({ picture, ...event }) => ({ ...event, ...(picture ? { picture: toBase64(picture) } : {}) })),
   };
 }
 

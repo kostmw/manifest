@@ -392,7 +392,7 @@ export function Scanner({
             if (outcome.repeat && outcome.upgrade) void upgrade(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
             else if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
           }
-          if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames, outcome.quiet.summary);
+          if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames, outcome.quiet.summary, outcome.quiet.picture);
           if (outcome?.gone) logGone(outcome.gone.card, outcome.gone.moved, outcome.gone.frames);
           if (stopped) break;
           // A dropped frame (another was still being read) has nothing to show.

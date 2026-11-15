@@ -95,6 +95,7 @@ Each event has these fields:
 | `via` | How the printing was found, for an accepted review. |
 | `ms`, `frames` | For `quiet`: milliseconds since the last read, and the frames since it (or since the quiet spell before), as in a read's `live.frames`. For `gone`: the frames that led to it. |
 | `summary` | For a long `quiet` stretch (after five spells in a row): `frames`, `outline` (frames with one), `steadyMax`, `phases` and `issues` (frame counts) and `light` (lowest and highest) over all its frames. |
+| `picture` | For `quiet` (builds after round 10), when detection found an outline on fewer than half its frames and pictures are included: the camera frame, 180 pixels wide, as a base64 JPEG, to see why it found no card. |
 | `card`, `moved` | For `gone`: the card forgotten (its name, or its best printing's id), and whether outlines kept being found while it went (it seemed moved, not taken away). |
 
 The types:
