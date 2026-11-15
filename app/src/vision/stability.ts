@@ -15,9 +15,21 @@ export interface StabilityState {
   stable: boolean;
 }
 
+/**
+ * Outlines a frame is compared with: the frame before, and the one or two
+ * before that. Detection can flip between two or three outlines of one card a
+ * few percent apart (the card's edge, its frame line, a sleeve), every frame:
+ * in round 9's log 15% of frames moved 6–10% of the diagonal while the card
+ * lay there ("0.07 0 0 0.08 0 0 0.07"), and a card that never counts as steady
+ * is never read, nor checked for a new card put on top. A card sliding in is
+ * far from all of them.
+ */
+const RECENT_OUTLINES = 3;
+
 /** Live mode recognizes a card only once it has stopped moving. Pure apart from its own memory. */
 export class StabilityTracker {
-  private previous: Quad | null = null;
+  /** The latest outlines, newest last. */
+  private recent: Quad[] = [];
   private steady = 0;
 
   constructor(private readonly options: StabilityOptions = DEFAULT_STABILITY) {}
@@ -27,20 +39,15 @@ export class StabilityTracker {
       this.reset();
       return { steadyFrames: 0, stable: false };
     }
-    const previous = this.previous;
-    this.previous = corners;
-    if (!previous) {
-      this.steady = 1;
-    } else {
-      const diagonal = Math.max(distance(corners[0], corners[2]), distance(corners[1], corners[3]));
-      const moved = Math.max(...corners.map((corner, i) => distance(corner, previous[i]!)));
-      this.steady = moved <= diagonal * this.options.tolerance ? this.steady + 1 : 1;
-    }
+    const diagonal = Math.max(distance(corners[0], corners[2]), distance(corners[1], corners[3]));
+    const near = (other: Quad) => Math.max(...corners.map((corner, i) => distance(corner, other[i]!))) <= diagonal * this.options.tolerance;
+    this.steady = this.recent.some(near) ? this.steady + 1 : 1;
+    this.recent = [...this.recent, corners].slice(-RECENT_OUTLINES);
     return { steadyFrames: this.steady, stable: this.steady >= this.options.frames };
   }
 
   reset(): void {
-    this.previous = null;
+    this.recent = [];
     this.steady = 0;
   }
 }
