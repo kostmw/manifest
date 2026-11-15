@@ -156,5 +156,117 @@
       "live"
     ],
     "notes": "Test log 2026-11-15T05:40, build 0.0.0+a5079c7, live: read as Constable Odo (TRK 230) at 0.9; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-22694829.jpg": {
+    "game": "mtg",
+    "id": "eede6822-c8bc-4344-81a9-bc608245d5b6",
+    "name": "Gray and Adira, Forever Joined",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T06:55, build 0.0.0+d37d501, live: read as Gray and Adira, Forever Joined (TRK 238) at 0.884; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-57a87505.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T06:55, build 0.0.0+d37d501, live: read as Minion (TDDE 2) at 0.25; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-72421b59.jpg": {
+    "game": "mtg",
+    "id": "b4e1965a-dbab-4edb-ada9-43898c57c5fe",
+    "name": "Swamp",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T06:55, build 0.0.0+d37d501, live: read as Swamp (TRK 309) at 0.616; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-fa5e6ee4.jpg": {
+    "game": "mtg",
+    "id": "c1855a4c-c7d1-407c-b134-4c43968cbdd3",
+    "name": "Blastoneuron",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-15T06:56, build 0.0.0+d37d501, live: read as Teferi (FJMP 38) at 0.141; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-a95bcb3e.jpg": {
+    "game": "mtg",
+    "id": "ce59648a-dc9d-494d-ba5e-97e8d4636017",
+    "name": "A Good Day to Die",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T06:56, build 0.0.0+d37d501, live: read as A Good Day to Die (TRK 428) at 0.661; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-39ee40c4.jpg": {
+    "game": "mtg",
+    "id": "32c2bfbf-e2ea-46c3-b369-1e203c8af716",
+    "name": "Storied Veteran",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T06:57, build 0.0.0+d37d501, live: read as Storied Veteran (TRK 429) at 0.489; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-e7b34f3e.jpg": {
+    "game": "mtg",
+    "id": "6b2fba64-b85f-42bc-991e-4bb6201b78fb",
+    "name": "Plains",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T06:58, build 0.0.0+d37d501, live: read as Plains (TRK 307) at 0.143; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-bb889608.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-15T06:58, build 0.0.0+d37d501, live: read as Light of Promise (MAR 46) at 0; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-15-00c97464.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-15T06:59, build 0.0.0+d37d501, live: read as Minion (TDDE 2) at 0.25; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
   }
 }
