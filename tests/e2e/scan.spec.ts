@@ -44,6 +44,25 @@ test('adds a confidently read card straight to the batch, and undoes it in one t
   await expect(strip).toHaveCount(0);
 });
 
+test('adds one more copy of the card just added with +1, and undoes the copy alone', async ({ page }) => {
+  await scanPhoto(page, SOL_RING);
+  const strip = page.getByRole('list', { name: 'Last cards scanned' });
+  await expect(strip.getByRole('button', { name: 'Sol Ring, CMM 410, added' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('scan-counter')).toHaveText('1');
+
+  // An identical copy put straight on top isn't counted by live mode: +1 counts it.
+  await strip.getByRole('button', { name: 'One more Sol Ring' }).click();
+  await expect(page.getByTestId('scan-counter')).toHaveText('2');
+  await expect(strip.getByRole('listitem')).toHaveCount(2);
+  await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
+  // Only the newest card has +1.
+  await expect(strip.getByRole('button', { name: 'One more Sol Ring' })).toHaveCount(1);
+
+  await strip.getByRole('button', { name: 'Undo Sol Ring' }).first().click();
+  await expect(page.getByTestId('scan-counter')).toHaveText('1');
+  await expect(strip.getByRole('listitem')).toHaveCount(1);
+});
+
 test('adds the batch’s foil finish to a confidently read card', async ({ page }) => {
   await page.getByRole('region', { name: 'Scan settings' }).getByLabel('All foil').check();
   await scanPhoto(page, SOL_RING);

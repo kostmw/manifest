@@ -388,6 +388,58 @@ describe('LiveSession under glare and foil shimmer (the owner’s deck box with 
   });
 });
 
+describe('LiveSession and things that are no card', () => {
+  const floor = Uint32Array.of(1, 2, 3, 4);
+  it('counts whatever is read where something that was no card lay, however alike they look', () => {
+    const session = new LiveSession({ frames: 2, tolerance: 0.02 }, 3);
+    session.next(at(300));
+    session.next(at(300));
+    session.dismiss(floor, at(300));
+    // Shown as no card in view, and not read again unless something else lies there.
+    expect(session.next(at(300))).toMatchObject({ phase: 'empty', recognize: false, checkCard: true });
+    session.changed(flipped(floor, 30));
+    expect(session.changed(flipped(floor, 30))).toBe(true);
+    // Unread, and only 30 bits from the floor's look: still a card, since the floor was none.
+    expect(session.settle(flipped(floor, 30), at(300), NO_IDENTITY)).toBe(true);
+  });
+});
+
+describe('LiveSession when reads find no card at all (round 7)', () => {
+  const foil = Uint32Array.of(0x12345678, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
+
+  it('remembers something every try found no card in as no card, and files nothing', () => {
+    const session = new LiveSession({ frames: 1, tolerance: 0.02 }, 3, 3);
+    expect(session.next(at(300)).recognize).toBe(true);
+    expect(session.failed(foil, at(300), true)).toBe('retry');
+    expect(session.failed(foil, at(300), true)).toBe('retry');
+    expect(session.failed(foil, at(300), true)).toBe('no-card');
+    expect(session.next(at(300))).toMatchObject({ phase: 'empty', recognize: false });
+  });
+
+  it('keeps the card counted before when a hand passing over it reads as no card', () => {
+    const session = new LiveSession({ frames: 1, tolerance: 0.02 }, 3, 3);
+    session.next(at(300));
+    expect(session.settle(foil, at(300), id('Sol Ring', 'cmm-410'))).toBe(true);
+    const hand = flipped(foil, 50);
+    session.next(at(300));
+    session.changed(hand);
+    expect(session.changed(hand)).toBe(true);
+    for (let i = 0; i < 2; i++) session.failed(hand, at(300), true);
+    expect(session.failed(hand, at(300), true)).toBe('no-card');
+    expect(session.next(at(300)).phase).toBe('read');
+    // The hand gone, the card looks itself again: not read, not counted.
+    expect(session.changed(flipped(foil, 4))).toBe(false);
+  });
+
+  it('still reports a card whose reads failed in other ways, even if one found no card', () => {
+    const session = new LiveSession({ frames: 1, tolerance: 0.02 }, 3, 3);
+    session.next(at(300));
+    session.failed(foil, at(300), false);
+    session.failed(foil, at(300), true);
+    expect(session.failed(foil, at(300), false)).toBe('report');
+  });
+});
+
 describe('LiveSession when the flashlight switches', () => {
   const foil = Uint32Array.of(0x12345678, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
   const STRAY = id('Stray from History', null, 'trk-130');

@@ -66,6 +66,14 @@ function readNumbers(line: string, reading: { numbers: string[]; total?: string;
     reading.rarity ??= match[1];
     rest = rest.replace(match[1]! + match[2]!, ' ');
   }
+  // A zero-padded number whose rarity letter OCR misread as another letter ("V0230", "VU0230",
+  // "J0108") or lost ("0376", "-0124"): four digits starting with 0 are the shape of the number
+  // itself on 2023-on cards, whatever stands before them.
+  for (const match of line.matchAll(/(?:^|[^0-9])([0O][0-9OQDILSBZG]{3})(?![0-9])/g)) {
+    if (!/\d/.test(match[1]!)) continue;
+    addUnique(reading.numbers, collectorNumberCore(digitsOf(match[1]!)));
+    rest = rest.replace(match[1]!, ' ');
+  }
   return rest;
 }
 
@@ -86,7 +94,15 @@ function readLooseNumbers(line: string, reading: { numbers: string[] }): void {
     }
     return;
   }
-  for (const match of line.matchAll(/(?:^|[^0-9])([0-9]{2,4})(?![0-9])/g)) addUnique(reading.numbers, collectorNumberCore(match[1]!));
+  for (const match of line.matchAll(/(?:^|[^0-9])([0-9]{2,5})(?![0-9])/g)) {
+    const digits = match[1]!;
+    // Five digits, or four that aren't zero-padded: the rarity letter may have been read as a
+    // digit ("C 0428" as "2428"), so the number without its first digit is a candidate too.
+    // Not for a year ("© 2026"), which is no number at all.
+    if (digits.length <= 4) addUnique(reading.numbers, collectorNumberCore(digits));
+    const year = digits.length === 4 && Number(digits) >= 1990 && Number(digits) < 2040;
+    if (digits.length === 5 || (digits.length === 4 && digits[0] !== '0' && !year)) addUnique(reading.numbers, collectorNumberCore(digits.slice(1)));
+  }
 }
 
 /** Characters OCR gives for the • or ★ between set code and language. */

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { MTG_REGIONS } from '../games/mtg/adapter';
 import { gaussianBlur } from './filters';
 import { createGray, type RgbaImage } from './image';
-import { assessQuality } from './quality';
+import { assessQuality, dominantColorShare, textureShare } from './quality';
 import { warpQuad } from './rectify';
-import { cardQuad, makeCard, placeCard, tiltedCardQuad } from './testScene';
+import { artCard, cardQuad, emptyBoxFloor, makeCard, placeCard, tiltedCardQuad } from './testScene';
 
 const FRAME = { width: 720, height: 960 };
 const titleBox = MTG_REGIONS.title.search;
@@ -89,5 +89,21 @@ describe('assessQuality', () => {
     const report = check(undefined, dim);
     expect(report.issues).not.toContain('too-dark');
     expect(report.advice).toContain('dim');
+  });
+});
+
+describe('telling a card from an empty deck box (round 7)', () => {
+  const dim = (image: RgbaImage, gain: number): RgbaImage => ({ ...image, data: image.data.map((value, i) => (i % 4 === 3 ? value : value * gain)) });
+
+  it('finds texture on a card, even in dim light, and none on the box floor', () => {
+    // The test card is mostly plain frame; real cards in the logs score at least 0.39.
+    expect(textureShare(artCard(3))).toBeGreaterThan(0.2);
+    expect(textureShare(dim(artCard(3), 0.3))).toBeGreaterThan(0.2);
+    expect(textureShare(emptyBoxFloor())).toBeLessThan(0.05);
+  });
+
+  it('finds the box floor nearly one colour, and a card not', () => {
+    expect(dominantColorShare(emptyBoxFloor())).toBeGreaterThan(0.8);
+    expect(dominantColorShare(artCard(3))).toBeLessThan(0.65);
   });
 });

@@ -124,7 +124,9 @@ export type TestLogEventType =
   /** A batch row's printing changed: the ground truth for every read that went into it. */
   | 'printing-changed'
   /** The flashlight was switched on or off (`on`); about no read. */
-  | 'flashlight';
+  | 'flashlight'
+  /** "+1": one more copy of the card just added (an identical copy put straight on top isn't counted by itself). */
+  | 'copy-added';
 
 export interface TestLogEvent {
   id: string;

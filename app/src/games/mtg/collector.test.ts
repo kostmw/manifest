@@ -47,6 +47,22 @@ describe('parseMtgCollectorLine', () => {
     expect(parseMtgCollectorLine(['M15•EN JOHN AVON'])!.numbers).toEqual([]);
   });
 
+  it('reads a zero-padded number cleanly whatever OCR made of the rarity letter before it (round 7, TRK)', () => {
+    for (const [line, number] of [['U0230', '230'], ['V0230', '230'], ['VU0230', '230'], ['J0108', '108'], ['0376', '376'], ['-0124', '124'], ['T0020', '20']] as const) {
+      const reading = parseMtgCollectorLine([line, 'TRK•EN JOHN DOE'])!;
+      expect(reading.numbers).toEqual([number]);
+      expect(reading.looseNumbers).toBeUndefined();
+    }
+  });
+
+  it('tries a loose number without its first digit, which may be the rarity read as a digit', () => {
+    // "C 0428" read as "2428": TRK 428 must be among the numbers tried.
+    expect(parseMtgCollectorLine(['2428'])).toMatchObject({ numbers: ['2428', '428'], looseNumbers: true });
+    expect(parseMtgCollectorLine(['20428'])).toMatchObject({ numbers: ['428'], looseNumbers: true });
+    // A copyright year is never mistaken for a zero-padded number.
+    expect(parseMtgCollectorLine(['TM&©2026CBS'])).toMatchObject({ numbers: ['2026'], looseNumbers: true });
+  });
+
   it('falls back to a bare number when the rarity or slash is lost', () => {
     expect(parseMtgCollectorLine(['0412 ~', 'XYZ'])!.numbers).toEqual(['412']);
   });

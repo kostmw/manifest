@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { MTG_REGIONS } from '../games/mtg/adapter';
 import type { Quad } from '../vision/geometry';
 import { createRgba, type RgbaImage } from '../vision/image';
-import { artCard, cardQuad, placeCard } from '../vision/testScene';
-import { cardSignature, LiveScanner, presenceSignature } from './liveScanner';
+import { artCard, cardQuad, emptyBoxFloor, placeCard } from '../vision/testScene';
+import { cardSignature, isBlank, LiveScanner, presenceSignature } from './liveScanner';
 import { LiveSession, signatureDistance } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
@@ -100,5 +100,34 @@ describe('LiveScanner', () => {
     const seen = await scanner.frame(frameWith(where()), context(ocr));
     expect(seen.read?.trigger).toBe('fresh');
     expect(seen.read?.frames.map((frame) => frame.outline)).toEqual([false, true, true]);
+  });
+});
+
+describe('LiveScanner and things that are no card (round 7)', () => {
+  const context = (ocr: OcrEngine) => ({ regions: MTG_REGIONS, names, ocr });
+  const BOX: [number, number, number] = [70, 15, 20];
+  const floorFrame = () => placeCard(emptyBoxFloor(), FRAME, where(), BOX);
+
+  it('takes the floor of an empty box for no card, and a real card for one', () => {
+    expect(isBlank(emptyBoxFloor())).toBe(true);
+    expect(isBlank(artCard(7))).toBe(false);
+  });
+
+  it('never reads, counts or files the floor of an empty box, and still counts a card put there', async () => {
+    const ocr = fakeOcr();
+    const scanner = new LiveScanner(new LiveSession());
+    const seen = [];
+    for (let i = 0; i < 6; i++) seen.push(await scanner.frame(floorFrame(), context(ocr)));
+    expect(seen.some((frame) => frame.corners !== null)).toBe(true);
+    expect(seen.some((frame) => frame.dismissed)).toBe(true);
+    expect(seen.every((frame) => frame.read === null)).toBe(true);
+    expect(ocr.calls).toBe(0);
+    // A card dropped into the box, where the floor was.
+    const counted: boolean[] = [];
+    for (let i = 0; i < 6; i++) {
+      const frame = await scanner.frame(placeCard(card, FRAME, where(), BOX), context(ocr));
+      if (frame.read) counted.push(frame.read.counted);
+    }
+    expect(counted).toEqual([true]);
   });
 });

@@ -7,7 +7,7 @@
 import { detectCards } from '../vision/detect';
 import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
-import { assessQuality, type QualityAdvice, type QualityIssue, type QualityMetrics, type QualityReport } from '../vision/quality';
+import { assessQuality, dominantColorShare, textureShare, type QualityAdvice, type QualityIssue, type QualityMetrics, type QualityReport } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
 import { canvasFromFrame, cornersMapping, deglared, fingerprintAt, toWords, type CardPlacement, type FingerprintCanvas } from './fingerprint';
 import { LiveSession, NO_IDENTITY, type CardIdentity, type FrameNote, type LivePhase, type ReadTrigger } from './liveSession';
@@ -142,10 +142,24 @@ export interface LiveFrame {
   read: LiveRead | null;
   /** Another frame was still being worked on, so this one was dropped untouched. */
   busy?: true;
+  /** The outline held no card (an empty box's floor), so nothing was read. */
+  dismissed?: true;
 }
 
 /** Frames kept for a read's trail in the test log. */
 const TRAIL_FRAMES = 24;
+/**
+ * An outline this untextured (textureShare) and this much one colour
+ * (dominantColorShare) holds no card: an empty box's floor. No card in the
+ * eval sets or the owner's logs is both.
+ */
+const BLANK_TEXTURE = 0.1;
+const BLANK_COLOR = 0.65;
+
+/** Whether a rectified outline holds nothing at all: no card, only a flat surface. */
+export function isBlank(card: RgbaImage): boolean {
+  return textureShare(card) < BLANK_TEXTURE && dominantColorShare(card) > BLANK_COLOR;
+}
 
 /** What live mode reports for a card it has given up on: no names, the crop, and why it may have failed. */
 function unreadable(card: RgbaImage, quality: QualityReport, timings: Record<string, number>): Recognition {
@@ -225,6 +239,14 @@ export class LiveScanner {
         outcome.phase = 'reading';
       }
     }
+    // A card-shaped patch with nothing on it (the floor of an empty deck box) is no card, sharp
+    // or not: it isn't read, counted or sent to review, and a card put there later still counts.
+    if (recognize && isBlank(card)) {
+      this.session.dismiss(signature ?? cardSignature(frame, best.corners, regions), best.corners);
+      outcome.phase = 'empty';
+      outcome.dismissed = true;
+      return outcome;
+    }
     if (!recognize || !quality.ok) return outcome;
     signature ??= cardSignature(frame, best.corners, regions);
     const { trigger, distance } = this.session.readReason;
@@ -238,10 +260,18 @@ export class LiveScanner {
       console.warn('Reading a live frame failed', error);
     }
     const frames = this.trail;
-    if (!recognition || recognition.decision === 'retake') {
-      const verdict = this.session.failed(signature, best.corners);
+    if (!recognition || recognition.decision === 'retake' || recognition.decision === 'no-card') {
+      // The read's own detection (at a larger size) finding no card where live mode saw one is a
+      // failed try too; when every try says so, it was no card (round 7: all four such were junk).
+      const verdict = this.session.failed(signature, best.corners, recognition?.decision === 'no-card');
       if (verdict === 'retry') {
         outcome.phase = 'reading';
+        return outcome;
+      }
+      if (verdict === 'no-card') {
+        this.trail = [];
+        outcome.phase = 'empty';
+        outcome.dismissed = true;
         return outcome;
       }
       this.trail = [];
