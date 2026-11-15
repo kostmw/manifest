@@ -89,3 +89,21 @@ describe('matchTitle', () => {
     expect(matchTitle(index, ' . : ')).toEqual({ candidates: [], confidence: 0, reading: '' });
   });
 });
+
+describe('matchTitle when a short name hides inside a word of a longer one (round 8)', () => {
+  const names = new NameIndex({ names: ['Minion', 'Minions', 'Dominion Saboteur', 'Dominion Supervisor', 'Forest', 'Foresee'], faces: {} });
+
+  it('doesn’t take "Dominion …" for Minion: the word belongs to Dominion Saboteur', () => {
+    for (const reading of ['Dominion ee 40:', 'Dominion ae ao:']) {
+      const match = matchTitle(names, reading);
+      expect(match.candidates[0]?.name).not.toBe('Minion');
+      expect(match.candidates.findIndex((c) => c.name === 'Dominion Saboteur')).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('still reads a name with junk glued to its front that makes no word ("Riforest")', () => {
+    const match = matchTitle(names, 'Riforest');
+    expect(match.candidates[0]?.name).toBe('Forest');
+    expect(match.candidates[0]?.similarity).toBeCloseTo(0.9, 2);
+  });
+});

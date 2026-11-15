@@ -6,7 +6,7 @@
  * band, like the title, which absorbs small registration errors.
  */
 import type { Box, GrayImage, RgbaImage } from '../vision/image';
-import { toGray } from '../vision/image';
+import { cropGray, toGray } from '../vision/image';
 import { warpQuad } from '../vision/rectify';
 import { boxCorners, type CardMapping } from './fingerprint';
 import { binarizeLine, pad, stretched, strokeProfile } from './titleCrop';
@@ -38,6 +38,15 @@ const PADDING = 10;
  * Word gaps, even "405      R", are narrower.
  */
 const END_GAP = 34;
+/**
+ * Lines are found by the ink in this share of the band from its left edge,
+ * where both collector lines start: across the whole band, the artist's name
+ * outweighs a short "R 0230" line (6 characters against 20 or more), which
+ * then fell below the strength threshold and went unread (round 8: TRK). A
+ * quarter covers "R 0230" and "TRK • EN" alike (0.4 left the set line's name
+ * still outweighing the number on some cards; measured on the eval sets).
+ */
+const LINE_FINDING_SHARE = 0.25;
 
 /** Whites out everything after the first gap of `gap` empty columns that follows some ink. */
 export function cutAtGap(image: GrayImage, gap: number): GrayImage {
@@ -92,7 +101,8 @@ export function cropCollectorLines(frame: RgbaImage, mapping: CardMapping, regio
   const lineHeight = Math.round(region.lineHeight * SCALE);
   // The collector line is the bottom of the band: anything found above its rows is the end of
   // the text box, so only the lowest lines are read.
-  const tops = findTextLines(strokeProfile(band), lineHeight, region.maxLines + 1).slice(-region.maxLines);
+  const left = cropGray(band, { x: 0, y: 0, width: Math.round(band.width * LINE_FINDING_SHARE), height: band.height });
+  const tops = findTextLines(strokeProfile(left), lineHeight, region.maxLines + 1).slice(-region.maxLines);
   const margin = Math.round(lineHeight * 0.2);
   return tops.map((top) => {
     const y0 = Math.max(0, top - margin);

@@ -84,6 +84,7 @@ function classify(key: string, query: string, tokens: readonly string[]): MatchT
 export class NameIndex {
   private readonly entries: Entry[];
   private postings: Map<string, number[]> | null = null;
+  private words: Set<string> | null = null;
 
   constructor(dictionary: NameDictionary) {
     this.entries = dictionary.names.map((name) => ({ key: normalizeName(name), name }));
@@ -92,6 +93,15 @@ export class NameIndex {
       const key = normalizeName(face);
       for (const name of fullNames) this.entries.push({ key, name, face });
     }
+  }
+
+  /** Whether a word (normalized) appears as a whole word in some card's name. */
+  hasWord(word: string): boolean {
+    if (!this.words) {
+      this.words = new Set();
+      for (const entry of this.entries) for (const part of entry.key.split(' ')) this.words.add(part);
+    }
+    return this.words.has(word);
   }
 
   search(query: string, limit = 10): NameHit[] {

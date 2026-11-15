@@ -33,6 +33,17 @@ const SHORT_READING = 8;
 export const JUNK_COST = 0.3;
 /** A missing or extra space inside the name. */
 const SPACE_COST = 0.3;
+/**
+ * Letters glued to the front of a match cost this much each when there are two
+ * or more and the whole word they belong to is a word of some card's name: a
+ * short name matched inside such a word ("minion" inside "dominion", of
+ * Dominion Saboteur) cuts a real word in two. Glued junk that makes no word
+ * ("riforest") stays cheap, as does a single stray letter.
+ */
+const GLUED_COST = 1;
+const GLUED_MIN = 2;
+const isLetter = (c: string | undefined) => c !== undefined && c >= 'a' && c <= 'z';
+
 /** How far ahead of the runner-up the best name must be for full confidence. */
 const CLEAR_LEAD = 0.2;
 
@@ -41,13 +52,20 @@ const CLEAR_LEAD = 0.2;
  * Reading characters outside that stretch cost JUNK_COST each (spaces free);
  * inside it, ordinary edits cost 1 except spaces, which cost SPACE_COST.
  */
-export function alignmentCost(name: string, reading: string): number {
+export function alignmentCost(name: string, reading: string, wordStarts?: Uint8Array): number {
   const n = name.length;
   const m = reading.length;
   let previous = new Float64Array(m + 1);
   let current = new Float64Array(m + 1);
-  // Skipping a leading stretch of the reading is junk.
-  for (let j = 1; j <= m; j++) previous[j] = previous[j - 1]! + (reading[j - 1] === ' ' ? 0 : JUNK_COST);
+  // Skipping a leading stretch of the reading is junk, except letters glued to the start of the
+  // match within one word: those cut a word in two.
+  let junk = 0;
+  for (let j = 1; j <= m; j++) {
+    junk += reading[j - 1] === ' ' ? 0 : JUNK_COST;
+    let glued = 0;
+    if (wordStarts?.[j] && isLetter(reading[j])) for (let k = j - 1; k >= 0 && isLetter(reading[k]); k--) glued += 1;
+    previous[j] = junk + (glued >= GLUED_MIN ? (GLUED_COST - JUNK_COST) * glued : 0);
+  }
   let beforePrevious = new Float64Array(m + 1);
   for (let i = 1; i <= n; i++) {
     const a = name[i - 1]!;
@@ -122,11 +140,18 @@ export function matchTitle(index: NameIndex, rawText: string, limit = 5): TitleM
     for (const entry of index.entriesNear(letters, 2)) pool.set(entry, entry);
   }
 
+  // Positions inside a reading word that is itself a word of some card's name: a match starting
+  // there cuts that word (see GLUED_COST).
+  const inNameWord = new Uint8Array(reading.length + 1);
+  for (const match of reading.matchAll(/[a-z]+/g)) {
+    if (match[0].length > GLUED_MIN && index.hasWord(match[0])) inNameWord.fill(1, match.index + 1, match.index + match[0].length);
+  }
+
   const best = new Map<string, Scored>();
   for (const entry of pool.values()) {
     // Names that are nearly all punctuation ("_____") normalize to nothing and would match any junk.
     if (entry.key.replace(/ /g, '').length < 2) continue;
-    const distance = alignmentCost(entry.key, reading);
+    const distance = alignmentCost(entry.key, reading, inNameWord);
     const similarity = similarityFor(entry.key, distance);
     if (similarity <= 0) continue;
     const current = best.get(entry.name);

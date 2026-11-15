@@ -416,6 +416,21 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - 5 of the 11 junk reads no longer file anything.
     - **Real-scan fixtures:** the 12 accepted reviews were added with `testlog-to-fixtures.ts`; the labels are committed and the pictures stay gitignored. On these half-size crops, `--only real` auto-accepts 1 → 2 with 0 wrong; names are 7/12 before and after, since the crops blur titles and lose the collector line.
     - **Tests:** 399 unit and 50 e2e pass on Linux in Docker.
+  - **Round 8 (2026-11-15, PR #12, not yet merged or phone-tested).** PR #11 was merged.
+    - **The test:** the owner's round-8 debug log (iPhone, build d37d501) had 28 live reads, 6 flashlight switches and one +1. Round 7's fixes held: no junk reviews, no double counts, and 14 auto-adds, all right.
+    - **Collector number line** (`collectorCrop.ts`, MTG `collector` band):
+      - TRK and SDS print `L 0309` over `TRK • EN ✒ <artist>`. In 12 of 28 reads only the lower line was read: the short number line has a fraction of the long line's ink and fell under the 35% strength floor.
+      - Lines are now found by the ink in the band's left quarter (`LINE_FINDING_SHARE`), where both lines start. At 40% the artist's name still outweighed the number on some cards.
+      - The band is y 620–680 (was 626–674): an outline a few pixels off had put a line outside it. It still stops at the card's bottom edge (round 5's band past the edge picked up background).
+    - **A garbled collector line can't outvote a sure title** (`identify.ts`): when the title is ≥ 0.9 sure of one card, a collector match for another card counts for nothing unless that card's art is within 26 bits. A perfect "Dominion Saboteur" read had lost to Light of Promise MAR 46, read out of "…MARIT…" and a loose 46, with art 72 bits off.
+    - **"Dominion …" isn't Minion** (`titleMatch.ts`, `NameIndex.hasWord`): 2 or more letters glued in front of a match cost like edits (1 each, not 0.3) when the whole reading word is a word of some card's name. Glued junk that makes no word stays cheap ("Riforest" is still Forest at 0.90; the unconditional version lost a Forest auto-accept on `phone`). "Dominion ae ao:" now has Dominion Saboteur first, "Dominion ee 40:" second by 0.01. Round 7's "Dominio oa" still gives Minion.
+    - **Eval, main → after** (0 wrong auto-accepts in every set; the sweeps are unchanged, so 0.9 stays):
+      - Auto-accepted: standard 40.6% → 44.4%, phone 38.4% → 41.4%, phone-flash 31.6% → 33.6%, phone-redbox 48.0% → 53.3%, hires 43.3% → 47.3%.
+      - Collector number read right: standard 36.6% → 45.9%, phone 20.2% → 32.5%, phone-flash 28.3% → 32.9%, phone-redbox 32.9% → 42.8%, hires 50.7% → 60.7%.
+      - Names: phone 87.9% → 88.2%, phone-flash 88.8% → 89.5%, others unchanged. Printings: phone 72.8% → 74.8%, phone-redbox 80.9% → 82.2%, hires 74.7% → 75.3%, others unchanged.
+    - **Real-scan fixtures:** the round-8 log's 9 labelled reviews were added (21 in all; labels committed, pictures gitignored). `--only real`: auto-accepted 14.3% → 19.0% (A Good Day to Die, 0.66 → 0.94, TRK 428), number read right 9.5% → 23.8%, 0 wrong; names 61.9% and printings 47.6% before and after (Plains TRK 307 now right, Swamp TRK 309 now wrong from a half-size "0300"; both stay reviews).
+    - **Not fixed:** partial outlines (Blastoneuron), as in round 7.
+    - **Tests:** 404 unit and 50 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
