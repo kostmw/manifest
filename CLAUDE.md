@@ -431,6 +431,35 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the round-8 log's 9 labelled reviews were added (21 in all; labels committed, pictures gitignored). `--only real`: auto-accepted 14.3% → 19.0% (A Good Day to Die, 0.66 → 0.94, TRK 428), number read right 9.5% → 23.8%, 0 wrong; names 61.9% and printings 47.6% before and after (Plains TRK 307 now right, Swamp TRK 309 now wrong from a half-size "0300"; both stay reviews).
     - **Not fixed:** partial outlines (Blastoneuron), as in round 7.
     - **Tests:** 404 unit and 50 e2e pass on Linux in Docker.
+  - **Round 9 (2026-11-15, PR #13, not yet merged or phone-tested).** PR #12 was merged.
+    - **The test:** the owner's round-9 debug log (iPhone, 720p, build 416f0b9) had 103 live reads in 7 minutes (flashlight on, then off, then locked to TRK). 74 cards were auto-added with none undone, about 80% of real cards (round 8: 61%), plus 20 reviews.
+    - **A card merged into the card before it** (`liveScanner.identityOf`):
+      - #20, a foil Plains put on Gray and Adira under the flashlight, was never counted or reviewed. The title didn't read and the collector line looked up Plains TRK 307, but the art fallback (≤ 44 bits) merged it.
+      - Under the hotspot the two foils' crops were only 18 bits apart on the art half, 34 in all.
+      - A read now names its card when its name is fairly sure, or when its best guess has a clean collector line (set and number) or artwork within 26 bits. Two reads naming different cards are two cards.
+      - The 44-bit fallback stays for reads that name nothing: five such re-reads of the card in view in rounds 7–8 came at 34–42, the same as #20.
+    - **Why a card went unread** (debug log):
+      - Every trail frame now has `phase`, `steady`, `far` (the new-card check's distance to the closest look of the card read last), `light` and the quality gate's `issues`.
+      - A `quiet` event records 2 s without a read, at most 5 in a row. TESTLOG.md documents both.
+      - `live-replay.ts --verbose` prints them.
+      - Measured on rounds 7–9's crops: no two consecutive different cards came within the new-card check's 24 bits (134 pairs, p5 38), and weighting the art half doesn't help.
+    - **Steady through flipping outlines** (`vision/stability.ts`):
+      - Detection flips between two or three outlines of one card a few percent apart: 15% of round-9 frames moved 6–10% of the diagonal while the card lay there. Each flip restarted the 2-frame steady count, so neither the card nor a new card on top was read. That is a likely part of "it wouldn't register".
+      - A frame now counts as steady within 2% of any of the last 3 outlines. A sliding card still isn't steady.
+    - **Set lock takes tokens** (MTG adapter `lockedSets`): a locked set takes its token set ("t" + its code; all 193 such pairs in the index are "… Tokens"). Borg TTRK 20 had gone to review as outside a TRK lock.
+    - **A long name read only as far as its first words** (`titleMatch.ts`):
+      - The words after a well-read start (≥ 7 letters, ≤ 0.3 edits per letter) cost 0.6 per letter, and the reading's garbled text where they would be is free.
+      - Capped at 0.75 similarity, it is never a rival to a name read whole, and it is added beyond the top 5 (at most 2).
+      - "Doninio ir Q O:," and "Dominio oa" now put Dominion Saboteur first.
+      - The first try (5 letters, no guards) auto-accepted a wrong card on `phone`: an Island read as "stand" lost to Stand Firm.
+    - **Checked, not changed:**
+      - The "still there" probe stays at 44: it often says a new card is still there, but the new card was read once detection found it, and tightening it would bring back round 6's repeat counts.
+      - Live detection at 480 px finds cards at least as often as at 640. Dark-bordered cards on dark, dim backgrounds remain the weak spot (55% on the synthetic dark-background tag): the M2 gap.
+    - **Eval, main → after** (0 wrong auto-accepts in every set; sweeps identical, so 0.9 stays): names, auto-accepts and collector numbers unchanged in all six sets; printing phone 74.8% → 75.0%.
+    - **Live replay** (rounds 6–9, seeds 1 and 2): missed cards 13 → 7, no new extra counts.
+    - **Real-scan fixtures:** the 18 review-accepted reads, plus #20 labelled by hand (Plains TRK 307, foil): 40 labelled fixtures with pictures. `--only real`: name 57.5%, printing 47.5%, auto-accepted 15.0%, 0 wrong, before and after.
+    - **Not fixed:** dark-bordered cards on a dark, dim floor; partial outlines; special frames (Grand Nagus Zek TRK 458, Captain Pike TRK 468).
+    - **Tests:** 416 unit and 50 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
