@@ -90,6 +90,10 @@ export interface FrameOutcome {
   busy?: true;
   /** Live mode went a while without reading anything: what it saw meanwhile, for the test log. */
   quiet?: QuietSpell;
+  /** The card read last was forgotten on this frame, for the test log. */
+  gone?: { card: string | null; moved: boolean; frames: TrailFrame[] };
+  /** With `repeat`: the re-read is much surer than the read the card was counted as, and should stand in for it. */
+  upgrade?: true;
 }
 
 /**
@@ -169,6 +173,7 @@ async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcom
   } else {
     outcome.sameCard = true;
     outcome.repeat = { result, why: read.why ?? 'same card' };
+    if (read.upgrade) outcome.upgrade = true;
   }
 }
 
@@ -235,6 +240,11 @@ const api = {
   },
 
   /** The batch's set lock, for every read from now on. Empty for any set. */
+  /** Count an identical copy put on top (a Scan setting, off by default). */
+  setCountCopies(on: boolean): void {
+    live.setCountCopies(on);
+  },
+
   setLock(sets: string[]): void {
     lockSets = [...sets];
   },

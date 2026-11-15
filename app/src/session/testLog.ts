@@ -109,6 +109,8 @@ export interface TestLogFrame {
   moved: number | null;
   /** Fingerprint distance from the card read last to what lay where it was, when that was looked at. */
   probe: number | null;
+  /** The same for an outline found far from where it lay, when one was (builds after round 10). */
+  away?: number | null;
   /** Frames in a row, so far, that showed the card read last gone. */
   gone: number;
   /** The camera was settling after the flashlight changed. */
@@ -145,8 +147,21 @@ export type TestLogEventType =
    * Live mode went 2 seconds without reading anything: `frames` says what it
    * saw meanwhile (a card not found, never steady, failing the quality gate,
    * or too like the card read last), `ms` how long since the last read. About no read.
+   * After 5 in a row, one every 30 s with a `summary` of all its frames.
    */
-  | 'quiet';
+  | 'quiet'
+  /**
+   * The card read last was forgotten (taken for gone): `card` names it,
+   * `moved` says whether outlines kept being found (it seemed moved, not taken
+   * away), `frames` are the frames that led to it. About no read.
+   */
+  | 'gone'
+  /**
+   * A live re-read of the card already counted, much surer than the read it
+   * was counted as, stood in for that read: `readIds` are [the read replaced,
+   * the new read]. The replaced read's review was removed.
+   */
+  | 'replaced';
 
 export interface TestLogEvent {
   id: string;
@@ -164,9 +179,21 @@ export interface TestLogEvent {
   via?: string;
   /** For `flashlight`: switched on, or off. */
   on?: boolean;
-  /** For `quiet`: milliseconds since the last read, and the frames since it (or the quiet spell before), oldest first. */
+  /** For `quiet`: milliseconds since the last read, and the frames since it (or the quiet spell before), oldest first. For `gone`: the frames that led to it. */
   ms?: number;
   frames?: TestLogFrame[];
+  /** For a long `quiet` stretch: what all its frames showed, in sum. */
+  summary?: {
+    frames: number;
+    outline: number;
+    steadyMax: number;
+    phases: Record<string, number>;
+    light: [number, number];
+    issues: Record<string, number>;
+  };
+  /** For `gone`: the card forgotten, and whether it seemed only moved. */
+  card?: string | null;
+  moved?: boolean;
 }
 
 export type TestLogEntry = TestLogRead | TestLogEvent;
@@ -251,9 +278,15 @@ export function logFlashlight(on: boolean): void {
 }
 
 /** A quiet spell in live mode, recorded only while the log is on. */
-export function logQuiet(ms: number, frames: TestLogFrame[]): void {
+export function logQuiet(ms: number, frames: TestLogFrame[], summary?: TestLogEvent['summary']): void {
   if (!testLogEnabled()) return;
-  void addTestLogEvent({ type: 'quiet', readIds: [], ms, frames }).catch(() => {});
+  void addTestLogEvent({ type: 'quiet', readIds: [], ms, frames, ...(summary ? { summary } : {}) }).catch(() => {});
+}
+
+/** Live mode forgot the card read last, recorded only while the log is on. */
+export function logGone(card: string | null, moved: boolean, frames: TestLogFrame[]): void {
+  if (!testLogEnabled()) return;
+  void addTestLogEvent({ type: 'gone', readIds: [], card, moved, frames }).catch(() => {});
 }
 
 export async function testLogCount(): Promise<number> {
