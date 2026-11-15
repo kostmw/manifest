@@ -379,6 +379,43 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - The standard eval is unchanged on all 320 cards (recognition untouched).
       - 381 unit and 49 e2e pass on Linux in Docker.
     - **Cost:** the presence look takes about 13 ms in Node against 6.5 ms for a card fingerprint, and runs only on frames where no outline is near the card.
+  - **Round 7 (2026-11-14, PR #11, not yet merged or phone-tested).** PR #10 was merged.
+    - **The test:** the owner's round-7 debug log (iPhone, red deck box, 13 flashlight switches, Star Trek cards) had no double counts, 14 auto-adds and 23 reviews.
+    - **The picks:** the owner then resolved the Review queue with the log on, which gave ground truth:
+      - 12 accepted: 10 had the right printing first but were unsure, and 2 needed search;
+      - 11 discarded as junk detections;
+      - no Undo or Change printing on any auto-add.
+    - **Collector line agreeing with the title** (`identify.ts`):
+      - A clean collector line that names the title's card now vouches for it up to 48 bits of art (`ART_CONTRADICTS`; 26 with no title). That means number and set exact or close, or the number alone when only one printing of the name has it.
+      - Constable Odo (title 0.90, TRK 230 number and set exact, art 46 under glare) had stayed at 0.8999 and gone to review.
+      - Trace `collector:agrees`.
+    - **Names one letter apart** ("A Good Day to Die" / "to Pie"): the art decides when all of these hold:
+      - the title read is ≥ 0.9 similar, for a name of ≥ 6 letters;
+      - the name's best art is ≤ 36 bits;
+      - every look-alike name's printings are ≥ 44 bits and ≥ 14 farther.
+
+      Trace `art-tie-break`.
+    - **Collector parse** (`games/mtg/collector.ts`): TRK prints `C 0428`, and OCR made the rarity letter V, VU, J or a digit.
+      - A zero-padded four-digit number now reads cleanly whatever stands before it ("V0230", "J0108", "0376").
+      - A loose four- or five-digit number is also tried without its first digit ("2428" → 428), never for a year.
+    - **Things that are no card** (live mode):
+      - **Blank outlines:** an outline that is untextured and nearly one colour is never read or filed, and the session remembers it as no card, so a card dropped there later still counts. It is untextured when its `textureShare` is < 0.1 (blocks whose grey spreads by more than a fifth of their brightness, so dim text counts) and one colour when its `dominantColorShare` is > 0.65. Round 7's first "card" was the box's floor. No card in the eval sets or the logs is both.
+      - **"No card" reads:** a read whose own detection (at 640) finds no card where live mode's (at 480) saw one counts as a failed try. When every try says so, nothing is filed, and a card counted before stays the card read last. The owner discarded all four such reads.
+      - **Not fixed:** partial, inner (text or art box) and merged outlines. They are pieces of real cards, so their content looks like a card, and a sideways art box even has the card's aspect ratio. 6 of the 11 junk reads still went to review; this needs card-layout outline guesses.
+    - **+1** (`capture/recentScans.ts`, `Scanner.tsx`): an identical copy put straight on top isn't counted by itself (round 6's trade-off).
+      - The newest thumbnail of an added card has **+1**: one more in its batch row, undoable like any card, and logged as a `copy-added` event.
+      - While a read card lies there, the hint says to take it away first or tap +1.
+    - **Checked, not changed:** "Dominio oa" matched "Minion" over "Dominion Saboteur". Charging less for a cut-off long name would raise longer look-alikes against short exact reads ("Shock" against "Shocker"), and that read went to review anyway.
+    - **Eval, before → after:**
+      - 0 wrong auto-accepts in every set; names and printings unchanged.
+      - Auto-accepted: standard 40.3% → 40.6%, phone 37.7% → 38.4%, phone-flash 28.9% → 31.6%, phone-redbox 47.4% → 48.0%, hires 43.3% → 43.3%.
+      - Collector number read right: standard 35.9% → 36.6%, phone 19.1% → 20.2%.
+      - The sweeps are unchanged, so 0.9 stays.
+    - **Against the ground truth,** worked out from the logged scores and collector text (the log's crops are too small to replay the collector line):
+      - 5 of the 10 right-but-unsure reads become auto-adds;
+      - 5 of the 11 junk reads no longer file anything.
+    - **Real-scan fixtures:** the 12 accepted reviews were added with `testlog-to-fixtures.ts`; the labels are committed and the pictures stay gitignored. On these half-size crops, `--only real` auto-accepts 1 → 2 with 0 wrong; names are 7/12 before and after, since the crops blur titles and lose the collector line.
+    - **Tests:** 399 unit and 50 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
