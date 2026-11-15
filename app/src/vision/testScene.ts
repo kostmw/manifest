@@ -120,6 +120,25 @@ export function cornerError(found: readonly Point[], truth: readonly Point[]): n
   return best;
 }
 
+/** An empty red deck box's floor, card-sized: flat red with the round thumb hole's rim, and a little camera noise. */
+export function emptyBoxFloor(seed = 1): RgbaImage {
+  const floor = createRgba(488, 680);
+  let state = seed;
+  const random = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let y = 0; y < 680; y++) {
+    for (let x = 0; x < 488; x++) {
+      const rim = Math.abs(Math.hypot(x - 244, y - 340) - 150) < 3 ? -25 : 0;
+      const noise = (random() - 0.5) * 8;
+      const p = (y * 488 + x) * 4;
+      floor.data[p] = 200 + rim + noise;
+      floor.data[p + 1] = 60 + rim + noise;
+      floor.data[p + 2] = 50 + rim + noise;
+      floor.data[p + 3] = 255;
+    }
+  }
+  return floor;
+}
+
 /** A card whose art box holds soft blobs, a different pattern for every seed, so fingerprints can tell cards apart. */
 export function artCard(seed: number): RgbaImage {
   const card = makeCard();

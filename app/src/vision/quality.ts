@@ -147,6 +147,66 @@ function meanLuma(image: RgbaImage): number {
   return pixels ? sum / pixels : 0;
 }
 
+/**
+ * The share of the card made of textured patches: 12-pixel blocks (at half
+ * size) whose grey spreads by more than a fifth of their brightness, so dim
+ * text still counts. Card faces in the eval sets and the owner's logs are at
+ * least 0.39 when well lit; an empty deck box's floor is 0.
+ */
+export function textureShare(card: RgbaImage): number {
+  const step = 2;
+  const block = 12;
+  const width = Math.floor(card.width / step);
+  const height = Math.floor(card.height / step);
+  let textured = 0;
+  let blocks = 0;
+  for (let by = 0; by + block <= height; by += block) {
+    for (let bx = 0; bx + block <= width; bx += block) {
+      let sum = 0;
+      let squares = 0;
+      for (let y = by; y < by + block; y++) {
+        for (let x = bx; x < bx + block; x++) {
+          const p = (y * step * card.width + x * step) * 4;
+          const value = 0.299 * card.data[p]! + 0.587 * card.data[p + 1]! + 0.114 * card.data[p + 2]!;
+          sum += value;
+          squares += value * value;
+        }
+      }
+      const n = block * block;
+      const mean = sum / n;
+      blocks += 1;
+      if (Math.sqrt(Math.max(0, squares / n - mean * mean)) > Math.max(6, 0.2 * mean)) textured += 1;
+    }
+  }
+  return blocks === 0 ? 0 : textured / blocks;
+}
+
+/**
+ * The share of the card within a small colour distance of its median colour
+ * (every fourth pixel). An empty red deck box's floor is 0.8; card faces are
+ * at most 0.6 (a white-bordered card in dim light, 0.73, is still textured).
+ */
+export function dominantColorShare(card: RgbaImage): number {
+  const step = 4;
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  for (let y = 0; y < card.height; y += step) {
+    for (let x = 0; x < card.width; x += step) {
+      const p = (y * card.width + x) * 4;
+      r.push(card.data[p]!);
+      g.push(card.data[p + 1]!);
+      b.push(card.data[p + 2]!);
+    }
+  }
+  if (r.length === 0) return 0;
+  const median = (values: number[]) => [...values].sort((x, y) => x - y)[values.length >> 1]!;
+  const [mr, mg, mb] = [median(r), median(g), median(b)];
+  let near = 0;
+  for (let i = 0; i < r.length; i++) if (Math.abs(r[i]! - mr) + Math.abs(g[i]! - mg) + Math.abs(b[i]! - mb) <= 40) near += 1;
+  return near / r.length;
+}
+
 export function assessQuality(input: {
   frame: Size;
   corners: Quad;

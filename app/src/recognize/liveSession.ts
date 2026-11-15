@@ -31,9 +31,12 @@ export interface CardIdentity {
   printingId: string | null;
   /** The best printing's id, however unsure the read was of it. */
   guess: string | null;
+  /** What lay there wasn't a card at all (an empty box's floor): whatever comes next is another card. */
+  junk?: true;
 }
 
 export const NO_IDENTITY: CardIdentity = { name: null, printingId: null, guess: null };
+const JUNK: CardIdentity = { ...NO_IDENTITY, junk: true };
 
 /**
  * Fingerprints of whatever lies at the given corners of the current frame: one
@@ -140,6 +143,7 @@ export function signatureDistance(a: Uint32Array, b: Uint32Array): number {
  * can't be compared, and the same name is enough.
  */
 export function sameCard(before: CardIdentity, after: CardIdentity, distance: number, camera = false): boolean {
+  if (before.junk || after.junk) return false;
   if (before.name && after.name && before.name !== after.name) return false;
   // Both reads sure of the printing: the printings decide (two Forests from different sets differ).
   if (before.printingId && after.printingId) return before.printingId === after.printingId;
@@ -357,6 +361,15 @@ export class LiveSession {
     }
     this.markRead(signature, corners, identity);
     return true;
+  }
+
+  /**
+   * What lies in view isn't a card (an empty box's floor): nothing counts, and
+   * it isn't read again while it lies there. A card put there later looks
+   * different, is read, and counts.
+   */
+  dismiss(signature: Uint32Array | null, corners: Quad | null): void {
+    this.markRead(signature, corners, JUNK);
   }
 
   /** The card in view counts as a new card (accepted, sent to review, or given up on). */
