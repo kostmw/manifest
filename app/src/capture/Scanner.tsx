@@ -22,7 +22,7 @@ import {
 import { BUTTON_SECONDARY } from '../ui/styles';
 import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
-import { pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
+import { copyRecent, pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
 import { ScanSettings } from './ScanSettings';
 import { TestLogPanel } from './TestLogPanel';
 import { useCamera, type Torch } from './useCamera';
@@ -35,7 +35,7 @@ const LAST_CARD_MS = 4000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function liveHint(frame: FrameOutcome | null, torch: Torch): string {
+function liveHint(frame: FrameOutcome | null, torch: Torch, canCopy = false): string {
   if (!frame?.corners) return 'Slide a card into view. A plain background that contrasts with the cards works best.';
   const issue = frame.issues[0];
   if (issue === 'too-dark' && torch.supported && !torch.on) return 'Too dark: turn on the flashlight, or add light.';
@@ -48,7 +48,12 @@ function liveHint(frame: FrameOutcome | null, torch: Torch): string {
   if (frame.advice.includes('hotspot') && frame.phase !== 'read') {
     return torch.on ? 'Glare from the flashlight: turn it off, or light the cards from the side.' : ADVICE_HINTS.hotspot;
   }
-  if (frame.phase === 'read') return 'Next card: put it on top, or take this one away.';
+  // An identical copy put straight on top looks like the same card, so say how to count one.
+  if (frame.phase === 'read') {
+    return canCopy
+      ? 'Next card: put it on top. Another copy of this one: take it away first, or tap +1.'
+      : 'Next card: put it on top. Another copy of this one: take it away first.';
+  }
   if (frame.advice.includes('tilted')) return ADVICE_HINTS.tilted;
   if (frame.phase !== 'reading') return 'Hold still…';
   return frame.advice.includes('dim') && torch.supported && !torch.on ? 'Reading… More light would help: try the flashlight.' : 'Reading…';
@@ -147,17 +152,21 @@ function Flash({ flash }: { flash: { kind: RecentScan['kind']; key: number } | n
 function RecentStrip({
   recent,
   onUndo,
+  onCopy,
   onOpenReview,
 }: {
   recent: readonly RecentScan[];
   onUndo: (entry: RecentScan) => void;
+  /** One more copy of the newest card, when it was added. */
+  onCopy: (entry: RecentScan) => void;
   onOpenReview: (reviewId?: string) => void;
 }) {
   if (recent.length === 0) return null;
   return (
     <ol aria-label="Last cards scanned" className="grid grid-cols-5 gap-2">
-      {recent.map((entry) => {
+      {recent.map((entry, index) => {
         const label = entry.name ?? 'Unreadable card';
+        const copyable = index === 0 && entry.kind === 'added' && Boolean(entry.itemId);
         return (
           <li key={entry.id} className="flex min-w-0 flex-col gap-1">
             <button
@@ -182,14 +191,26 @@ function RecentStrip({
             <p className="truncate text-[11px] leading-tight text-zinc-300" title={label}>
               {label}
             </p>
-            <button
-              type="button"
-              aria-label={`Undo ${label}`}
-              onClick={() => onUndo(entry)}
-              className="min-h-9 rounded-md bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700"
-            >
-              Undo
-            </button>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                aria-label={`Undo ${label}`}
+                onClick={() => onUndo(entry)}
+                className="min-h-9 flex-1 rounded-md bg-zinc-800 text-xs text-zinc-300 hover:bg-zinc-700"
+              >
+                Undo
+              </button>
+              {copyable && (
+                <button
+                  type="button"
+                  aria-label={`One more ${label}`}
+                  onClick={() => onCopy(entry)}
+                  className="min-h-9 flex-1 rounded-md bg-emerald-900/70 text-xs font-semibold text-emerald-100 hover:bg-emerald-800"
+                >
+                  +1
+                </button>
+              )}
+            </div>
           </li>
         );
       })}
@@ -393,6 +414,19 @@ export function Scanner({
     void undoRecent(entry).catch(() => setSaveFailed(true));
   };
 
+  /** "+1": one more copy of the card just added, with the same sound and flash as a scan. */
+  const copy = (entry: RecentScan) => {
+    void copyRecent(entry).then(
+      (added) => {
+        if (!added) return;
+        setLast({ entry: added });
+        setFlash((previous) => ({ kind: 'added', key: (previous?.key ?? 0) + 1 }));
+        cue('added');
+      },
+      () => setSaveFailed(true),
+    );
+  };
+
   /** "Wrong? Read again": take the last live card back out and read the card in view afresh. */
   const readAgain = () => {
     const newest = recent[0];
@@ -509,9 +543,9 @@ export function Scanner({
                 : "Couldn't read that one: it's waiting in Review"}
           </p>
         ) : (
-          streaming && recognizer.status === 'ready' && <p className="text-base text-zinc-200">{liveHint(frame, camera.torch)}</p>
+          streaming && recognizer.status === 'ready' && <p className="text-base text-zinc-200">{liveHint(frame, camera.torch, recent[0]?.kind === 'added')}</p>
         )}
-        {showingLast && streaming && <p className="text-sm text-zinc-400">{liveHint(frame, camera.torch)}</p>}
+        {showingLast && streaming && <p className="text-sm text-zinc-400">{liveHint(frame, camera.torch, recent[0]?.kind === 'added')}</p>}
       </div>
       {saveFailed && (
         <p role="alert" className="text-sm text-amber-300">
@@ -520,7 +554,7 @@ export function Scanner({
       )}
       {!batch && <p className="text-sm text-amber-300">Cards can't be saved until on-device storage works.</p>}
 
-      <RecentStrip recent={recent} onUndo={undo} onOpenReview={onOpenReview} />
+      <RecentStrip recent={recent} onUndo={undo} onCopy={copy} onOpenReview={onOpenReview} />
       {streaming && newestLive && frame?.phase === 'read' && (
         <button type="button" onClick={readAgain} className={`${BUTTON_SECONDARY} self-start`}>
           Wrong? Read this card again

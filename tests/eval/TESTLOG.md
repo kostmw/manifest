@@ -65,6 +65,7 @@ Each read has these fields:
 | `title:upside-down` | The card was read upside down. |
 | `outline:N` | A later detected outline was used. |
 | `outline:fallback` | The other outline was identified because the first named nothing. |
+| `outline:live` | Live mode: the read's own detection found no card, so the card was read from live mode's outline. |
 | `center-guess` | The card was guessed from the middle of a photo. |
 | `orientation-unknown` | The fingerprint was tried both ways up. |
 | `deglared` | A flashlight hotspot was painted over for the fingerprint. |
@@ -72,6 +73,8 @@ Each read has these fields:
 | `collector:skipped` | The art settled the printing. |
 | `collector:digits` | The number line was re-read as digits only. |
 | `collector:lookup` | The collector line named the card. |
+| `collector:agrees` | The collector line (number and set, or the number alone when only one printing of the name has it) agrees with the title's name, and vouches for it. |
+| `art-tie-break` | Names that read nearly alike were told apart by the artwork. |
 | `lock:number-lookup` | The number alone named the card within the locked sets. |
 | `lock:outside` | The card isn't from the locked sets. |
 | `gave-up` | Live mode stopped after 3 failed reads. |
@@ -99,6 +102,7 @@ The types:
 - `undo`: a thumbnail's Undo.
 - `printing-changed`: a batch row's printing changed from `from` to `printing`. This is the ground truth for every read that went into the row; the row keeps its last 20.
 - `flashlight`: the flashlight was switched on or off (`on`). It is about no read, so `readIds` is empty.
+- `copy-added`: **+1** on the newest thumbnail added one more copy of that card (an identical copy put straight on top isn't counted by itself). `readIds` is the scan it copies.
 
 ## From a log to eval fixtures
 

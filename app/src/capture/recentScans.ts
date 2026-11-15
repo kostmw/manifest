@@ -40,25 +40,45 @@ function emit(next: readonly RecentScan[]): void {
   for (const listener of listeners) listener();
 }
 
-function release(entry: RecentScan): void {
-  if (entry.thumb) URL.revokeObjectURL(entry.thumb);
+/** Frees an entry's picture, unless a copy of it still shows the same one. */
+function release(entry: RecentScan, kept: readonly RecentScan[]): void {
+  if (entry.thumb && !kept.some((other) => other.thumb === entry.thumb)) URL.revokeObjectURL(entry.thumb);
 }
 
 export function pushRecent(entry: Omit<RecentScan, 'id' | 'thumb' | 'at'> & { card: Blob | null }): RecentScan {
   const { card, ...rest } = entry;
   const stored: RecentScan = { ...rest, id: crypto.randomUUID(), thumb: card ? URL.createObjectURL(card) : null, at: performance.now() };
-  const next = [stored, ...entries];
-  for (const dropped of next.slice(RECENT_LIMIT * 4)) release(dropped);
-  // A few more than are shown, so that switching batches and back keeps them.
-  emit(next.slice(0, RECENT_LIMIT * 4));
+  keep([stored, ...entries]);
   return stored;
+}
+
+/** Keeps a few more than are shown, so that switching batches and back keeps them. */
+function keep(next: readonly RecentScan[]): void {
+  const kept = next.slice(0, RECENT_LIMIT * 4);
+  for (const dropped of next.slice(RECENT_LIMIT * 4)) release(dropped, kept);
+  emit(kept);
+}
+
+/**
+ * One more copy of a card just added: an identical copy put straight on top
+ * looks like the same card to live mode, so it isn't counted by itself. The
+ * batch row gets one more, and the copy shows (and can be undone) like any card.
+ */
+export async function copyRecent(entry: RecentScan): Promise<RecentScan | null> {
+  if (entry.kind !== 'added' || !entry.itemId) return null;
+  await changeQuantity(entry.itemId, 1);
+  const copy: RecentScan = { ...entry, id: crypto.randomUUID(), at: performance.now() };
+  keep([copy, ...entries]);
+  if (entry.scanId) logEvent({ type: 'copy-added', readIds: [entry.scanId] });
+  return copy;
 }
 
 export function removeRecent(id: string): void {
   const found = entries.find((entry) => entry.id === id);
   if (!found) return;
-  release(found);
-  emit(entries.filter((entry) => entry.id !== id));
+  const kept = entries.filter((entry) => entry.id !== id);
+  release(found, kept);
+  emit(kept);
 }
 
 /** Takes a scanned card back out: one fewer in its batch row, or out of the review queue. */
