@@ -107,3 +107,45 @@ describe('matchTitle when a short name hides inside a word of a longer one (roun
     expect(match.candidates[0]?.similarity).toBeCloseTo(0.9, 2);
   });
 });
+
+describe('matchTitle when only the first words of a long name were read (round 9)', () => {
+  const names = new NameIndex({
+    names: ['Dominion Saboteur', 'Dominion Supervisor', 'Dominion Infiltration', 'Glaze Fiend', 'Minion', 'Shock', 'Shock Troops', 'Forest', 'Forest Bear'],
+    faces: {},
+  });
+
+  it('puts the long name first when its first word is read, garbled, and the rest is junk', () => {
+    // Under the flashlight, a foil Dominion Saboteur: "Doninio ir Q O:,". Glaze Fiend came first before.
+    const garbled = matchTitle(names, 'Doninio ir Q O:,');
+    expect(garbled.candidates[0]?.name).toBe('Dominion Saboteur');
+    // Of the names that start alike, the one with the least left unread first, and two at most.
+    expect(garbled.candidates[1]?.name).toBe('Dominion Supervisor');
+    expect(garbled.candidates.map((c) => c.name)).not.toContain('Dominion Infiltration');
+    expect(matchTitle(names, 'Dominio oa').candidates[0]?.name).toBe('Dominion Saboteur');
+  });
+
+  it('adds names read only in part without pushing out names read whole', () => {
+    const many = new NameIndex({ names: ['Island', 'Stab', 'Stun', 'Stand // Deliver', 'Stand Firm', 'Standstill', 'Stand Together', 'Standard Bearer'], faces: { Stand: ['Stand // Deliver'] } });
+    // An Island misread as "stand": Island stays among the candidates, for its artwork to settle it.
+    const match = matchTitle(many, 'stand');
+    expect(match.candidates.map((c) => c.name)).toContain('Island');
+    expect(match.candidates.length).toBeLessThanOrEqual(7);
+  });
+
+  it("is never sure of a name read only in part, so such a card waits for review", () => {
+    for (const reading of ['Doninio ir Q O:,', 'Dominion', 'Dominion ee 40:']) {
+      const match = matchTitle(names, reading);
+      expect(match.candidates[0]?.similarity).toBeLessThanOrEqual(0.75);
+      expect(match.confidence).toBeLessThan(0.5);
+    }
+  });
+
+  it('keeps a short name read whole sure, though longer names start with it', () => {
+    // (Five letters: capped at 0.95, as before.)
+    const shock = matchTitle(names, 'Shock');
+    expect(shock.confidence).toBe(0.95);
+    expect(shock.candidates.slice(0, 2).map((c) => c.name)).toEqual(['Shock', 'Shock Troops']);
+    expect(matchTitle(names, 'Forest').confidence).toBe(1);
+    expect(matchTitle(names, 'Riforest').confidence).toBeCloseTo(0.9, 2);
+  });
+});

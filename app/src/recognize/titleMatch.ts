@@ -18,7 +18,7 @@ export interface NameCandidate {
 }
 
 export interface TitleMatch {
-  /** Best first, at most `limit`, one per full name. */
+  /** Best first, one per full name: at most `limit` read whole, plus up to two read only in part. */
   candidates: NameCandidate[];
   /** 0–1: how sure the top candidate is right, from its similarity and its lead over the next. */
   confidence: number;
@@ -46,6 +46,31 @@ const isLetter = (c: string | undefined) => c !== undefined && c >= 'a' && c <= 
 
 /** How far ahead of the runner-up the best name must be for full confidence. */
 const CLEAR_LEAD = 0.2;
+/**
+ * A long name read only as far as its first words, the rest garbled or
+ * missing (round 9: "Doninio ir Q O:," for Dominion Saboteur under the
+ * flashlight): its trailing words cost this much per letter, not a full edit,
+ * and whatever the reading has where they would be is taken as their garbled
+ * text. Above JUNK_COST so that, of names sharing the words read, the one
+ * with the shortest tail ranks first.
+ */
+const CUT_COST = 0.6;
+/**
+ * Letters of the name that must have been read for it to count as cut short,
+ * and how well (edits and junk per letter read): a few letters, or letters
+ * read badly, start too many names. At 5 letters, "stand" (an Island misread)
+ * put Stand Firm ahead of Island and cost the art-matched Island its title.
+ */
+const CUT_MIN = 7;
+const CUT_READ_COST = 0.3;
+/** A cut-short name is never sure by its title alone: at most this similar. */
+const CUT_MAX = 0.75;
+/**
+ * Names read only in part are added to the candidates, at most this many, and
+ * never push out a name read whole: that name's artwork may settle the card
+ * (round 9's first try lost an art-matched Island to Stand Firm).
+ */
+const CUT_EXTRA = 2;
 
 /**
  * Semi-global alignment: the whole name against any stretch of the reading.
@@ -53,8 +78,30 @@ const CLEAR_LEAD = 0.2;
  * inside it, ordinary edits cost 1 except spaces, which cost SPACE_COST.
  */
 export function alignmentCost(name: string, reading: string, wordStarts?: Uint8Array): number {
+  return align(name, reading, wordStarts, false).cost;
+}
+
+/** The name read only up to the end of one of its words: what that cost, and how many letters were left out. */
+export interface CutAlignment {
+  cost: number;
+  missing: number;
+}
+
+/**
+ * The alignment cost of the whole name, and with `cut`, of the best match of
+ * its first words alone (at least CUT_MIN letters, at least one word left
+ * out), with the reading's characters after it free up to as many as were
+ * left out. The cut's own cost doesn't include CUT_COST for the missing letters.
+ */
+export function align(name: string, reading: string, wordStarts: Uint8Array | undefined, cut: boolean): { cost: number; cut: CutAlignment | null } {
   const n = name.length;
   const m = reading.length;
+  // Non-space characters of the reading from each position on, for the junk after a cut.
+  const after = new Int32Array(m + 1);
+  for (let j = m - 1; j >= 0; j--) after[j] = after[j + 1]! + (reading[j] === ' ' ? 0 : 1);
+  const totalLetters = cut ? name.replace(/ /g, '').length : 0;
+  let lettersRead = 0;
+  let bestCut: CutAlignment | null = null;
   let previous = new Float64Array(m + 1);
   let current = new Float64Array(m + 1);
   // Skipping a leading stretch of the reading is junk, except letters glued to the start of the
@@ -80,6 +127,16 @@ export function alignmentCost(name: string, reading: string, wordStarts?: Uint8A
       current[j] = best;
     }
     [beforePrevious, previous, current] = [previous, current, beforePrevious];
+    if (!cut) continue;
+    if (a !== ' ') lettersRead += 1;
+    // The end of a word, with more words after it: the name may have been read only this far.
+    if (i < n && name[i] === ' ' && a !== ' ' && lettersRead >= CUT_MIN) {
+      const missing = totalLetters - lettersRead;
+      let cost = Number.POSITIVE_INFINITY;
+      for (let j = 0; j <= m; j++) cost = Math.min(cost, previous[j]! + Math.max(0, after[j]! - missing) * JUNK_COST);
+      const better = !bestCut || cost + CUT_COST * missing < bestCut.cost + CUT_COST * bestCut.missing;
+      if (cost <= CUT_READ_COST * lettersRead && better) bestCut = { cost, missing };
+    }
   }
   // Trailing junk after the end of the name.
   let best = Number.POSITIVE_INFINITY;
@@ -88,7 +145,7 @@ export function alignmentCost(name: string, reading: string, wordStarts?: Uint8A
     best = Math.min(best, previous[j]! + tail);
     if (j > 0 && reading[j - 1] !== ' ') tail += JUNK_COST;
   }
-  return best;
+  return { cost: best, cut: bestCut };
 }
 
 export function similarityFor(name: string, distance: number): number {
@@ -98,6 +155,8 @@ export function similarityFor(name: string, distance: number): number {
 interface Scored extends NameCandidate {
   /** The normalized text that matched: a candidate with the same key reads identically. */
   key: string;
+  /** Matched as cut short: only its first words were read (see CUT_COST). */
+  cut?: true;
 }
 
 /**
@@ -109,7 +168,10 @@ interface Scored extends NameCandidate {
 export function matchConfidence(candidates: readonly Scored[]): number {
   const first = candidates[0];
   if (!first) return 0;
-  const second = candidates.find((candidate) => candidate.key !== first.key)?.similarity ?? 0;
+  // A name read only in part is no rival to a name read whole: it would make a garbled but
+  // right reading look less sure than junk, and the reading of the title is chosen by this.
+  const rival = (candidate: Scored) => candidate.key !== first.key && !(candidate.cut && !first.cut);
+  const second = candidates.find(rival)?.similarity ?? 0;
   const lead = Math.min(1, Math.max(0, first.similarity - second) / CLEAR_LEAD);
   return Math.min(first.similarity * (0.5 + 0.5 * lead), shortNameCap(first.key));
 }
@@ -151,15 +213,22 @@ export function matchTitle(index: NameIndex, rawText: string, limit = 5): TitleM
   for (const entry of pool.values()) {
     // Names that are nearly all punctuation ("_____") normalize to nothing and would match any junk.
     if (entry.key.replace(/ /g, '').length < 2) continue;
-    const distance = alignmentCost(entry.key, reading, inNameWord);
-    const similarity = similarityFor(entry.key, distance);
+    const aligned = align(entry.key, reading, inNameWord, true);
+    let distance = aligned.cost;
+    let similarity = similarityFor(entry.key, distance);
+    let cut = false;
+    if (aligned.cut) {
+      const cutDistance = aligned.cut.cost + CUT_COST * aligned.cut.missing;
+      const cutSimilarity = Math.min(CUT_MAX, similarityFor(entry.key, cutDistance));
+      if (cutSimilarity > similarity) [distance, similarity, cut] = [cutDistance, cutSimilarity, true];
+    }
     if (similarity <= 0) continue;
     const current = best.get(entry.name);
     const better =
       !current ||
       distance < current.distance ||
       (distance === current.distance && current.matchedFace !== undefined && entry.face === undefined);
-    if (better) best.set(entry.name, { name: entry.name, matchedFace: entry.face, distance, similarity, key: entry.key });
+    if (better) best.set(entry.name, { name: entry.name, matchedFace: entry.face, distance, similarity, key: entry.key, ...(cut ? { cut: true as const } : {}) });
   }
 
   const ranked = [...best.values()].sort(
@@ -173,6 +242,10 @@ export function matchTitle(index: NameIndex, rawText: string, limit = 5): TitleM
       (a.name < b.name ? -1 : 1),
   );
   const confidence = matchConfidence(ranked);
-  const candidates = ranked.slice(0, limit).map(({ key: _key, ...candidate }) => candidate);
+  const whole = new Set(ranked.filter((candidate) => !candidate.cut).slice(0, limit));
+  const cut = new Set(ranked.slice(0, limit).filter((candidate) => candidate.cut).slice(0, CUT_EXTRA));
+  const candidates = ranked
+    .filter((candidate) => whole.has(candidate) || cut.has(candidate))
+    .map(({ key: _key, cut: _cut, ...candidate }) => candidate);
   return { candidates, confidence, reading };
 }
