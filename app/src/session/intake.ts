@@ -23,6 +23,8 @@ export interface ScannedCard {
   guessedOutline: boolean;
   /** The best printing's name has no printing in the batch's locked sets. */
   outsideLock?: boolean;
+  /** The paths recognition took (kept with a review). */
+  trace?: string[];
   /** The card as scanned, upright, as a JPEG. */
   card: Blob | null;
 }
@@ -69,6 +71,8 @@ export async function intake(batch: Batch, scan: ScannedCard, source: ReviewItem
     collectorText: scan.collectorText,
     advice: scan.advice,
     reason: decision.reason,
+    ...(scan.trace?.length ? { trace: scan.trace } : {}),
+    ...(batch.settings.lockSets?.length ? { lockSets: batch.settings.lockSets } : {}),
     foil,
     lang: batch.settings.defaultLang,
     condition: batch.settings.defaultCondition,

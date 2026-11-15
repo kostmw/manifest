@@ -161,7 +161,14 @@ export type TestLogEventType =
    * was counted as, stood in for that read: `readIds` are [the read replaced,
    * the new read]. The replaced read's review was removed.
    */
-  | 'replaced';
+  | 'replaced'
+  /**
+   * Quick confirm: a "looks right" guess (`printing`) the user marked wrong
+   * when adding the rest: a labelled negative for the cutoff (`cutoff`).
+   */
+  | 'bulk-rejected'
+  /** Quick confirm: a group added with "Add N cards" taken back with its Undo; `readIds` are all of them. */
+  | 'bulk-undone';
 
 export interface TestLogEvent {
   id: string;
@@ -175,8 +182,10 @@ export interface TestLogEvent {
   from?: TestLogPrinting;
   finish?: string;
   qty?: number;
-  /** For an accepted review: `candidate-N` (its rank), `printings` (all printings of a name) or `search`. */
+  /** For an accepted review: `candidate-N` (its rank), `printings` (all printings of a name), `search` or `bulk` (quick confirm). */
   via?: string;
+  /** For quick confirm (`via: 'bulk'`, `bulk-rejected`): the name confidence from which reviews looked right. */
+  cutoff?: number;
   /** For `flashlight`: switched on, or off. */
   on?: boolean;
   /** For `quiet`: milliseconds since the last read, and the frames since it (or the quiet spell before), oldest first. For `gone`: the frames that led to it. */

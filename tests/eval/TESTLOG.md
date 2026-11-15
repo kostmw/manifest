@@ -93,6 +93,7 @@ Each event has these fields:
 | `finish` | The finish chosen. |
 | `qty` | The quantity chosen. |
 | `via` | How the printing was found, for an accepted review. |
+| `cutoff` | For quick confirm (`via: "bulk"`, `bulk-rejected`): the name confidence from which reviews looked right (0.8). |
 | `ms`, `frames` | For `quiet`: milliseconds since the last read, and the frames since it (or since the quiet spell before), as in a read's `live.frames`. For `gone`: the frames that led to it. |
 | `summary` | For a long `quiet` stretch (after five spells in a row): `frames`, `outline` (frames with one), `steadyMax`, `phases` and `issues` (frame counts) and `light` (lowest and highest) over all its frames. |
 | `picture` | For `quiet` (builds after round 10), when detection found an outline on fewer than half its frames and pictures are included: the camera frame, 180 pixels wide, as a base64 JPEG, to see why it found no card. |
@@ -100,7 +101,9 @@ Each event has these fields:
 
 The types:
 
-- `review-accepted`: a review resolved as `printing`. This is the ground truth. `via` is `candidate-N` (its rank), `printings` (all printings of a name) or `search`, plus `, all similar` for "Use … for all".
+- `review-accepted`: a review resolved as `printing`. This is the ground truth. `via` is `candidate-N` (its rank), `printings` (all printings of a name), `search`, or `bulk` (quick confirm: added with the other "looks right" rows by "Add N cards", with its `cutoff`), plus `, all similar` for "Use … for all".
+- `bulk-rejected` (quick confirm): a "looks right" guess (`printing`) the user marked wrong when adding the rest, with the `cutoff`: a labelled negative. The review waits on, under "needs a look".
+- `bulk-undone` (quick confirm): a group added by "Add N cards" taken back with its Undo; `readIds` are all of them, and their labels are dropped like an `undo`'s.
 - `review-discarded`
 - `undo`: a thumbnail's Undo.
 - `printing-changed`: a batch row's printing changed from `from` to `printing`. This is the ground truth for every read that went into the row; the row keeps its last 20.

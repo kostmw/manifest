@@ -49,12 +49,18 @@ describe('test log → fixtures', () => {
         { id: '3', kind: 'event', at: '2026-11-13T09:02:00Z', type: 'review-accepted', readIds: ['c'], printing: SOL_RING },
         { id: '4', kind: 'event', at: '2026-11-13T09:03:00Z', type: 'undo', readIds: ['c'] },
         { id: '5', kind: 'event', at: '2026-11-13T09:04:00Z', type: 'review-discarded', readIds: ['d'] },
+        // Quick confirm: added in bulk, one of them undone with the whole group.
+        { id: '6', kind: 'event', at: '2026-11-13T09:06:00Z', type: 'review-accepted', readIds: ['e'], printing: SOL_RING, via: 'bulk', cutoff: 0.8 },
+        { id: '7', kind: 'event', at: '2026-11-13T09:06:00Z', type: 'review-accepted', readIds: ['f'], printing: SOL_RING, via: 'bulk', cutoff: 0.8 },
+        { id: '8', kind: 'event', at: '2026-11-13T09:07:00Z', type: 'bulk-undone', readIds: ['f'] },
       ]),
     );
     expect(labels.get('a')).toEqual({ printing: SOL_RING, from: 'printing-changed' });
     expect(labels.get('b')?.printing.id).toBe('cmm-410');
     expect(labels.has('c')).toBe(false);
     expect(labels.has('d')).toBe(false);
+    expect(labels.get('e')).toMatchObject({ via: 'bulk' });
+    expect(labels.has('f')).toBe(false);
   });
 
   it('makes a padded picture and a labels.json entry for each labelled read that has a picture', () => {
