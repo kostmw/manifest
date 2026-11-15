@@ -43,9 +43,9 @@ describe('recognizeFrame', () => {
   });
 
   it('tries other renderings, then the card upside down, when the title reads poorly', async () => {
-    // Junk for the three upright renderings and the two rescue tries (cleaned, wide), then a clean
-    // read of the turned card.
-    const ocr = fakeOcr('#~', '#~', '#~', '#~', '#~', 'Sol Ring');
+    // Junk for the three upright renderings, the wide band and the two rescue tries (cleaned,
+    // cleaned wide), then a clean read of the turned card.
+    const ocr = fakeOcr('#~', '#~', '#~', '#~', '#~', '#~', 'Sol Ring');
     const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr });
     expect(result.title?.rotated).toBe(true);
     expect(result.names[0]).toBe('Sol Ring');
@@ -54,14 +54,39 @@ describe('recognizeFrame', () => {
   });
 
   it('reads a title from the cleaned line when the usual renderings fail, but only when sure', async () => {
-    // Three junk renderings, then the cleaned line reads the name.
-    const rescued = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Sol Ring') });
+    // Three junk renderings and the wide band, then the cleaned line reads the name.
+    const rescued = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', '#~', 'Sol Ring') });
     expect(rescued.title?.rotated).toBe(false);
     expect(rescued.names[0]).toBe('Sol Ring');
     expect(rescued.trace).toContain('title:rendering-4');
     // A cleaned line that spells a short name by chance doesn't count.
-    const chance = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Ow', 'Ow', '#~') });
+    const chance = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('#~', '#~', '#~', 'Ow', 'Ow', 'Ow', '#~') });
     expect(chance.title?.text).not.toBe('Ow');
+  });
+
+  it('reads a name whose first letter the usual band cut off from the wide band (round 9: "ommand Decision")', async () => {
+    // The three renderings miss the first letter; the wide band reads it.
+    const ocr = fakeOcr('ol Ring', 'ol Ring', 'ol Ring', 'Sol Ring');
+    const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr });
+    expect(result.title?.text).toBe('Sol Ring');
+    expect(result.trace).toContain('title:rendering-6');
+    expect(result.decision).toBe('accept');
+    // Sure already: the wide band isn't read.
+    const sure = fakeOcr('Sol Ring');
+    await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: sure });
+    expect(sure.calls).toBe(1);
+  });
+
+  it("doesn't let the wide band name another card unless it reads it surely", async () => {
+    // The wide band catches frame junk and spells another name, but not surely: the first reading stays.
+    const result = await recognizeFrame(photo(), { regions: MTG_REGIONS, names, ocr: fakeOcr('ol Ring', 'ol Ring', 'ol Ring', 'Lightn', '#~') });
+    expect(result.names[0]).toBe('Sol Ring');
+    expect(result.trace).not.toContain('title:rendering-6');
+    // Nor by a short face: two letters of junk spell "Far" (of Far // Away) as easily as "Ow".
+    const withFaces = new NameIndex({ names: ['Sol Ring', 'Far // Away'], faces: { Far: ['Far // Away'], Away: ['Far // Away'] } });
+    const junk = await recognizeFrame(photo(), { regions: MTG_REGIONS, names: withFaces, ocr: fakeOcr('#~', '#~', '#~', 'ar', '#~') });
+    expect(junk.trace).not.toContain('title:rendering-6');
+    expect(junk.title?.text).not.toBe('ar');
   });
 
   it('sends a doubtful reading to review rather than accepting it', async () => {

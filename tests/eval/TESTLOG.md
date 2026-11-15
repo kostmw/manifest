@@ -60,7 +60,7 @@ Each read has these fields:
 
 | Value | Meaning |
 |---|---|
-| `title:rendering-N` | The title read best from rendering 1 (binarized), 2 (contrast-stretched grey) or 3 (strict threshold), or from rescue reading 4 (the line cleaned of rules and border) or 5 (the cleaned line from the wider band). |
+| `title:rendering-N` | The title read best from rendering 1 (binarized), 2 (contrast-stretched grey) or 3 (strict threshold), or from rescue reading 4 (the line cleaned of rules and border) or 5 (the cleaned line from the wider band), or 6 (the line from the wider band, read whenever the first readings were unsure: it keeps a first letter the usual band cut off). |
 | `title:from-frame` | The title was cut straight from the full frame. |
 | `title:upside-down` | The card was read upside down. |
 | `outline:N` | A later detected outline was used. |
