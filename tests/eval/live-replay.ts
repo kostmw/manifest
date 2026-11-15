@@ -8,7 +8,7 @@
  *   npx tsx tests/eval/live-replay.ts manifest-testlog-….json
  *   … --no-camera-events   # don't tell the scanner when the flashlight switched (as if the app missed it)
  *   … --seed 2             # another shake of the phone
- *   … --verbose            # every read's frames before it (as the test log's `live.frames`)
+ *   … --verbose            # every read's frames before it (as the test log's `live.frames`), and every quiet spell's
  *
  * The frames between pictures are made up, the same way every run (seeded):
  * the hand-held phone drifts and now and then jumps a tenth or more of the
@@ -25,7 +25,7 @@ import { Catalog } from '../../app/src/games/catalog';
 import { mtg, MTG_REGIONS } from '../../app/src/games/mtg/adapter';
 import type { NameDictionary } from '../../app/src/games/types';
 import { FINGERPRINT_VERSION } from '../../app/src/recognize/fingerprint';
-import { LiveScanner } from '../../app/src/recognize/liveScanner';
+import { LiveScanner, type TrailFrame } from '../../app/src/recognize/liveScanner';
 import { LiveSession } from '../../app/src/recognize/liveSession';
 import { NameIndex } from '../../app/src/recognize/nameSearch';
 import { createTesseractEngine } from '../../app/src/recognize/tesseract';
@@ -171,6 +171,13 @@ const diagonal = Math.hypot(CARD_HEIGHT, (CARD_HEIGHT * 488) / 680);
 let flashlight: boolean | null = null;
 
 interface Tally { counted: number; repeats: number; triggers: string[] }
+
+/** A frame as --verbose prints it: outline (o, moved share) or none (-), probe, gone run, hold, phase, steady, new-card check, quality issues. */
+function frameText(f: TrailFrame): string {
+  const phase = { empty: 'E', settling: 'S', reading: 'R', read: 'D' }[f.phase];
+  return `${f.outline ? 'o' : '-'}${f.moved ?? ''}${f.probe !== null ? `p${f.probe}` : ''}${f.gone ? `g${f.gone}` : ''}${f.hold ? 'h' : ''}/${phase}${f.steady}${f.far !== null ? `f${f.far}` : ''}${f.issues ? `!${f.issues.join('+')}` : ''}`;
+}
+
 async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally | null, gain = 1, blur = 0): Promise<void> {
   let frame = frameOf(card, corners, gain);
   if (blur) frame = blurred(frame, blur);
@@ -180,16 +187,15 @@ async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally |
     if (seen.read.counted) tally.counted += 1;
     else tally.repeats += 1;
     tally.triggers.push(`${seen.read.trigger}${seen.read.counted ? '' : ' (same card)'}`);
-    if (values.verbose) {
-      const frames = seen.read.frames.map((f) => `${f.outline ? 'o' : '-'}${f.moved ?? ''}${f.probe !== null ? `p${f.probe}` : ''}${f.gone ? `g${f.gone}` : ''}${f.hold ? 'h' : ''}`);
-      console.log(`    ${seen.read.trigger}${seen.read.counted ? ' COUNTED' : ' same'}: ${frames.join(' ')}`);
-    }
+    if (values.verbose) console.log(`    ${seen.read.trigger}${seen.read.counted ? ' COUNTED' : ' same'}: ${seen.read.frames.map(frameText).join(' ')}`);
   }
+  if (seen.quiet && values.verbose) console.log(`    quiet ${seen.quiet.ms} ms: ${seen.quiet.frames.map(frameText).join(' ')}`);
 }
 
 const results: { name: string; looks: number; tally: Tally }[] = [];
 for (const card of cards) {
   const tally: Tally = { counted: 0, repeats: 0, triggers: [] };
+  if (values.verbose) console.log(`  ${card.name} (${card.reads.length} pictures)`);
   let base = { x: centre.x + (random() - 0.5) * 40, y: centre.y + (random() - 0.5) * 40 };
   for (const read of card.reads) {
     const picture = decodeJpeg(Uint8Array.from(Buffer.from(read.crop!, 'base64')));
