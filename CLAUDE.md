@@ -474,7 +474,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
       - Auto-accepted: phone-flash 33.6% → 34.2%, real (40) 15.0% → 17.5%.
       - Latency (Node, M-series Mac): about +10 ms at p50, +50–160 ms at p95.
     - **Tests:** 418 unit and 50 e2e pass on Linux in Docker.
-  - **Round 10 (2026-11-15, PR #16, not yet merged or phone-tested).** PRs #13–#15 were merged (main 879d71e).
+  - **Round 10 (2026-11-15, PR #16, merged as f4502b2, phone-tested in round 11).** PRs #13–#15 were merged (main 879d71e).
     - **The test:** the owner's round-10 debug log (iPhone, 720p, TRK lock throughout, foil switch on for the last 29 reads) had 152 live reads in 14 minutes. 95 cards were auto-added and 2 undone, both double counts (#4, #36), so 0 wrong cards. That is about 75% of real cards. The owner: much better in the orange light, but a foil Constable Odo was hard, and copies put on top should count without +1.
     - **A much surer re-read stands in for the read it was counted as** (`liveScanner.muchSurer`, `Scanner.upgrade`):
       - #143, the foil Odo, was counted as a junk outside-lock review (Sage's Reverie, 0.05). Its re-read at 0.90 (#144), and four more, settled as the same card and were dropped.
@@ -510,7 +510,7 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the 28 review-accepted reads, 68 in all.
     - **Not fixed:** why detection loses foils, special frames (Grand Nagus Zek TRK 458), partial outlines.
     - **Tests:** 429 unit and 50 e2e pass on Linux in Docker.
-  - **Review tab quick confirm (2026-11-15, PR #17, not yet merged or phone-tested).** PR #16 was merged (main f4502b2). Most reviews aren't wrong, only a little under 0.9, and about 30 per stack took minutes one by one. UI only: recognition and auto-accept (0.9) are unchanged.
+  - **Review tab quick confirm (2026-11-15, PR #17, merged as d0c2899, phone-tested in round 11).** PR #16 was merged (main f4502b2). Most reviews aren't wrong, only a little under 0.9, and about 30 per stack took minutes one by one. UI only: recognition and auto-accept (0.9) are unchanged.
     - **The rules** (`review/quickConfirm.ts`): a review looks right at a name confidence of 0.8 or more with a printing that is clear or settled.
       - Clear: the printing's share of the confidence is ≥ 0.9, and the reason isn't unsure-printing.
       - Settled: the lock's number lookup, a clean collector match (set and number exact), the only printing of the name in the locked sets, or a printing the user set.
@@ -528,6 +528,68 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Store:** `acceptReviewGroup` returns what each review became; `undoAcceptedGroup` takes a group back out and queues the reviews again, once.
     - **Debug log:** `via: 'bulk'` and `cutoff` on these accepts, `bulk-rejected` for guesses marked wrong (labelled negatives for the cutoff), `bulk-undone` (the fixtures script drops those labels).
     - **Tests:** 437 unit and 51 e2e pass on Linux in Docker. The new e2e: under an M11 lock, a clearly read Sol Ring looks right while a junk read needs a look; add, then Undo.
+  - **Round 11: the tests.** PR #17 was merged (main d0c2899). The owner sent two debug logs (iPhone, 720p, copy-on-top switch on). Two QA sessions also reviewed main d0c2899: one for UI and UX, one for code.
+    - **Star Trek, TRK lock:** 143 reads; about 86% of cards auto-added. A hand reaching over a card lying there, lit by the flashlight, counted it again (2 undone).
+    - **Doctor Who collector boosters, mostly foils, no lock:** 240 reads; about 49% auto-added.
+      - 49 junk reviews to clean up.
+      - Extended-art cards lying plainly in the red box went undetected.
+      - Collector numbers read with 5 as 6 or 8.
+    - The round was split into two PRs: UI and Review (#18), and recognition and live counting (#19).
+  - **Round 11: UI and Review (2026-11-16, PR #18, merged as d8e1390, not yet phone-tested).** No recognition change.
+    - **Review tab:**
+      - "Needs a look" is a list too. Each row has an Add box, unticked; ticked rows join "Add N cards" with "Looks right", added and undone as one group (`via: 'bulk-ticked'`). "Tick all close matches" ticks the rows marked close match. The tab always opens on the lists.
+      - Marks (wrong, ticked) are kept per batch while the app runs.
+      - The right-edge control is an outlined "✗ Wrong" button: the green ✓ had marked a card wrong.
+      - One by one, Add and Discard sit in a bar at the bottom, and each card opens at its top.
+      - Quick-confirm fixes from the QA review:
+        - the lock's number lookup settles only a printing whose number was read cleanly;
+        - a loose or zeroed collector match isn't clean (by score: clean 1.6, loose 1.1);
+        - banners skip rows marked on screen and reads that named nothing;
+        - every review keeps the lock it was scanned under;
+        - a double tap on Add adds once.
+      - Group Undo leaves a card whose row was changed or merged where it went (it had counted twice).
+    - **Scan tab:**
+      - The last card's line, the hint, a full-size "+1 <name>" and a separate Undo sit above the camera, which takes the room left (`max(36vh, 100dvh - 24rem)`).
+      - "Removed X · Undo" puts back a card taken out by mistake.
+      - "Wrong? Read again" takes back the card read, not a +1 copy.
+    - **Tabs and batch:**
+      - Tabs read Scan · Review · Batch · Search, with the counts in badges. The app opens on the tab used last (Scan the first time).
+      - The update banner sits in the page, never over the Add bar.
+      - Batch rows are compact, with the rest behind Edit. Remove, or − on the last copy, can be undone. An Export button sits at the top.
+      - Selects are 16 px, so iOS doesn't zoom.
+    - **Printed names:** printings carry `printedName` (Scryfall's flavor_name or printed_name), shown with the card's own name beneath; exports keep the card's own name. It appears once the nightly index build adds it.
+    - **Tests:** 440 unit and 51 e2e pass on Linux in Docker.
+  - **Round 11: recognition and live counting (2026-11-16, PR #19, merged as f9001a6, not yet phone-tested).**
+    - **A hand over a card** (`liveSession.ts` `left`, `liveScanner.ts` `emptySpot`):
+      - Once the card read last is taken for gone, the same card read next counts only after the empty surface showed where it lay, 2 frames in a row. Until then it is that card back, not counted.
+      - The empty surface is untextured (texture share < 0.1) and the colour of the picture's edges (chromaticity within 0.08). On round 11's pictures, empty spots were 0.00–0.03 against cards' 0.24 or more; a hand differs in colour.
+      - An identical copy put straight on top, with no empty box between, needs +1 (or copy-on-top).
+      - An outline with nothing on it (the box's floor) shows as no outline.
+    - **Same card or not:**
+      - After a card was taken for gone or moved, two reads sure of different printings are two cards, as are unsure reads of different printings that look different.
+      - Copy-on-top needs a cover of 2 or more frames and a card settled 5% from each of its last 3 outlines.
+      - A surer re-read replaces a read that named nothing only with the same best guess, unless no frame showed the card gone in between. The new read is filed before the old review goes.
+    - **Junk reviews:** round 11's junk reads were the card's own text box. A good read whose outline encloses recent junk reads takes their place: middle inside, area ≤ 0.85, within 20 s, no card gone between (`pieceOf`, `Scanner.supersede`, logged as `replaced`).
+    - **The worker stays:** the recognition worker lives as long as the app, so leaving the Scan tab keeps the card read last. A camera starting again checks the card in view.
+    - **Detection** (`detect.ts` `rescue`):
+      - The cause: the card's edges joined the lines where the deck box's walls meet its floor, so the best outline ran along the walls.
+      - The fix: when nothing card-shaped is found, an outline with two good neighbouring sides is rebuilt from them by the card's shape.
+      - On round 11's quiet-spell pictures, frames with no outline went 37 → 27 of 69, for about 1.5 ms more per frame.
+    - **The art veto:** it no longer holds a title at 0.5 when the title reads ≥ 0.95 with the number read cleanly, or ≥ 0.97 with the set code, for one of the name's printings (in the lock, when locked). These were foils under the flashlight: title 0.98, art 50–56. Trace `art-veto-lifted`.
+    - **Misread collector numbers** (`digitMisreads.ts`):
+      - With a sure title and no printing of the name having the number read, the printing whose number is a likely misreading of it gets it as `close`. Swaps like 5/6/8 cost half.
+      - When that is what made the printing sure, its confidence is capped at 0.85: 9 of 12 such picks on the owner's logs were right. Trace `collector:near`.
+    - **Debug log:** frames record `empty`; quiet spells are capped at 200. `live-replay --hands` has a lit hand reach over cards.
+    - **Real-scan fixtures:** round 11's 95 review-accepted reads, 163 in all.
+    - **Eval, main → after:**
+      - 0 wrong auto-accepts on all 12 runs, sweeps the same or better, so 0.9 stays.
+      - Auto-accepts are never below main: phone-redbox 54.6% → 55.3%, phone locked to its set 57.2% → 57.5%, the rest equal. Phone-flash: names 89.5% → 90.1%, printings 69.7% → 70.4%.
+      - The eval barely sees these changes; the replays do.
+    - **Live replay, rounds 6–11:**
+      - With hands: 224 extra counts on main, 22 after.
+      - Without: the same extra counts as main in 13 of 14 runs (the other is the replay showing junk crops as cards), and fewer missed (15 → 11 and 15 → 10).
+    - **Not fixed:** QA L-b (bridging gaps of up to 8 frames; fixing it would undo round 10's fix for foils), promo and List twins, special frames.
+    - **Tests:** 452 unit and 52 e2e pass on Linux in Docker.
 
 ## Working agreements for Claude Code
 
