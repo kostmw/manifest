@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MTG_REGIONS } from '../games/mtg/adapter';
 import type { Quad } from '../vision/geometry';
 import { createRgba, type RgbaImage } from '../vision/image';
@@ -10,6 +10,14 @@ import { LiveSession, signatureDistance } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
 import type { Recognition } from './pipeline';
+
+/**
+ * These tests run the real pipeline (detection, OCR, fingerprints) on many
+ * frames: a few seconds each on a slow CI runner, against vitest's 5 s default
+ * (deploy run 43921141435: 4.2 s for one that takes 2.2 s on a Mac). All get
+ * room to spare; the slowest set their own.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 const names = new NameIndex({ names: ['Sol Ring', 'Soaring', 'Lightning Bolt', 'Lightning Helix'], faces: {} });
 const FRAME = { width: 720, height: 960 };
