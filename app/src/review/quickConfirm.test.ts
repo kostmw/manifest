@@ -42,8 +42,19 @@ describe('placeReview', () => {
     const collector = plainsGuessedSld({ candidates: [candidate(PLAINS_TRK, { collector: { number: 'exact', set: 'exact', score: 1.6 } }), candidate(PLAINS_SLD)] });
     expect(placeReview(collector, NONE)).toMatchObject({ group: 'looks-right', settledBy: 'collector', printing: PLAINS_TRK });
     // Locked to TRK, the collector number alone looked it up in the locked set.
-    const lookup = plainsGuessedSld({ candidates: [candidate(PLAINS_TRK), candidate(PLAINS_SLD)], trace: ['title:rendering-1', 'lock:number-lookup'] });
+    const numberRead = { number: 'exact' as const, set: 'unread' as const, score: 1 };
+    const lookup = plainsGuessedSld({ candidates: [candidate(PLAINS_TRK, { collector: numberRead }), candidate(PLAINS_SLD)], trace: ['title:rendering-1', 'lock:number-lookup'] });
     expect(placeReview(lookup, TRK)).toMatchObject({ group: 'looks-right', settledBy: 'lock-number' });
+    // A lookup that named another card (309, Swamp) settles nothing: two TRK Plains, neither with that number (QA M1).
+    const PLAINS_312 = printing('Plains', 'trk', '312');
+    const conflict = { number: 'conflict' as const, set: 'unread' as const, score: -0.6 };
+    const otherCard = plainsGuessedSld({ candidates: [candidate(PLAINS_TRK, { collector: conflict }), candidate(PLAINS_312, { collector: conflict })], trace: ['lock:number-lookup'] });
+    expect(placeReview(otherCard, TRK)).toMatchObject({ group: 'needs-look', settledBy: null });
+    // A loose digit guess (1.1 with the set), or a match zeroed for contradicting the art, isn't a clean collector line (QA M2).
+    for (const collector of [{ number: 'exact' as const, set: 'exact' as const, score: 1.1 }, { number: 'exact' as const, set: 'exact' as const, score: 0 }]) {
+      const weak = plainsGuessedSld({ candidates: [candidate(PLAINS_TRK, { collector }), candidate(PLAINS_SLD)] });
+      expect(placeReview(weak, NONE)).toMatchObject({ group: 'needs-look', settledBy: null });
+    }
     // Only one of the name's printings is in the locked set.
     expect(placeReview(plainsGuessedSld({ candidates: [candidate(PLAINS_TRK), candidate(PLAINS_SLD)] }), TRK)).toMatchObject({ group: 'looks-right', settledBy: 'only-in-lock' });
     // Two in the locked set: not settled.
@@ -104,5 +115,8 @@ describe('bannerTargets', () => {
     const c = plainsGuessedSld({ chosen: PLAINS_TRK });
     const d = review({ names: ['Island'] });
     expect(bannerTargets([a, b, c, d], 'Plains', PLAINS_TRK).map((item) => item.id)).toEqual([a.id]);
+    // Nor one marked wrong on screen and not yet sent, nor a read that named nothing (QA L-e, L-f).
+    const junk = plainsGuessedSld({ nameConfidence: 0.2, confidence: 0.1 });
+    expect(bannerTargets([a, junk], 'Plains', PLAINS_TRK, new Set([a.id]))).toEqual([]);
   });
 });

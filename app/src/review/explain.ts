@@ -1,4 +1,5 @@
 /** Words for what the recognizer found, shared by the scanner and the review queue. */
+import type { Printing } from '../games/types';
 import type { PrintingCandidate } from '../recognize/identify';
 import { ADVICE_HINTS, type QualityAdvice } from '../vision/quality';
 
@@ -27,4 +28,14 @@ export function unreadableHint(advice: readonly string[]): string {
 /** "CMM 410". */
 export function printingCode(printing: { set: string; number: string }): string {
   return `${printing.set.toUpperCase()} ${printing.number}`;
+}
+
+/** The name to show for a printing: the one printed on it when that isn't its own (see Printing.printedName). */
+export function shownName(printing: Pick<Printing, 'name' | 'exportName' | 'printedName'>): string {
+  return printing.printedName ?? printing.exportName ?? printing.name;
+}
+
+/** The card's own name, to show under a printed name that differs from it; null when there is none. */
+export function ownNameNote(printing: Pick<Printing, 'name' | 'exportName' | 'printedName'>): string | null {
+  return printing.printedName ? (printing.exportName ?? printing.name) : null;
 }

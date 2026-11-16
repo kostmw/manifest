@@ -72,7 +72,8 @@ export async function intake(batch: Batch, scan: ScannedCard, source: ReviewItem
     advice: scan.advice,
     reason: decision.reason,
     ...(scan.trace?.length ? { trace: scan.trace } : {}),
-    ...(batch.settings.lockSets?.length ? { lockSets: batch.settings.lockSets } : {}),
+    // Always kept, empty when unlocked: a review is judged by the lock it was scanned under, not the batch's lock now (QA L-d).
+    lockSets: batch.settings.lockSets ?? [],
     foil,
     lang: batch.settings.defaultLang,
     condition: batch.settings.defaultCondition,

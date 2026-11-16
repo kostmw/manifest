@@ -101,7 +101,7 @@ Each event has these fields:
 
 The types:
 
-- `review-accepted`: a review resolved as `printing`. This is the ground truth. `via` is `candidate-N` (its rank), `printings` (all printings of a name), `search`, or `bulk` (quick confirm: added with the other "looks right" rows by "Add N cards", with its `cutoff`), plus `, all similar` for "Use … for all".
+- `review-accepted`: a review resolved as `printing`. This is the ground truth. `via` is `candidate-N` (its rank), `printings` (all printings of a name), `search`, `bulk` (quick confirm: added with the other "looks right" rows by "Add N cards", with its `cutoff`), or `bulk-ticked` (a "needs a look" row the user ticked, added in the same group; no `cutoff`), plus `, all similar` for "Use … for all".
 - `bulk-rejected` (quick confirm): a "looks right" guess (`printing`) the user marked wrong when adding the rest, with the `cutoff`: a labelled negative. The review waits on, under "needs a look".
 - `bulk-undone` (quick confirm): a group added by "Add N cards" taken back with its Undo; `readIds` are all of them, and their labels are dropped like an `undo`'s.
 - `review-discarded`
