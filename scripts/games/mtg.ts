@@ -75,10 +75,12 @@ export function toPrinting(card: ScryfallCard): Printing | null {
   if (manaValue !== undefined) attrs.manaValue = manaValue;
   if (multiverseId !== undefined) attrs.multiverseId = multiverseId;
 
+  const printedName = card.flavor_name ?? front?.flavor_name ?? card.printed_name ?? front?.printed_name;
   return {
     id: card.id,
     name: card.name,
     ...(exportName !== card.name ? { exportName } : {}),
+    ...(printedName && printedName !== card.name && printedName !== exportName ? { printedName } : {}),
     set: card.set,
     setName: card.set_name,
     number: card.collector_number,

@@ -9,6 +9,13 @@ export interface Printing {
   name: string;
   /** Shorter name for plain lists, when it differs from `name`. */
   exportName?: string;
+  /**
+   * The name printed on the card, when it isn't its own (Universes Beyond and
+   * renamed Secret Lair cards, a printing in another language): shown beside
+   * `name` so the user recognises the card, never exported. Absent from
+   * indexes built before it existed.
+   */
+  printedName?: string;
   set: string;
   setName: string;
   number: string;

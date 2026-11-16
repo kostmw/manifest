@@ -84,6 +84,12 @@ describe('buildNameDictionary', () => {
     expect(faces['Ice']).toEqual(['Fire // Ice']);
   });
 
+  it("keeps the name printed on a card when it isn't its own, for showing (round 11: Leonard McCoy showed as Bristly Bill)", () => {
+    const mccoy = toPrinting({ ...card('Sol Ring'), name: 'Bristly Bill, Spine Sower', flavor_name: 'Leonard McCoy, Country Doctor' });
+    expect(mccoy).toMatchObject({ name: 'Bristly Bill, Spine Sower', printedName: 'Leonard McCoy, Country Doctor' });
+    expect(toPrinting(card('Sol Ring'))?.printedName).toBeUndefined();
+  });
+
   it('maps printed alternate names to the card they stand for', () => {
     const solitude: ScryfallCard = { ...card('Sol Ring'), name: 'Solitude', flavor_name: 'Yojimbo' };
     const dracula: ScryfallCard = {
