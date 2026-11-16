@@ -459,10 +459,10 @@ export function Scanner({
     );
   };
 
-  /** "Wrong? Read again": take the last live card back out and read the card in view afresh. */
+  /** "Wrong? Read again": take the card live mode read last back out (not a +1 copy of it, QA L-g) and read the card in view afresh. */
   const readAgain = () => {
-    const newest = recent[0];
-    if (newest?.source === 'live') undo(newest);
+    const read = recent.find((entry) => !entry.copy);
+    if (read?.source === 'live') undo(read);
     again();
   };
 

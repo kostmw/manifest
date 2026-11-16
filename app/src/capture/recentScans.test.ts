@@ -19,7 +19,8 @@ describe('+1 on the card just added (round 7)', () => {
     const scanned = pushRecent({ batchId: batch.id, kind: 'added', source: 'live', name: 'Sol Ring', code: 'CMM 410', itemId, scanId: 'scan-1', card: null });
 
     const copy = await copyRecent(scanned);
-    expect(copy).toMatchObject({ kind: 'added', itemId, name: 'Sol Ring' });
+    // Marked a copy, so "Wrong? Read again" takes back the card read, not the copy (QA L-g).
+    expect(copy).toMatchObject({ kind: 'added', itemId, name: 'Sol Ring', copy: true });
     expect(copy!.id).not.toBe(scanned.id);
     expect((await getItems(batch.id))[0]?.qty).toBe(2);
 

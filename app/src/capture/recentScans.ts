@@ -27,6 +27,8 @@ export interface RecentScan {
   reviewId?: string;
   /** The test log's id of this scan. */
   scanId?: string;
+  /** A +1: one more of the card scanned before it, not a scan of its own. */
+  copy?: true;
   /** Object URL of the user's crop. */
   thumb: string | null;
   /** performance.now() when it was scanned. */
@@ -68,7 +70,7 @@ function keep(next: readonly RecentScan[]): void {
 export async function copyRecent(entry: RecentScan): Promise<RecentScan | null> {
   if (entry.kind !== 'added' || !entry.itemId) return null;
   await changeQuantity(entry.itemId, 1);
-  const copy: RecentScan = { ...entry, id: crypto.randomUUID(), at: performance.now() };
+  const copy: RecentScan = { ...entry, id: crypto.randomUUID(), at: performance.now(), copy: true };
   keep([copy, ...entries]);
   if (entry.scanId) logEvent({ type: 'copy-added', readIds: [entry.scanId] });
   return copy;
