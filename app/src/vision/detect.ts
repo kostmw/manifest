@@ -189,20 +189,7 @@ export function edgeSupport(
   let weakest = 1;
   let total = 0;
   for (let i = 0; i < 4; i++) {
-    const a = quad[i]!;
-    const b = quad[(i + 1) % 4]!;
-    const samples = Math.max(16, Math.round(distance(a, b) / 2));
-    let hits = 0;
-    let counted = 0;
-    for (let s = 0; s < samples; s++) {
-      const t = 0.1 + (0.8 * (s + 0.5)) / samples;
-      const x = Math.round(a.x + (b.x - a.x) * t);
-      const y = Math.round(a.y + (b.y - a.y) * t);
-      if (x < 0 || y < 0 || x >= width || y >= height) continue;
-      counted++;
-      if (edges[y * width + x]) hits++;
-    }
-    const share = counted ? hits / counted : 0;
+    const share = segmentSupport(quad[i]!, quad[(i + 1) % 4]!, edges, width, height);
     weakest = Math.min(weakest, share);
     total += share;
   }
@@ -363,11 +350,28 @@ function edgeLevels(ridges: Float32Array): number[] {
 const MIN_TILT = 15;
 const MAX_TILT = 70;
 
-function quadCandidates(
-  edges: Uint8Array,
-  gray: GrayImage,
-  options: DetectOptions,
-): { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number; tilt: number }[] {
+type Candidate = { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number; tilt: number };
+
+/**
+ * An outline that failed only on edge support, with two neighbouring sides
+ * that lie on edges all along: the card's edges joined to other lines (a deck
+ * box's wall meeting its floor near the card's corners) and the outline ran
+ * along those instead of the card's other two sides (round 11: extended-art
+ * cards filling a red deck box, found on 0–8 frames of 17).
+ */
+interface NearMiss {
+  quad: Quad;
+  /** Index of the first of the two good sides (side i runs from corner i to i + 1; even sides are the card's width). */
+  side: number;
+  /** The edges it was found on (at its edge level), and the same joined across small gaps. */
+  edges: Uint8Array;
+  joined: Uint8Array;
+}
+
+/** Share of the middle of each side of a near miss that must lie on edges to rescue it from the other two. */
+const RESCUE_GOOD_SIDE = 0.75;
+
+function quadCandidates(edges: Uint8Array, gray: GrayImage, options: DetectOptions, nearMisses?: NearMiss[]): Candidate[] {
   const { width, height } = gray;
   const minAreaFraction = options.minAreaFraction ?? 0.03;
   const joined = dilate(edges, width, height, 1);
@@ -375,7 +379,7 @@ function quadCandidates(
   const frameArea = width * height;
   const reject = (reason: string, detail: Record<string, number> = {}) => options.onReject?.(reason, detail);
 
-  const found = [];
+  const found: Candidate[] = [];
   for (const component of components(joined, width, height, minExtent)) {
     const hull = convexHull(component.points);
     const hullArea = polygonArea(hull);
@@ -411,45 +415,144 @@ function quadCandidates(
     const support = edgeSupport(seen, joined, width, height);
     if (support.weakest < 0.3 || support.mean < 0.55) {
       reject('edge-support', { weakest: support.weakest, mean: support.mean });
+      const side = nearMisses ? goodNeighbours(seen, joined, width, height) : null;
+      if (side !== null) nearMisses!.push({ quad: seen, side, edges, joined });
       continue;
     }
-
-    // Edge support is judged on the edges actually seen; the card's own edge, when found
-    // beyond a dark border, is invisible to Canny by nature.
-    const expanded = options.border ? expandDarkBorder(seen, gray, options.border, options.aspect) : null;
-    let ordered = expanded ? orderCardCorners(expanded) : seen;
-    const top = distance(ordered[0], ordered[1]);
-    const right = distance(ordered[1], ordered[2]);
-    const bottom = distance(ordered[2], ordered[3]);
-    const left = distance(ordered[3], ordered[0]);
-    const outline = (top + bottom) / (left + right);
-    // A card seen at an angle looks squatter than it is: judge its shape with the perspective
-    // taken out, so a phone tilted 30–60° still finds the card (and can be told to hold flatter).
-    // Nearly flat (under MIN_TILT), the correction is smaller than the noise in the corners, and
-    // beyond MAX_TILT the pose is implausible: then, and whenever the outline itself looks more
-    // like a card, the outline is used as it is.
-    const pose = outline > 0.3 && outline < 1.7 ? cardPose(ordered as Quad, { width, height }) : null;
-    let ratio = outline;
-    if (pose && pose.tilt >= MIN_TILT && pose.tilt <= MAX_TILT) {
-      // Seen steeply, the outline can be wider than tall: a long side was taken for the top.
-      const sideways = pose.aspect > 1;
-      const corrected = sideways ? 1 / pose.aspect : pose.aspect;
-      if (Math.abs(corrected - options.aspect) < Math.abs(outline - options.aspect)) {
-        ratio = corrected;
-        if (sideways) ordered = [ordered[1], ordered[2], ordered[3], ordered[0]] as typeof ordered;
-      }
-    }
-    if (ratio < options.aspect * 0.7 || ratio > Math.min(1, options.aspect * 1.3)) {
-      reject('aspect', { ratio, outline });
-      continue;
-    }
-
-    const areaFraction = polygonArea(ordered) / frameArea;
-    const aspectScore = Math.exp(-(((ratio - options.aspect) / 0.1) ** 2));
-    const score = support.mean * aspectScore * Math.min(1, 0.6 + areaFraction * 2);
-    found.push({ corners: ordered, score, edgeSupport: support.weakest, aspect: ratio, areaFraction, tilt: pose && pose.tilt <= MAX_TILT ? pose.tilt : 0 });
+    const candidate = shapeCheck(seen, support, gray, options, reject);
+    if (candidate) found.push(candidate);
   }
   return found;
+}
+
+/**
+ * The checks after edge support: a dark border pushed out to the card's edge,
+ * the shape judged with any perspective taken out, and the score.
+ */
+function shapeCheck(
+  seen: Quad,
+  support: { weakest: number; mean: number },
+  gray: GrayImage,
+  options: DetectOptions,
+  reject: (reason: string, detail?: Record<string, number>) => void,
+): Candidate | null {
+  const { width, height } = gray;
+  // Edge support is judged on the edges actually seen; the card's own edge, when found
+  // beyond a dark border, is invisible to Canny by nature.
+  const expanded = options.border ? expandDarkBorder(seen, gray, options.border, options.aspect) : null;
+  let ordered = expanded ? orderCardCorners(expanded) : seen;
+  const top = distance(ordered[0], ordered[1]);
+  const right = distance(ordered[1], ordered[2]);
+  const bottom = distance(ordered[2], ordered[3]);
+  const left = distance(ordered[3], ordered[0]);
+  const outline = (top + bottom) / (left + right);
+  // A card seen at an angle looks squatter than it is: judge its shape with the perspective
+  // taken out, so a phone tilted 30–60° still finds the card (and can be told to hold flatter).
+  // Nearly flat (under MIN_TILT), the correction is smaller than the noise in the corners, and
+  // beyond MAX_TILT the pose is implausible: then, and whenever the outline itself looks more
+  // like a card, the outline is used as it is.
+  const pose = outline > 0.3 && outline < 1.7 ? cardPose(ordered as Quad, { width, height }) : null;
+  let ratio = outline;
+  if (pose && pose.tilt >= MIN_TILT && pose.tilt <= MAX_TILT) {
+    // Seen steeply, the outline can be wider than tall: a long side was taken for the top.
+    const sideways = pose.aspect > 1;
+    const corrected = sideways ? 1 / pose.aspect : pose.aspect;
+    if (Math.abs(corrected - options.aspect) < Math.abs(outline - options.aspect)) {
+      ratio = corrected;
+      if (sideways) ordered = [ordered[1], ordered[2], ordered[3], ordered[0]] as typeof ordered;
+    }
+  }
+  if (ratio < options.aspect * 0.7 || ratio > Math.min(1, options.aspect * 1.3)) {
+    reject('aspect', { ratio, outline });
+    return null;
+  }
+
+  const areaFraction = polygonArea(ordered) / (width * height);
+  const aspectScore = Math.exp(-(((ratio - options.aspect) / 0.1) ** 2));
+  const score = support.mean * aspectScore * Math.min(1, 0.6 + areaFraction * 2);
+  return { corners: ordered, score, edgeSupport: support.weakest, aspect: ratio, areaFraction, tilt: pose && pose.tilt <= MAX_TILT ? pose.tilt : 0 };
+}
+
+/** Share of samples along the middle 80% of segment a→b that land on an edge. */
+function segmentSupport(a: Point, b: Point, edges: Uint8Array, width: number, height: number): number {
+  const samples = Math.max(16, Math.round(distance(a, b) / 2));
+  let hits = 0;
+  let counted = 0;
+  for (let s = 0; s < samples; s++) {
+    const t = 0.1 + (0.8 * (s + 0.5)) / samples;
+    const x = Math.round(a.x + (b.x - a.x) * t);
+    const y = Math.round(a.y + (b.y - a.y) * t);
+    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+    counted++;
+    if (edges[y * width + x]) hits++;
+  }
+  return counted ? hits / counted : 0;
+}
+
+/** The first of two neighbouring sides that both lie on edges all along (see NearMiss), or null. */
+function goodNeighbours(quad: Quad, edges: Uint8Array, width: number, height: number): number | null {
+  const shares = [0, 1, 2, 3].map((i) => segmentSupport(quad[i]!, quad[(i + 1) % 4]!, edges, width, height));
+  let best: number | null = null;
+  for (let i = 0; i < 4; i++) {
+    const pair = Math.min(shares[i]!, shares[(i + 1) % 4]!);
+    if (pair >= RESCUE_GOOD_SIDE && (best === null || pair > Math.min(shares[best]!, shares[(best + 1) % 4]!))) best = i;
+  }
+  return best;
+}
+
+/**
+ * Rebuilds a near miss from its two good sides: from the corner they share,
+ * the card runs some length along each, and its other two sides lie parallel
+ * to them there. Tries the lengths a card of the right shape could have, keeps
+ * the pair whose far sides lie best on edges, then refits all four sides and
+ * puts the outline through the usual checks.
+ */
+function rescue(miss: NearMiss, gray: GrayImage, options: DetectOptions): Candidate | null {
+  const { width, height } = gray;
+  const { quad, side, edges, joined } = miss;
+  const corner = quad[(side + 1) % 4]!;
+  const alongA = quad[side]!; // the first good side runs from here to the shared corner
+  const alongB = quad[(side + 2) % 4]!; // the second runs from the shared corner to here
+  const lengthA = distance(corner, alongA);
+  const lengthB = distance(corner, alongB);
+  if (lengthA < 8 || lengthB < 8) return null;
+  const u = { x: (alongA.x - corner.x) / lengthA, y: (alongA.y - corner.y) / lengthA };
+  const v = { x: (alongB.x - corner.x) / lengthB, y: (alongB.y - corner.y) / lengthB };
+  // Side `side` is a width (short side) when even: then B's length is a height.
+  const heightOverWidth = 1 / options.aspect;
+  const bPerA = side % 2 === 0 ? heightOverWidth : 1 / heightOverWidth;
+  const at = (a: number, b: number) => ({ x: corner.x + u.x * a + v.x * b, y: corner.y + u.y * a + v.y * b });
+
+  let best: { a: number; b: number; weakest: number; mean: number } | null = null;
+  // The good sides may run on past the card along the clutter they joined, never much short of it.
+  for (let a = Math.round(lengthA * 0.5); a <= Math.round(lengthA * 1.05); a++) {
+    const expected = a * bPerA;
+    for (let b = Math.round(expected * 0.85); b <= Math.round(expected * 1.15); b++) {
+      if (b > lengthB * 1.05 || b < lengthB * 0.5) continue;
+      // The far side across from the first good side, and the one across from the second.
+      const farA = segmentSupport(at(0, b), at(a, b), joined, width, height);
+      if (best && farA < best.weakest) continue;
+      const farB = segmentSupport(at(a, 0), at(a, b), joined, width, height);
+      const weakest = Math.min(farA, farB);
+      const mean = (farA + farB) / 2;
+      if (!best || weakest > best.weakest || (weakest === best.weakest && mean > best.mean)) best = { a, b, weakest, mean };
+    }
+  }
+  if (!best || best.weakest < 0.5) return null;
+  const rough: Point[] = [];
+  // Back in the quad's own corner order.
+  rough[(side + 1) % 4] = corner;
+  rough[side] = at(best.a, 0);
+  rough[(side + 2) % 4] = at(0, best.b);
+  rough[(side + 3) % 4] = at(best.a, best.b);
+  const diagonal = Math.max(distance(rough[0]!, rough[2]!), distance(rough[1]!, rough[3]!));
+  let refined = refineQuad(rough, edges, width, height, Math.max(2, diagonal * 0.012));
+  refined = refineQuad(refined, edges, width, height, 1.5);
+  if (!isConvex(refined)) return null;
+  const seen = orderCardCorners(refined);
+  const support = edgeSupport(seen, joined, width, height);
+  if (support.weakest < 0.3 || support.mean < 0.55) return null;
+  return shapeCheck(seen, support, gray, options, () => {});
 }
 
 const center = (quad: readonly Point[]) => ({
@@ -464,15 +567,22 @@ export function detectCards(image: RgbaImage, options: DetectOptions): CardDetec
   const ridges = edgeRidges(blurred);
 
   // The same card found at several levels: keep its best-scoring version.
-  const candidates: ReturnType<typeof quadCandidates> = [];
+  const candidates: Candidate[] = [];
+  const add = (candidate: Candidate) => {
+    const diagonal = distance(candidate.corners[0]!, candidate.corners[2]!);
+    const same = candidates.findIndex((other) => other.corners.every((corner, i) => distance(corner, candidate.corners[i]!) < diagonal * 0.03));
+    if (same === -1) candidates.push(candidate);
+    else if (candidate.score > candidates[same]!.score) candidates[same] = candidate;
+  };
+  const nearMisses: NearMiss[] = [];
   for (const level of edgeLevels(ridges)) {
-    for (const candidate of quadCandidates(hysteresis(ridges, width, height, level * 0.4, level), blurred, options)) {
-      const diagonal = distance(candidate.corners[0]!, candidate.corners[2]!);
-      const same = candidates.findIndex((other) =>
-        other.corners.every((corner, i) => distance(corner, candidate.corners[i]!) < diagonal * 0.03),
-      );
-      if (same === -1) candidates.push(candidate);
-      else if (candidate.score > candidates[same]!.score) candidates[same] = candidate;
+    for (const candidate of quadCandidates(hysteresis(ridges, width, height, level * 0.4, level), blurred, options, nearMisses)) add(candidate);
+  }
+  // Nothing card-shaped at all: rebuild outlines that had two good sides from those (see NearMiss).
+  if (candidates.length === 0) {
+    for (const miss of nearMisses) {
+      const rescued = rescue(miss, blurred, options);
+      if (rescued) add(rescued);
     }
   }
 
