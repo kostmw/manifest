@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { canShare, downloadText, shareText } from '../export/deliver';
 import { ExportPanel } from '../export/ExportPanel';
 import { getGame } from '../games/registry';
@@ -12,6 +12,7 @@ import {
   deleteBatch,
   mergeBatches,
   removeItem,
+  restoreItem,
   updateBatch,
   updateBatchSettings,
   updateItem,
@@ -20,31 +21,54 @@ import { logEvent, logPrinting } from './testLog';
 import type { Batch, BatchItem } from './types';
 import type { BatchesState } from './useBatches';
 
-const SMALL_FIELD = 'min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100';
-const STEPPER = 'flex size-9 items-center justify-center rounded-md bg-zinc-700 text-lg hover:bg-zinc-600';
+// 16 px on phones: iOS zooms in on fields with smaller text.
+const SMALL_FIELD = 'min-h-11 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-base text-zinc-100 sm:text-sm';
+const STEPPER = 'flex size-11 items-center justify-center rounded-md bg-zinc-700 text-lg hover:bg-zinc-600';
 
-function ItemRow({ item, batch }: { item: BatchItem; batch: Batch }) {
+/**
+ * One batch row, compact: name, set and number, and the quantity. Finish,
+ * language, condition, Change printing and Remove open with Edit (each row
+ * was about 200 px tall, so Export was 25 screens down a 95-card batch).
+ * Removing a row, or its last copy, can be undone (`onRemoved`).
+ */
+function ItemRow({ item, batch, onRemoved }: { item: BatchItem; batch: Batch; onRemoved: (item: BatchItem) => void }) {
   const game = batch.game;
   const adapter = getGame(game);
   const [changing, setChanging] = useState(false);
+  const [editing, setEditing] = useState(false);
   const { printing } = item;
   const name = printing.exportName ?? printing.name;
+  // The name printed on the card, when it isn't its own (exports keep its own).
+  const shown = printing.printedName ?? name;
   const code = `${printing.set.toUpperCase()} ${printing.number}`;
 
   return (
-    <li className="flex flex-col gap-2 rounded-xl bg-zinc-800/60 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{name}</p>
-          <p className="truncate text-xs text-zinc-400">
-            {code} · {printing.setName}
-          </p>
-        </div>
+    <li className="flex flex-col gap-2 rounded-xl bg-zinc-800/60 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          aria-expanded={editing}
+          aria-label={`Edit ${name}`}
+          onClick={() => setEditing((open) => !open)}
+          className="flex min-w-0 flex-1 flex-col items-start text-left"
+        >
+          <span className="line-clamp-2 text-sm leading-tight font-medium">{shown}</span>
+          {shown !== name && <span className="truncate text-[11px] text-zinc-400">{name}</span>}
+          <span className="flex w-full min-w-0 items-baseline gap-1 text-xs text-zinc-400">
+            <span className="truncate">
+              <span className="whitespace-nowrap">{code}</span> · {printing.setName}
+              {item.finish !== 'nonfoil' ? ` · ${adapter.finishes.find((choice) => choice.code === item.finish)?.label ?? item.finish}` : ''}
+            </span>
+            <span aria-hidden="true" className="ml-auto flex-none text-zinc-300">
+              Edit {editing ? '▾' : '▸'}
+            </span>
+          </span>
+        </button>
         <div className="flex flex-none items-center gap-1">
           <button
             type="button"
             aria-label={`One fewer ${name}`}
-            onClick={() => void changeQuantity(item.id, -1)}
+            onClick={() => void changeQuantity(item.id, -1).then(() => (item.qty <= 1 ? onRemoved(item) : undefined))}
             className={STEPPER}
           >
             −
@@ -62,67 +86,69 @@ function ItemRow({ item, batch }: { item: BatchItem; batch: Batch }) {
           </button>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label={`Finish of ${name}`}
-          value={item.finish}
-          onChange={(event) => void updateItem(item.id, { finish: event.target.value })}
-          className={SMALL_FIELD}
-        >
-          {adapter.finishes
-            .filter((choice) => printing.finishes.includes(choice.code) || choice.code === item.finish)
-            .map((choice) => (
+      {editing && (
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label={`Finish of ${name}`}
+            value={item.finish}
+            onChange={(event) => void updateItem(item.id, { finish: event.target.value })}
+            className={SMALL_FIELD}
+          >
+            {adapter.finishes
+              .filter((choice) => printing.finishes.includes(choice.code) || choice.code === item.finish)
+              .map((choice) => (
+                <option key={choice.code} value={choice.code}>
+                  {choice.label}
+                </option>
+              ))}
+          </select>
+          <select
+            aria-label={`Language of ${name}`}
+            value={item.lang}
+            onChange={(event) => void updateItem(item.id, { lang: event.target.value })}
+            className={SMALL_FIELD}
+          >
+            {/* A printing's own rare language, such as Phyrexian, stays selectable. */}
+            {!adapter.languages.some((choice) => choice.code === item.lang) && (
+              <option value={item.lang}>{item.lang}</option>
+            )}
+            {adapter.languages.map((choice) => (
               <option key={choice.code} value={choice.code}>
                 {choice.label}
               </option>
             ))}
-        </select>
-        <select
-          aria-label={`Language of ${name}`}
-          value={item.lang}
-          onChange={(event) => void updateItem(item.id, { lang: event.target.value })}
-          className={SMALL_FIELD}
-        >
-          {/* A printing's own rare language, such as Phyrexian, stays selectable. */}
-          {!adapter.languages.some((choice) => choice.code === item.lang) && (
-            <option value={item.lang}>{item.lang}</option>
-          )}
-          {adapter.languages.map((choice) => (
-            <option key={choice.code} value={choice.code}>
-              {choice.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label={`Condition of ${name}`}
-          value={item.condition}
-          onChange={(event) => void updateItem(item.id, { condition: event.target.value })}
-          className={SMALL_FIELD}
-        >
-          {adapter.conditions.map((choice) => (
-            <option key={choice.code} value={choice.code}>
-              {choice.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          aria-label={`Change printing of ${name}`}
-          aria-expanded={changing}
-          onClick={() => setChanging((open) => !open)}
-          className="ml-auto min-h-9 rounded-md px-2 text-sm text-zinc-300 hover:text-zinc-100"
-        >
-          Change printing
-        </button>
-        <button
-          type="button"
-          aria-label={`Remove ${name}`}
-          onClick={() => void removeItem(item.id)}
-          className="min-h-9 rounded-md px-2 text-sm text-zinc-400 hover:text-red-300"
-        >
-          Remove
-        </button>
-      </div>
+          </select>
+          <select
+            aria-label={`Condition of ${name}`}
+            value={item.condition}
+            onChange={(event) => void updateItem(item.id, { condition: event.target.value })}
+            className={SMALL_FIELD}
+          >
+            {adapter.conditions.map((choice) => (
+              <option key={choice.code} value={choice.code}>
+                {choice.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            aria-label={`Change printing of ${name}`}
+            aria-expanded={changing}
+            onClick={() => setChanging((open) => !open)}
+            className="ml-auto min-h-11 rounded-md px-2 text-sm text-zinc-300 hover:text-zinc-100"
+          >
+            Change printing
+          </button>
+          <button
+            type="button"
+            aria-label={`Remove ${name}`}
+            onClick={() => void removeItem(item.id).then(() => onRemoved(item))}
+            className="min-h-11 rounded-md px-2 text-sm text-zinc-400 hover:text-red-300"
+          >
+            Remove
+          </button>
+        </div>
+      )}
       {changing && (
         <PrintingPicker
           batch={batch}
@@ -359,8 +385,18 @@ function BatchHeader({ state, batch }: { state: BatchesState; batch: Batch }) {
   );
 }
 
+/** How long "Removed X · Undo" offers to put a batch row back. */
+const REMOVED_MS = 6000;
+
 export function BatchView({ state, onAddCards }: { state: BatchesState; onAddCards: () => void }) {
   const { active, items, storageFailed } = state;
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [removed, setRemoved] = useState<{ item: BatchItem; key: number } | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const timer = setTimeout(() => setRemoved(null), REMOVED_MS);
+    return () => clearTimeout(timer);
+  }, [removed]);
   if (!active) return storageFailed ? null : <p className="text-sm text-zinc-400">Opening your batches…</p>;
 
   const total = items.reduce((sum, item) => sum + item.qty, 0);
@@ -369,9 +405,16 @@ export function BatchView({ state, onAddCards }: { state: BatchesState; onAddCar
     <div className="flex flex-col gap-4">
       <BatchHeader state={state} batch={active} />
       <section aria-label="Cards in batch" className="flex flex-col gap-2">
-        <h2 className="text-base font-semibold" data-testid="batch-total">
-          {total} card{total === 1 ? '' : 's'}
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2 className="flex-1 text-base font-semibold" data-testid="batch-total">
+            {total} card{total === 1 ? '' : 's'}
+          </h2>
+          {items.length > 0 && (
+            <button type="button" onClick={() => exportRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className={BUTTON_SECONDARY}>
+              Export ↓
+            </button>
+          )}
+        </div>
         {items.length === 0 ? (
           <div className="flex flex-col items-start gap-2 rounded-xl bg-zinc-800/40 p-4">
             <p className="text-sm text-zinc-300">This batch is empty.</p>
@@ -382,12 +425,35 @@ export function BatchView({ state, onAddCards }: { state: BatchesState; onAddCar
         ) : (
           <ul className="flex flex-col gap-2">
             {items.map((item) => (
-              <ItemRow key={item.id} item={item} batch={active} />
+              <ItemRow key={item.id} item={item} batch={active} onRemoved={(item) => setRemoved({ item, key: Date.now() })} />
             ))}
           </ul>
         )}
       </section>
-      {items.length > 0 && <ExportPanel batch={active} items={items} />}
+      <div ref={exportRef} className="scroll-mt-16">
+        {items.length > 0 && <ExportPanel batch={active} items={items} />}
+      </div>
+      {removed && (
+        <div role="status" className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-30 px-4">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-xl bg-zinc-100 p-3 text-sm text-zinc-900 shadow-lg">
+            <span className="min-w-0 flex-1 truncate">
+              Removed {removed.item.qty > 1 ? `${removed.item.qty} × ` : ''}
+              {removed.item.printing.exportName ?? removed.item.printing.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const { item } = removed;
+                setRemoved(null);
+                void restoreItem(item);
+              }}
+              className="min-h-11 rounded-lg px-3 font-semibold text-sky-800 hover:bg-zinc-200"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

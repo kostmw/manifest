@@ -9,7 +9,8 @@ import type { Batch } from '../session/types';
 import { BUTTON_SECONDARY, FIELD } from '../ui/styles';
 
 const CHIP = 'inline-flex min-h-11 items-center gap-2 rounded-lg bg-zinc-800 px-3 text-sm text-zinc-100';
-const SELECT = 'min-h-11 rounded-lg border border-zinc-700 bg-zinc-800 px-2 text-sm text-zinc-100';
+// 16 px on phones: iOS zooms in on fields with smaller text.
+const SELECT = 'min-h-11 max-w-[9.5rem] rounded-lg border border-zinc-700 bg-zinc-800 px-2 text-base text-zinc-100 sm:text-sm';
 const SET_CODE = /^[a-z0-9]{2,6}$/;
 
 type SetsState = { status: 'loading' } | { status: 'ready'; sets: SetInfo[] } | { status: 'missing' };

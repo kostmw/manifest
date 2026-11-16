@@ -49,7 +49,7 @@ test('turns the camera off when leaving the camera tab', async ({ page }) => {
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.getByRole('button', { name: 'Stop camera' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Add cards' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Search' }).click();
 
   const state = await page.evaluate(() =>
     (window as unknown as { testStream: MediaStream }).testStream.getTracks().map((track) => track.readyState),
@@ -122,6 +122,7 @@ for (const [scenario, block] of Object.entries(BLOCKED_STORAGE)) {
 test('explains what to do when the card index is unavailable', async ({ page }) => {
   await page.route('**/data/**', (route) => route.abort());
   await page.goto('./');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Search' }).click();
   await expect(page.getByRole('alert')).toContainText("Couldn't load the card list");
 
   await page.unroute('**/data/**');

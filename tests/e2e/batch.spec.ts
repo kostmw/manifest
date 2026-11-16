@@ -5,8 +5,16 @@ test.beforeEach(async ({ page }) => {
   // Thumbnails come from Scryfall's CDN. These tests shouldn't depend on it, or hit it.
   await page.route('https://cards.scryfall.io/**', (route) => route.abort());
   await page.goto('./');
+  // The app opens on Scan; adding by name is under Search.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Search' }).click();
   await expect(page.getByRole('combobox', { name: 'Card name' })).toBeEnabled();
 });
+
+/** Opens a batch row's finish, language, condition, Change printing and Remove, unless already open. */
+async function editRow(page: Page, name: string) {
+  const toggle = page.getByRole('button', { name: `Edit ${name}` });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
 
 async function chooseCard(page: Page, query: string, cardName: string) {
   const input = page.getByRole('combobox', { name: 'Card name' });
@@ -184,6 +192,7 @@ test('edits quantity, finish and condition, and the export follows', async ({ pa
   await page.getByRole('button', { name: 'One fewer Sol Ring' }).click();
   await expect(page.getByLabel('Quantity of Sol Ring')).toHaveText('2');
 
+  await editRow(page, 'Sol Ring');
   await page.getByRole('combobox', { name: 'Finish of Sol Ring' }).selectOption('foil');
   await page.getByRole('combobox', { name: 'Condition of Sol Ring' }).selectOption('LP');
   await page.getByRole('combobox', { name: 'Language of Sol Ring' }).selectOption('de');
@@ -193,6 +202,9 @@ test('edits quantity, finish and condition, and the export follows', async ({ pa
 
   await page.getByRole('button', { name: 'Remove Sol Ring' }).click();
   await expect(page.getByText('This batch is empty.')).toBeVisible();
+  // A removal can be undone.
+  await page.getByRole('status').filter({ hasText: 'Removed 2 × Sol Ring' }).getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByLabel('Quantity of Sol Ring')).toHaveText('2');
 });
 
 test('applies the batch defaults to new cards', async ({ page }) => {
@@ -200,7 +212,7 @@ test('applies the batch defaults to new cards', async ({ page }) => {
   await openSettings(page);
   await page.getByRole('combobox', { name: 'Language for new cards' }).selectOption('ja');
   await page.getByRole('combobox', { name: 'Condition for new cards' }).selectOption('HP');
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Add cards' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Search' }).click();
 
   await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
   await openBatch(page);
@@ -215,8 +227,8 @@ test('keeps batches after a reload, and keeps them separate', async ({ page }) =
   await expect(page.getByText('This batch is empty.')).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole('combobox', { name: 'Card name' })).toBeEnabled();
-  await openBatch(page);
+  // It opens on the tab used last.
+  await expect(page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Batch/ })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('This batch is empty.')).toBeVisible();
 
   const select = page.getByRole('combobox', { name: 'Current batch' });
@@ -276,6 +288,7 @@ test('starts a fresh batch after the last one is deleted', async ({ page }) => {
 test('changes the printing of a card in the batch', async ({ page }) => {
   await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Foil');
   await openBatch(page);
+  await editRow(page, 'Sol Ring');
   await page.getByRole('button', { name: 'Change printing of Sol Ring' }).click();
   const picker = page.getByRole('region', { name: 'Choose a printing' });
   await expect(picker.getByRole('list', { name: 'Printings' }).getByRole('listitem')).toHaveCount(2);
@@ -286,6 +299,7 @@ test('changes the printing of a card in the batch', async ({ page }) => {
   await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
 
   // Or another card altogether, found by name.
+  await editRow(page, 'Sol Ring');
   await page.getByRole('button', { name: 'Change printing of Sol Ring' }).click();
   await picker.getByRole('combobox', { name: 'Search another card' }).fill('lightning bolt');
   await picker.getByRole('option', { name: 'Lightning Bolt', exact: true }).click();
@@ -298,7 +312,7 @@ test('merges one batch into another', async ({ page }) => {
   await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
   await openBatch(page);
   await page.getByRole('button', { name: 'New batch' }).click();
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Add cards' }).click();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Search' }).click();
   await add(page, 'sol ring', 'Sol Ring', 'Add CMM 410 Nonfoil');
   await add(page, 'lightning bolt', 'Lightning Bolt', 'Add M11 149 Nonfoil');
   await openBatch(page);
@@ -337,6 +351,7 @@ test('backs up every batch to a file and restores it after the data is gone', as
   await expect(page.getByText('Restored 1 batch, 1 card and 0 to review.')).toBeVisible();
   await page.getByRole('combobox', { name: 'Current batch' }).selectOption({ label: 'Box 3' });
   await expect(page.getByTestId('batch-total')).toHaveText('1 card');
+  await editRow(page, 'Sol Ring');
   await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
 });
 
