@@ -357,6 +357,21 @@ describe('identifyPrinting when the artwork contradicts the text', () => {
     expect(result.confidence).toBeLessThanOrEqual(0.5);
   });
 
+  it('trusts a title read almost whole when the collector line names the same card, whatever the art (round 11: foils under the flashlight)', async () => {
+    // Every Sol Ring's art is plainly other (as a foil's under a hotspot can be), but its number and set read cleanly.
+    const numbered = await identify(1, { title: sure('Sol Ring'), invertArt: (name) => name === 'Sol Ring', collector: ['U0703', 'CMM•EN JOHN DOE'] });
+    expect(numbered.candidates[0]?.printing.id).toBe('cmm-703');
+    expect(numbered.nameConfidence).toBeGreaterThan(0.95);
+    // The set code alone, with the title read at 0.97 or more.
+    const setOnly = await identify(1, { title: sure('Sol Ring'), invertArt: (name) => name === 'Sol Ring', collector: ['CMM•EN JOHN DOE'] });
+    expect(setOnly.nameConfidence).toBeGreaterThan(0.9);
+    // A title read less surely (0.93) with only the set code stays capped; so does a collector line with no title.
+    const unsure = await identify(1, { title: read(0.93), invertArt: (name) => name === 'Sol Ring', collector: ['CMM•EN JOHN DOE'] });
+    expect(unsure.nameConfidence).toBeLessThanOrEqual(0.5);
+    const untitled = await identify(1, { title: junk, invertArt: (name) => name === 'Sol Ring', collector: ['U0703', 'CMM•EN JOHN DOE'] });
+    expect(untitled.nameConfidence).toBeLessThan(0.9);
+  });
+
   it('still trusts a sure title when the art is merely a poor match (glare, a misplaced outline)', async () => {
     const result = await identify(1, { title: sure('Sol Ring') });
     expect(result.candidates[0]?.printing.name).toBe('Sol Ring');
@@ -406,5 +421,35 @@ describe('recognizeFrame with printings', () => {
     expect(result.guessedOutline).toBe(true);
     expect(result.printings[0]?.printing.id).toBe('c21-263');
     expect(result.decision).toBe('review');
+  });
+});
+
+describe("identifyPrinting with a collector number misread (round 11: a Doctor Who card's 5 read as 6 or 8)", () => {
+  it("gives the title's printing whose number is a likely misreading of the one read the number as close", async () => {
+    // CMM 410 and 703 share their art: "0708" (3 read as 8) names 703 among Sol Ring's printings.
+    const result = await identify(2, { title: sure('Sol Ring'), collector: ['U0708'] });
+    const top = result.candidates[0]!;
+    expect(top.printing.id).toBe('cmm-703');
+    expect(top.collector).toMatchObject({ number: 'close' });
+    expect(result.candidates.find((c) => c.printing.id === 'cmm-410')?.collector?.number).toBe('conflict');
+    // Put first, never auto-accepted on that alone.
+    expect(result.printingConfidence).toBeLessThanOrEqual(0.85);
+  });
+
+  it('caps nothing when the artwork alone already settled the printing, the near number only agreeing', async () => {
+    // C21 263 has its own art (under glare, so the collector line is read); "0268" (3 read as 8) agrees with it.
+    const result = await identify(1, { title: sure('Sol Ring'), collector: ['U0268'], picture: glared(1) });
+    expect(result.candidates[0]?.printing.id).toBe('c21-263');
+    expect(result.candidates[0]?.collector).toMatchObject({ number: 'close' });
+    expect(result.printingConfidence).toBeGreaterThan(0.9);
+  });
+
+  it('leaves the number alone when no printing is a likely misreading, or two equally are', async () => {
+    // 390 is no likely misreading of 410, 703 or 263.
+    const none = await identify(2, { title: sure('Sol Ring'), collector: ['U0390'] });
+    expect(none.candidates.every((c) => c.collector?.number !== 'close')).toBe(true);
+    // Without a sure title, nothing is guessed.
+    const untitled = await identify(2, { title: junk, collector: ['U0708'] });
+    expect(untitled.candidates.every((c) => c.collector?.number !== 'close')).toBe(true);
   });
 });

@@ -5,7 +5,7 @@
  * on frames rebuilt from a test log. Pure apart from recognition itself.
  */
 import { detectCards } from '../vision/detect';
-import type { Quad } from '../vision/geometry';
+import { polygonArea, type Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
 import { assessQuality, dominantColorShare, textureShare, type QualityAdvice, type QualityIssue, type QualityMetrics, type QualityReport } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
@@ -37,7 +37,8 @@ function namesItsCard(recognition: Recognition): boolean {
   const best = recognition.printings[0];
   if (!best) return false;
   const collector = best.collector;
-  if (collector?.number === 'exact' && collector.set === 'exact' && !recognition.collector?.looseNumbers) return true;
+  // A match zeroed for contradicting the art (identify.ts) keeps its verdicts but vouches for nothing (QA M2).
+  if (collector?.number === 'exact' && collector.set === 'exact' && collector.score > 0 && !recognition.collector?.looseNumbers) return true;
   return best.hashDistance !== null && best.hashDistance <= IDENTITY_ART_MAX;
 }
 
@@ -193,6 +194,16 @@ export interface LiveRead {
   distance: number | null;
   /** The frames since the read before, oldest first, at most `TRAIL_FRAMES`. */
   frames: TrailFrame[];
+  /** Counted reads are numbered, so that a later read can stand in for one (`supersedes`). */
+  seq?: number;
+  /**
+   * Earlier reads (by `seq`) of pieces of this card that this read stands in
+   * for: junk reads (no card named, confidence under JUNK_CONFIDENCE) of an
+   * outline inside this one's (its text or art box), in the last
+   * JUNK_WINDOW_MS, with no card gone in between. The caller should take
+   * their reviews out once this read is filed (round 11: 49 such reviews).
+   */
+  supersedes?: number[];
   /**
    * The card already counted (`counted` false), read much more surely than
    * the read it was counted as (it names a card that read didn't, clears the
@@ -235,6 +246,34 @@ const QUIET_SUMMARY_MS = 30_000;
 const QUIET_KEPT = 400;
 /** How much more confident a re-read of the card already counted must be to stand in for the read it was counted as. */
 const MUCH_SURER = 0.3;
+/** A counted read below these names nothing: junk, which a good read of the card it was a piece of may stand in for. */
+const JUNK_NAME = 0.5;
+const JUNK_CONFIDENCE = 0.3;
+/** How long a junk read may be stood in for, and how many are kept. */
+const JUNK_WINDOW_MS = 20_000;
+const JUNK_KEPT = 8;
+/** An outline at most this share of another's area, with its middle inside it, is a piece of that card (its text or art box). */
+const INNER_AREA = 0.85;
+
+/** Whether `point` lies inside the convex quad `quad` (either winding). */
+function insideQuad(quad: Quad, point: { x: number; y: number }): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i]!;
+    const b = quad[(i + 1) % 4]!;
+    const cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+    if (cross === 0) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return true;
+}
+
+/** Whether `inner` is a piece of the card outlined by `outer`: its middle inside it, and clearly smaller. */
+export function pieceOf(inner: Quad, outer: Quad): boolean {
+  const middle = { x: inner.reduce((sum, p) => sum + p.x, 0) / 4, y: inner.reduce((sum, p) => sum + p.y, 0) / 4 };
+  return insideQuad(outer, middle) && polygonArea(inner) <= polygonArea(outer) * INNER_AREA;
+}
 
 /** How sure a read was, to tell when a re-read of the same card is much surer. */
 export interface Sureness {
@@ -284,6 +323,71 @@ export function isBlank(card: RgbaImage): boolean {
   return textureShare(card) < BLANK_TEXTURE && dominantColorShare(card) > BLANK_COLOR;
 }
 
+/**
+ * Where a card lay shows the empty surface when it is untextured (as a blank
+ * outline is: cards are 0.24 or more, an empty red deck box's floor 0.00–0.03
+ * on round 11's pictures) and the same colour as the edges of the picture
+ * (the box, or the table), told by chromaticity so that a flashlight's
+ * brighter middle still matches: 0.00–0.04 apart on round 11's empty boxes.
+ * A hand over the spot is untextured too, but another colour (0.2 or more
+ * from the red box).
+ */
+const EMPTY_CHROMA = 0.08;
+/** Share of the picture's width and height along each edge taken as its surroundings. */
+const SURROUNDINGS = 0.08;
+
+function chromaticity(r: number, g: number, b: number): [number, number] {
+  const sum = Math.max(1, r + g + b);
+  return [r / sum, g / sum];
+}
+
+function medianOf(values: number[]): number {
+  values.sort((a, b) => a - b);
+  return values[values.length >> 1] ?? 0;
+}
+
+/** The median colour of the frame's outer band (see SURROUNDINGS), from a sparse sample. */
+function surroundings(frame: RgbaImage): [number, number, number] {
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  const bandX = frame.width * SURROUNDINGS;
+  const bandY = frame.height * SURROUNDINGS;
+  for (let y = 2; y < frame.height; y += 8) {
+    for (let x = 2; x < frame.width; x += 8) {
+      if (x > bandX && x < frame.width - bandX && y > bandY && y < frame.height - bandY) continue;
+      const i = (y * frame.width + x) * 4;
+      r.push(frame.data[i]!);
+      g.push(frame.data[i + 1]!);
+      b.push(frame.data[i + 2]!);
+    }
+  }
+  return [medianOf(r), medianOf(g), medianOf(b)];
+}
+
+/** Whether the frame shows the empty surface at `corners` (see EmptyProbe); null when too blown out or dark to say. */
+export function emptySpot(frame: RgbaImage, corners: Quad, regions: Regions): boolean | null {
+  const spot = warpQuad(frame, corners, regions.size);
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  let clipped = 0;
+  let light = 0;
+  for (let p = 0; p < spot.data.length; p += 16) {
+    const value = 0.299 * spot.data[p]! + 0.587 * spot.data[p + 1]! + 0.114 * spot.data[p + 2]!;
+    light += value;
+    if (value >= 250) clipped += 1;
+    r.push(spot.data[p]!);
+    g.push(spot.data[p + 1]!);
+    b.push(spot.data[p + 2]!);
+  }
+  if (clipped > r.length * BLOWN_OUT_SHARE || light < r.length * TOO_DARK_MEAN) return null;
+  if (textureShare(spot) >= BLANK_TEXTURE) return false;
+  const [sr, sg] = chromaticity(medianOf(r), medianOf(g), medianOf(b));
+  const [br, bg] = chromaticity(...surroundings(frame));
+  return Math.abs(sr - br) + Math.abs(sg - bg) <= EMPTY_CHROMA;
+}
+
 /** What live mode reports for a card it has given up on: no names, the crop, and why it may have failed. */
 function unreadable(card: RgbaImage, quality: QualityReport, timings: Record<string, number>): Recognition {
   return {
@@ -318,6 +422,9 @@ export class LiveScanner {
   private idle: TrailFrame[] = [];
   /** How sure the read was that the card read last was counted as; null without one. */
   private counted: Sureness | null = null;
+  /** Counted reads so far (see LiveRead.seq), and the recent junk reads among them (see LiveRead.supersedes). */
+  private reads = 0;
+  private junk: { seq: number; corners: Quad; at: number }[] = [];
 
   constructor(
     readonly session: LiveSession = new LiveSession(),
@@ -348,19 +455,33 @@ export class LiveScanner {
     const started = this.clock();
     const { regions } = context;
     const detections = detectCards(frame, detectOptions(regions, LIVE_DETECT_SIZE));
-    const best = detections[0] ?? null;
-    // When detection doesn't find the card read last where it lay, whether it is still lying there.
-    const step = this.session.next(best?.corners ?? null, (corners) => presenceSignature(frame, corners, regions));
+    const found = detections[0] ?? null;
+    const warped = found ? warpQuad(frame, found.corners, regions.size) : null;
+    // A card-shaped patch with nothing on it (the floor of an empty deck box) is no card: the
+    // session sees nothing there, so it is never read, counted or reviewed, a card put there
+    // later counts, and the floor where the card read last lay shows that it has left.
+    const blank = warped !== null && isBlank(warped);
+    const best = blank ? null : found;
+    // When detection doesn't find the card read last where it lay, whether it is still lying
+    // there; and once it went, whether the empty surface shows where it lay.
+    const step = this.session.next(
+      best?.corners ?? null,
+      (corners) => presenceSignature(frame, corners, regions),
+      (corners) => emptySpot(frame, corners, regions),
+    );
     const outcome: LiveFrame = { ...emptyFrame(frame), corners: best?.corners ?? null, steadyFrames: step.steadyFrames, phase: step.phase };
+    if (blank) outcome.dismissed = true;
     if (step.forgot) {
       outcome.gone = { ...step.forgot, frames: [] };
+      // A card went: whatever comes next isn't the card the junk reads were pieces of.
+      this.junk = [];
       // A card that seems only moved may be read again as itself: keep how sure it was counted as.
       if (!step.forgot.moved) this.counted = null;
     }
     outcome.timings.detect = this.clock() - started;
     if (!best) return this.note(started, frame, outcome, null, false);
 
-    const card = warpQuad(frame, best.corners, regions.size);
+    const card = warped!;
     const quality = assessQuality({ frame, corners: best.corners, card, titleBox: regions.title.search });
     outcome.issues = quality.issues;
     outcome.advice = quality.advice;
@@ -374,15 +495,6 @@ export class LiveScanner {
         recognize = true;
         outcome.phase = 'reading';
       }
-    }
-    // A card-shaped patch with nothing on it (the floor of an empty deck box) is no card, sharp
-    // or not: it isn't read, counted or sent to review, and a card put there later still counts.
-    if (recognize && isBlank(card)) {
-      this.session.dismiss(signature ?? cardSignature(frame, best.corners, regions), best.corners);
-      this.counted = null;
-      outcome.phase = 'empty';
-      outcome.dismissed = true;
-      return this.note(started, frame, outcome, quality.issues, true);
     }
     if (!recognize || !quality.ok) return this.note(started, frame, outcome, quality.issues, false);
     this.note(started, frame, outcome, quality.issues, true);
@@ -425,6 +537,7 @@ export class LiveScanner {
         trigger,
         distance,
         frames,
+        ...(counted ? this.numbered(best.corners, true) : {}),
       };
       return outcome;
     }
@@ -438,6 +551,7 @@ export class LiveScanner {
     const sure = surenessOf(recognition);
     const upgrade = !counted && this.counted !== null && muchSurer(this.counted, sure);
     if (counted || upgrade) this.counted = sure;
+    const junk = sure.nameConfidence < JUNK_NAME && sure.confidence < JUNK_CONFIDENCE && !sure.accepted;
     outcome.read = {
       recognition,
       card: recognition.card ?? card,
@@ -448,8 +562,26 @@ export class LiveScanner {
       distance,
       frames,
       ...(upgrade ? { upgrade: true as const } : {}),
+      ...(counted || upgrade ? this.numbered(best.corners, junk) : {}),
     };
     return outcome;
+  }
+
+  /**
+   * Numbers a counted read (or one standing in for the read before), and
+   * either remembers it as junk or finds the junk reads it stands in for.
+   */
+  private numbered(corners: Quad, junk: boolean): Pick<LiveRead, 'seq' | 'supersedes'> {
+    const seq = (this.reads += 1);
+    const now = this.clock();
+    this.junk = this.junk.filter((entry) => now - entry.at <= JUNK_WINDOW_MS);
+    if (junk) {
+      this.junk = [...this.junk, { seq, corners, at: now }].slice(-JUNK_KEPT);
+      return { seq };
+    }
+    const pieces = this.junk.filter((entry) => pieceOf(entry.corners, corners));
+    this.junk = this.junk.filter((entry) => !pieces.includes(entry));
+    return pieces.length > 0 ? { seq, supersedes: pieces.map((entry) => entry.seq) } : { seq };
   }
 
   /**

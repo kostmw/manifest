@@ -204,8 +204,8 @@ export function matchMtgCollector(reading: CollectorReading, printing: Pick<Prin
 
   // A loose guess that misses says little; one that hits says less than a clean read.
   const numberScore: Record<CollectorMatch['number'], number> = reading.looseNumbers
-    ? { exact: 0.5, conflict: -0.2, unread: 0 }
-    : { exact: 1, conflict: -0.6, unread: 0 };
+    ? { exact: 0.5, close: 0.25, conflict: -0.2, unread: 0 }
+    : { exact: 1, close: 0.5, conflict: -0.6, unread: 0 };
   const setScore: Record<CollectorMatch['set'], number> = { exact: 0.6, close: 0.35, conflict: -0.3, unread: 0 };
   return { number, set, score: numberScore[number] + setScore[set] };
 }

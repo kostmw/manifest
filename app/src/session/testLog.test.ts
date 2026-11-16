@@ -127,3 +127,18 @@ describe('test log', () => {
     expect(logOutcome({ kind: 'same-card', why: 'same name (Sol Ring), printing unsure' })).toEqual({ kind: 'same-card', why: 'same name (Sol Ring), printing unsure' });
   });
 });
+
+describe('quiet spells kept (QA L-c)', () => {
+  it('keeps only the newest quiet spells beyond the cap, and every other event', async () => {
+    await clearTestLog();
+    for (let i = 0; i < 5; i++) {
+      await addTestLogEvent({ type: 'quiet', readIds: [], ms: 2000 * (i + 1), frames: [] }, 3);
+      // Each a moment after the one before, as spells 2 s apart are.
+      await new Promise((resolve) => setTimeout(resolve, 3));
+    }
+    await addTestLogEvent({ type: 'flashlight', readIds: [], on: true }, 3);
+    const events = (await db.testlog.toArray()).filter((entry) => entry.kind === 'event');
+    expect(events.filter((entry) => entry.kind === 'event' && entry.type === 'quiet').map((entry) => (entry.kind === 'event' ? entry.ms : 0)).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([6000, 8000, 10000]);
+    expect(events.some((entry) => entry.kind === 'event' && entry.type === 'flashlight')).toBe(true);
+  });
+});

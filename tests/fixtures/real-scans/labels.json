@@ -815,5 +815,1151 @@
       "live"
     ],
     "notes": "Test log 2026-11-15T22:24, build 0.0.0+879d71e, live: read as Test of Loyalty (TRK 134) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-36cf97ad.jpg": {
+    "game": "mtg",
+    "id": "aaf8a0b2-c6cb-41cb-913d-7ae1d75e555d",
+    "name": "U.S.S. Voyager, Lone Wanderer",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:54, build 0.0.0+d0c2899, live: read as Ape (TM3C 14) at 0.235; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-8307ba03.jpg": {
+    "game": "mtg",
+    "id": "206ae042-09af-4fc1-8441-69cecdd087de",
+    "name": "Tenacious Drone",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:55, build 0.0.0+d0c2899, live: read as Tenacious Drone (TRK 133) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3271b6a5.jpg": {
+    "game": "mtg",
+    "id": "660ec8bc-dc03-4b42-84f3-091c19e2a853",
+    "name": "Academy Instructor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:56, build 0.0.0+d0c2899, live: read as Academy Instructor (TRK 137) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-17764b57.jpg": {
+    "game": "mtg",
+    "id": "47488f1e-512d-4dc6-a82d-1ead24d3276a",
+    "name": "Grand Nagus Zek",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:56, build 0.0.0+d0c2899, live: read as Grand Nagus Zek (TRK 112) at 0.438; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-2734ce60.jpg": {
+    "game": "mtg",
+    "id": "3df582e4-3bfb-4413-9b39-898f33a5c1fd",
+    "name": "Constable Odo",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T01:56, build 0.0.0+d0c2899, live: read as Constable Odo (TRK 230) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-1e8e98a7.jpg": {
+    "game": "mtg",
+    "id": "2d1651f5-7bc9-4d65-9387-f4646a04e816",
+    "name": "Grand Nagus Zek",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T01:57, build 0.0.0+d0c2899, live: read as Monstrify (EVE 70) at 0.133; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-afe09475.jpg": {
+    "game": "mtg",
+    "id": "fc3fe0da-8d93-4f1c-9aad-c2fdc9fe34fc",
+    "name": "Vulcan",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T01:57, build 0.0.0+d0c2899, live: read as Vulcan (TRK 305) at 0.5; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-aae53869.jpg": {
+    "game": "mtg",
+    "id": "e046c0ef-0af3-4f48-8329-7d659e7d1a89",
+    "name": "Swamp",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:57, build 0.0.0+d0c2899, live: read as Swamp (TRK 314) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-98b917b3.jpg": {
+    "game": "mtg",
+    "id": "c1855a4c-c7d1-407c-b134-4c43968cbdd3",
+    "name": "Blastoneuron",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:57, build 0.0.0+d0c2899, live: read as Ow (UGL 36) at 0.25; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-121d4312.jpg": {
+    "game": "mtg",
+    "id": "a98d0f01-8e5e-4ff1-88e5-684b8f4c015c",
+    "name": "Gabriel Lorca, Mirror Menace",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T01:57, build 0.0.0+d0c2899, live: read as Gabriel Lorca, Mirror Menace (TRK 108) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-a4d01fb1.jpg": {
+    "game": "mtg",
+    "id": "a4734c59-ff41-47ac-bbb4-c8c3bf052fe6",
+    "name": "Hive Mind Coprocessor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:58, build 0.0.0+d0c2899, live: read as Hive Mind Coprocessor (TRK 115) at 0.779; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-49d63026.jpg": {
+    "game": "mtg",
+    "id": "f1e43d7f-682b-4cb6-ad3c-4dfb2b9253c6",
+    "name": "Ezri Dax, Newly Joined",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T01:58, build 0.0.0+d0c2899, live: read as Fly // Fly (AAFR 56) at 0.09; review (outside-lock); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-e456a5e3.jpg": {
+    "game": "mtg",
+    "id": "e10d6d71-9360-4ecf-97c8-22afb22aaeb7",
+    "name": "Captain Michael Burnham",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T01:58, build 0.0.0+d0c2899, live: read as Captain Michael Burnham (TRK 143) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-69964e6d.jpg": {
+    "game": "mtg",
+    "id": "32c2bfbf-e2ea-46c3-b369-1e203c8af716",
+    "name": "Storied Veteran",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T02:00, build 0.0.0+d0c2899, live: read as Storied Veteran (TRK 429) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3479eba3.jpg": {
+    "game": "mtg",
+    "id": "9845bd74-326f-4506-87f9-ead7d2fa6cfa",
+    "name": "Bristly Bill, Spine Sower",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T02:00, build 0.0.0+d0c2899, live: read as Bristly Bill, Spine Sower (SDS 15) at 0.882; review (outside-lock); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3fdd6f2c.jpg": {
+    "game": "mtg",
+    "id": "c3ba1e0d-5e3d-4fa7-9b58-5b90944b43c5",
+    "name": "Armus, Skin of Evil",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "foil",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T02:30, build 0.0.0+d0c2899, live: read as Armus, Skin of Evil (TRK 91) at 0.785; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-b2de36ae.jpg": {
+    "game": "mtg",
+    "id": "62c9b897-bc43-47f9-8939-13faaa0b7c6b",
+    "name": "Captain Pike, Fullness of Time",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "foil",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T02:30, build 0.0.0+d0c2899, live: read as Captain Pike, Fullness of Time (TRK 468) at 0.657; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-507b4c75.jpg": {
+    "game": "mtg",
+    "id": "aabf7d12-f802-422e-a57c-24f5a2858c83",
+    "name": "Dominion Saboteur",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "foil",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T02:31, build 0.0.0+d0c2899, live: read as Dominion Saboteur (TRK 54) at 0; review (unsure-name); labelled by review accepted via candidate-2. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-db001c8c.jpg": {
+    "game": "mtg",
+    "id": "6a040be4-4ffb-49f6-82fe-24140aa6be19",
+    "name": "The First Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:36, build 0.0.0+d0c2899, live: read as The First Doctor (WHO 552z) at 0.645; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-c60652b4.jpg": {
+    "game": "mtg",
+    "id": "dbcdf625-d257-48b8-8714-f49d99135706",
+    "name": "The Second Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T03:36, build 0.0.0+d0c2899, live: read as The Second Doctor (WHO 553) at 0.113; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-fc6cb5de.jpg": {
+    "game": "mtg",
+    "id": "d757f142-b3fd-45a5-ab99-c82f956bc3a3",
+    "name": "The Third Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T03:36, build 0.0.0+d0c2899, live: read as All-Fates Scroll (EOE 234) at 0.129; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-ce9b3688.jpg": {
+    "game": "mtg",
+    "id": "5f1e22e8-7e88-4786-b349-e4472c1086fd",
+    "name": "The Fourth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T03:36, build 0.0.0+d0c2899, live: read as The Fourth Doctor (WHO 555z) at 0.25; review (unsure-name); labelled by review accepted via candidate-3. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-c13d4c17.jpg": {
+    "game": "mtg",
+    "id": "0bf1e0f5-0358-4a90-bc00-967c5967ff8f",
+    "name": "The Fifth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Fifth Doctor (WHO 556) at 0.247; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-43d810b2.jpg": {
+    "game": "mtg",
+    "id": "a0566c86-b433-4c9a-b8b3-96ff6183ddb5",
+    "name": "The Sixth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Sixth Doctor (WHO 557) at 0.295; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-9a300c72.jpg": {
+    "game": "mtg",
+    "id": "8dd6bfb3-1338-4ee6-9281-30a7428200d2",
+    "name": "The Seventh Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Seventh Doctor (WHO 158) at 0.312; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-63a3971c.jpg": {
+    "game": "mtg",
+    "id": "ca1040a5-4a3b-4821-9c29-e9347f2e47d6",
+    "name": "The Ninth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Ninth Doctor (WHO 560) at 0.302; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-858cfd71.jpg": {
+    "game": "mtg",
+    "id": "c8fbb90d-0338-4673-8c2c-65a500662b01",
+    "name": "The Eleventh Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Eleventh Doctor (WHO 562) at 0.481; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-bc8b8a59.jpg": {
+    "game": "mtg",
+    "id": "a08239a3-ed5a-4345-8772-6bcbed164d7b",
+    "name": "The Twelfth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Twelfth Doctor (WHO 563) at 0.586; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-c0b49342.jpg": {
+    "game": "mtg",
+    "id": "1d71fe21-04ac-473c-9b93-1b4e129b8155",
+    "name": "The Thirteenth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Thirteenth Doctor (WHO 564) at 0.444; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-172fc896.jpg": {
+    "game": "mtg",
+    "id": "ddf2d71d-f662-470d-bd99-68e69ea516d5",
+    "name": "The War Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The War Doctor (WHO 548) at 0.491; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-83e6836f.jpg": {
+    "game": "mtg",
+    "id": "568c2687-4381-4954-9cab-f669d1fe6306",
+    "name": "The Second Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:37, build 0.0.0+d0c2899, live: read as The Second Doctor (WHO 156) at 0.273; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-a8397840.jpg": {
+    "game": "mtg",
+    "id": "590849a7-9abc-4757-8e13-f680d3b1dceb",
+    "name": "The Eleventh Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Eleventh Doctor (WHO 125) at 0.429; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0f19a4f0.jpg": {
+    "game": "mtg",
+    "id": "0dc4ec90-1650-4b98-9350-66341394cf0b",
+    "name": "The Thirteenth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Thirteenth Doctor (WHO 4) at 0.332; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-60ba8d57.jpg": {
+    "game": "mtg",
+    "id": "2f548f4b-77b9-47bb-b262-a851fdf0124f",
+    "name": "The Fifth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Fifth Doctor (WHO 127) at 0.898; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-2ab526f4.jpg": {
+    "game": "mtg",
+    "id": "74785b3b-44df-4555-a036-082572b7f4e7",
+    "name": "The Ninth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Ninth Doctor (WHO 148) at 0.893; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-b1104232.jpg": {
+    "game": "mtg",
+    "id": "2934f5e5-2274-4de7-a8c7-ca034f1fec29",
+    "name": "The Third Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Third Doctor (WHO 162) at 0.808; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-e83f4e7c.jpg": {
+    "game": "mtg",
+    "id": "ca1040a5-4a3b-4821-9c29-e9347f2e47d6",
+    "name": "The Ninth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Ninth Doctor (WHO 560) at 0.774; review (unsure-printing); labelled by review accepted via bulk. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-ed5dae53.jpg": {
+    "game": "mtg",
+    "id": "f0af9cc9-ee39-4b0c-a7b0-c067cdd60f30",
+    "name": "The First Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The First Doctor (WHO 733) at 0.818; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3b4058cf.jpg": {
+    "game": "mtg",
+    "id": "6a040be4-4ffb-49f6-82fe-24140aa6be19",
+    "name": "The First Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0b693705.jpg": {
+    "game": "mtg",
+    "id": "f1499f49-793b-4265-9ad0-883a431941ab",
+    "name": "The Tenth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:38, build 0.0.0+d0c2899, live: read as The Tenth Doctor (WHO 3) at 0.889; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-1c266892.jpg": {
+    "game": "mtg",
+    "id": "c045ccb2-28d1-4bbe-9feb-3e86988fd24d",
+    "name": "The Sixth Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:39, build 0.0.0+d0c2899, live: read as The Sixth Doctor (WHO 159) at 0.359; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-d9062105.jpg": {
+    "game": "mtg",
+    "id": "d87d58eb-b95a-48d9-a174-e2d72a29c167",
+    "name": "Arcane Signet",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:39, build 0.0.0+d0c2899, live: read as Arcane Signet (WHO 239) at 0.454; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-6a7c3cd8.jpg": {
+    "game": "mtg",
+    "id": "b059b1d8-3bfb-40c9-9344-addda43509ab",
+    "name": "TARDIS",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:39, build 0.0.0+d0c2899, live: read as TARDIS (WHO 187) at 0.402; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-09722b25.jpg": {
+    "game": "mtg",
+    "id": "f6aa5ec4-d5ea-41a0-acdc-703f03491d10",
+    "name": "Cinder Glade",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:39, build 0.0.0+d0c2899, live: read as Cinder Glade (WHO 485) at 0.311; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-66bded7d.jpg": {
+    "game": "mtg",
+    "id": "811d6e5d-c8a3-41ae-910e-e0f194f42292",
+    "name": "Command Tower",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:40, build 0.0.0+d0c2899, live: read as Command Tower (WHO 263) at 0.487; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-12f39614.jpg": {
+    "game": "mtg",
+    "id": "254a6531-7cf7-4c74-9050-65fe4b273744",
+    "name": "Creeping Tar Pit",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:40, build 0.0.0+d0c2899, live: read as Creeping Tar Pit (WHO 267) at 0.272; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-767c0c19.jpg": {
+    "game": "mtg",
+    "id": "05df0ecf-9161-4515-8511-fb042b9562ae",
+    "name": "Beast Within",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:40, build 0.0.0+d0c2899, live: read as Beast Within (WHO 228) at 0.478; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-2b59fa4a.jpg": {
+    "game": "mtg",
+    "id": "8c3474c4-9466-46fc-8327-50950d75e79f",
+    "name": "The Flood of Mars",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:40, build 0.0.0+d0c2899, live: read as The Flood of Mars (WHO 45) at 0.857; review (unsure-name); labelled by review accepted via bulk. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-01b449ab.jpg": {
+    "game": "mtg",
+    "id": "abfab366-8c79-42ec-89b1-c987ed9e9846",
+    "name": "Me, the Immortal",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:40, build 0.0.0+d0c2899, live: read as Me, the Immortal (WHO 430) at 0.308; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-68e36327.jpg": {
+    "game": "mtg",
+    "id": "116e94fb-c9cc-4ebe-a64b-51e88f938a58",
+    "name": "Out of Time",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T03:41, build 0.0.0+d0c2899, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-69bc538a.jpg": {
+    "game": "mtg",
+    "id": "39ac15ec-0d93-43a1-8e18-97df3c0dcdf6",
+    "name": "River of Tears",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:41, build 0.0.0+d0c2899, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0b02c69f.jpg": {
+    "game": "mtg",
+    "id": "61a07db6-db90-4584-9d73-64e56c05601a",
+    "name": "The Fugitive Doctor",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:42, build 0.0.0+d0c2899, live: read as The Fugitive Doctor (WHO 417) at 0.531; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3983b0e8.jpg": {
+    "game": "mtg",
+    "id": "08eac1a3-afc7-43ff-86f1-dce4fb1bc1e3",
+    "name": "Skycloud Expanse",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:43, build 0.0.0+d0c2899, live: read as Skycloud Expanse (WHO 516) at 0.795; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3ec676ee.jpg": {
+    "game": "mtg",
+    "id": "adc4ce53-7805-4448-bc20-f5bf85fdefa3",
+    "name": "The Wedding of River Song",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:43, build 0.0.0+d0c2899, live: read as The Wedding of River Song (WHO 31) at 0.229; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3939e57e.jpg": {
+    "game": "mtg",
+    "id": "ed3a8776-e1bd-47c0-bdb9-cb120424e76d",
+    "name": "Davros, Dalek Creator",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:44, build 0.0.0+d0c2899, live: read as Davros, Dalek Creator (WHO 540) at 0.476; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-9e492f98.jpg": {
+    "game": "mtg",
+    "id": "ed3a8776-e1bd-47c0-bdb9-cb120424e76d",
+    "name": "Davros, Dalek Creator",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:44, build 0.0.0+d0c2899, live: read as Annul (WC04 ap29sb) at 0; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-f0eaf7cf.jpg": {
+    "game": "mtg",
+    "id": "55b202ad-3aca-4d50-a235-caf5ddcf99ee",
+    "name": "The Master, Mesmerist",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:44, build 0.0.0+d0c2899, live: read as The Master, Mesmerist (WHO 544) at 0.447; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-f8689500.jpg": {
+    "game": "mtg",
+    "id": "55b202ad-3aca-4d50-a235-caf5ddcf99ee",
+    "name": "The Master, Mesmerist",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:44, build 0.0.0+d0c2899, live: read as Cat (TDMR 3) at 0; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-90c0edd4.jpg": {
+    "game": "mtg",
+    "id": "4247c058-7f27-4195-b847-db883a430e6a",
+    "name": "Sunken Hollow",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T03:47, build 0.0.0+d0c2899, live: read as Sunken Hollow (WHO 312) at 0.321; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-93cda2b5.jpg": {
+    "game": "mtg",
+    "id": "6218badd-d352-4e6d-9c84-f1e3f2f84695",
+    "name": "The Beast, Deathless Prince",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T03:47, build 0.0.0+d0c2899, live: read as The Beast, Deathless Prince (WHO 114) at 0.817; review (unsure-name); labelled by review accepted via bulk. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-cc404134.jpg": {
+    "game": "mtg",
+    "id": "e15f1891-4f80-4c68-8421-8e16ff8d6a6d",
+    "name": "Fugitive of the Judoon",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as Fugitive of the Judoon (WHO 103) at 0.458; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-b1cc3f1f.jpg": {
+    "game": "mtg",
+    "id": "6ac8db7a-009a-4141-bba7-b5fdfaf8d245",
+    "name": "Mind Stone",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight",
+      "glare"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as Ox (TCMM 65) at 0.185; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-b959b86b.jpg": {
+    "game": "mtg",
+    "id": "e742df7f-cf92-4749-8c33-d88e5987b4c6",
+    "name": "Ominous Cemetery",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as Ominous Cemetery (WHO 794) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0b50ce1c.jpg": {
+    "game": "mtg",
+    "id": "4b94f939-5f3b-4b55-8514-b7d296509ac1",
+    "name": "Sisterhood of Karn",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as Sisterhood of Karn (WHO 109) at 0.327; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0e7b6958.jpg": {
+    "game": "mtg",
+    "id": "f12f441a-4d58-4ea5-90b8-f4e32db391a1",
+    "name": "Scattered Groves",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as Scattered Groves (WHO 301) at 0.388; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-1811a6c4.jpg": {
+    "game": "mtg",
+    "id": "07c6b33d-c1c7-442b-91ac-d7ef56ce8fdd",
+    "name": "The Flood of Mars",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:48, build 0.0.0+d0c2899, live: read as The Flood of Mars (WHO 360) at 0.616; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3371ebe7.jpg": {
+    "game": "mtg",
+    "id": "407a8b62-4247-4f98-9340-ec897556e993",
+    "name": "Dreamroot Cascade",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:49, build 0.0.0+d0c2899, live: read as Dreamroot Cascade (WHO 1082) at 0.885; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-08d759dd.jpg": {
+    "game": "mtg",
+    "id": "2b13f4ef-c140-4401-a2d2-c80af2514539",
+    "name": "The Master, Formed Anew",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:49, build 0.0.0+d0c2899, live: read as The Master, Formed Anew (WHO 542) at 0.498; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-05549a75.jpg": {
+    "game": "mtg",
+    "id": "46931098-ae3c-409a-8789-7071205e11ee",
+    "name": "Waterlogged Grove",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:49, build 0.0.0+d0c2899, live: read as Waterlogged Grove (WHO 331) at 0.432; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-ec7e60bc.jpg": {
+    "game": "mtg",
+    "id": "0ebb1d26-13d1-4907-95d6-8766b233fc73",
+    "name": "Flesh Duplicate",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Flesh Duplicate (WHO 359) at 0.323; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-081acebf.jpg": {
+    "game": "mtg",
+    "id": "0b7a8297-5612-4f87-9d14-e8c1ee4c1d0e",
+    "name": "Sisterhood of Karn",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Sisterhood of Karn (WHO 399) at 0.428; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-3fb58b1b.jpg": {
+    "game": "mtg",
+    "id": "11454c82-3f1d-4456-8857-0dcb01d34298",
+    "name": "Ensnared by the Mara",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Ensnared by the Mara (WHO 84) at 0.371; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-cf0d2f27.jpg": {
+    "game": "mtg",
+    "id": "52b68ed3-0d26-4334-8d0c-2d28ced8ee4c",
+    "name": "Trial of a Time Lord",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Aragorn and Arwen, Wed (HOC 28) at 0; review (unsure-name); labelled by review accepted via candidate-3. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-cdea8a41.jpg": {
+    "game": "mtg",
+    "id": "8c592af4-5470-4311-af05-761e5a9c46be",
+    "name": "Time Beetle",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Blister Beetle (ALA 66) at 0; review (unsure-name); labelled by review accepted via candidate-3. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-2aff9155.jpg": {
+    "game": "mtg",
+    "id": "f3574926-dd5a-4997-b9e2-7b051bc59c57",
+    "name": "Start the TARDIS",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Start the TARDIS (WHO 56) at 0.489; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-81b3a506.jpg": {
+    "game": "mtg",
+    "id": "d1b65ecb-ace2-4247-a654-1e704d24319a",
+    "name": "Smoldering Marsh",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Smoldering Marsh (WHO 307) at 0.329; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-4bd16740.jpg": {
+    "game": "mtg",
+    "id": "7ee2b585-a26b-4a1a-9fa4-79b54505be3c",
+    "name": "The Master, Mesmerist",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as The Master, Mesmerist (WHO 145) at 0.317; review (unsure-printing); labelled by review accepted via candidate-3. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-86e8b62a.jpg": {
+    "game": "mtg",
+    "id": "7e0fd96c-fb06-44d1-b8e3-f06ecdaa484c",
+    "name": "Drowned Catacomb",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Drowned Catacomb (WHO 492) at 0.845; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-adc3f109.jpg": {
+    "game": "mtg",
+    "id": "0bc5f821-7239-4aa0-97bc-3c187c7eb9b5",
+    "name": "Jenny Flint",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:50, build 0.0.0+d0c2899, live: read as Jenny Flint (WHO 420) at 0.375; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-d3c02cd9.jpg": {
+    "game": "mtg",
+    "id": "74de4341-d10a-47c6-8a60-9dfa491f1d02",
+    "name": "Return the Past",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T03:51, build 0.0.0+d0c2899, live: read as Return the Past (WHO 92) at 0.425; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-d5c4663b.jpg": {
+    "game": "mtg",
+    "id": "efb9aadf-a50e-4542-82e8-6d8cbc2ea350",
+    "name": "Cursed Mirror",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "flashlight"
+    ],
+    "notes": "Test log 2026-11-16T03:51, build 0.0.0+d0c2899, live: read as Ape (TTRC 10) at 0.156; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-cc8d83fd.jpg": {
+    "game": "mtg",
+    "id": "37a31283-7174-4b7e-9f29-b04bef0b9309",
+    "name": "Cursed Mirror",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T03:51, build 0.0.0+d0c2899, live: read as Island (SCD 338) at 0; review (unsure-name); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-7251c825.jpg": {
+    "game": "mtg",
+    "id": "d3fc2d77-ec3c-408f-9259-0c511790fa34",
+    "name": "The Wedding of River Song",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:51, build 0.0.0+d0c2899, live: read as The Wedding of River Song (WHO 349) at 0.888; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-c38be1e5.jpg": {
+    "game": "mtg",
+    "id": "d1b65ecb-ace2-4247-a654-1e704d24319a",
+    "name": "Smoldering Marsh",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:51, build 0.0.0+d0c2899, live: read as Smoldering Marsh (WHO 307) at 0.283; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-71c71093.jpg": {
+    "game": "mtg",
+    "id": "df58d745-2f08-447f-a7db-41765731e36c",
+    "name": "Port Town",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:53, build 0.0.0+d0c2899, live: read as Port Town (WHO 294) at 0.329; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-83879c68.jpg": {
+    "game": "mtg",
+    "id": "75b2e80f-7dd9-4d0f-a3b7-ea2dbbd7ada2",
+    "name": "Farewell",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:53, build 0.0.0+d0c2899, live: read as Farewell (WHO 1056) at 0.876; review (unsure-name); labelled by review accepted via bulk. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-99286faa.jpg": {
+    "game": "mtg",
+    "id": "1b212e7d-2ea1-4ba7-a060-c67d44e259a7",
+    "name": "Nyssa of Traken",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:53, build 0.0.0+d0c2899, live: read as Nyssa of Traken (WHO 957) at 0.84; review (unsure-name); labelled by review accepted via bulk. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-0f2a626d.jpg": {
+    "game": "mtg",
+    "id": "daf68138-63c1-4201-998c-eb412463f664",
+    "name": "Fiery Islet",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:54, build 0.0.0+d0c2899, live: read as Fiery Islet (WHO 278) at 0.291; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-e8088aff.jpg": {
+    "game": "mtg",
+    "id": "e59cd65b-f86f-4b13-b89e-000768c80cfe",
+    "name": "Glacial Fortress",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:54, build 0.0.0+d0c2899, live: read as Glacial Fortress (WHO 501) at 0.324; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-10a9a024.jpg": {
+    "game": "mtg",
+    "id": "ce230228-caed-4f1a-8197-507056d6e417",
+    "name": "Time Wipe",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:54, build 0.0.0+d0c2899, live: read as Time Wipe (WHO 478) at 0.852; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-dce5193d.jpg": {
+    "game": "mtg",
+    "id": "bed41499-759d-4a3b-aabb-c462d5831956",
+    "name": "Nyssa of Traken",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live"
+    ],
+    "notes": "Test log 2026-11-16T03:55, build 0.0.0+d0c2899, live: read as nothing; review (unreadable); labelled by review accepted via search. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-7ae53221.jpg": {
+    "game": "mtg",
+    "id": "65e28187-fece-4f78-b8fe-43ee6df4d338",
+    "name": "Glacial Fortress",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:55, build 0.0.0+d0c2899, live: read as Glacial Fortress (WHO 285) at 0.329; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-dbb7b628.jpg": {
+    "game": "mtg",
+    "id": "49c678c4-7b36-42a9-88d3-1b4c5dadae36",
+    "name": "Inspiring Refrain",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:55, build 0.0.0+d0c2899, live: read as Inspiring Refrain (WHO 1061) at 0.55; review (unsure-printing); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-6cadc8c5.jpg": {
+    "game": "mtg",
+    "id": "04debb05-5303-4b0a-8224-d00f3512639e",
+    "name": "Cybermat",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:55, build 0.0.0+d0c2899, live: read as Cybermat (WHO 780) at 0; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
+  },
+  "testlog-2026-11-16-9e21f923.jpg": {
+    "game": "mtg",
+    "id": "366c4cdb-c6f2-4ee8-b5fb-acb59a9931bf",
+    "name": "The Meep",
+    "tags": [
+      "testlog",
+      "cropped",
+      "live",
+      "low-light"
+    ],
+    "notes": "Test log 2026-11-16T03:56, build 0.0.0+d0c2899, live: read as The Meep (SLD 1581) at 0.25; review (unsure-name); labelled by review accepted via candidate-1. The picture is the app's crop, padded."
   }
 }

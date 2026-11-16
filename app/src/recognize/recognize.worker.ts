@@ -98,6 +98,9 @@ export interface FrameOutcome {
   gone?: { card: string | null; moved: boolean; frames: TrailFrame[] };
   /** With `repeat`: the re-read is much surer than the read the card was counted as, and should stand in for it. */
   upgrade?: true;
+  /** A counted live read's number, and the earlier junk reads (by number) it stands in for (see LiveRead). */
+  seq?: number;
+  supersedes?: number[];
 }
 
 /**
@@ -159,7 +162,8 @@ function ready() {
 }
 
 async function toResult(recognition: Recognition, started: number, frame: { width: number; height: number }, gaveUp = false): Promise<ScanResult> {
-  const card = recognition.card ? await toJpeg(recognition.card) : null;
+  // A picture that fails to encode must not lose a card live mode has already counted (QA L-h).
+  const card = recognition.card ? await toJpeg(recognition.card).catch(() => null) : null;
   return {
     decision: recognition.decision,
     names: recognition.names,
@@ -187,6 +191,8 @@ async function toResult(recognition: Recognition, started: number, frame: { widt
 async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcome): Promise<void> {
   const result = await toResult(read.recognition, started, outcome.frame, read.gaveUp);
   outcome.liveRead = { trigger: read.trigger, distance: read.distance, frames: read.frames };
+  if (read.seq !== undefined) outcome.seq = read.seq;
+  if (read.supersedes) outcome.supersedes = read.supersedes;
   if (read.counted) {
     outcome.result = result;
   } else {

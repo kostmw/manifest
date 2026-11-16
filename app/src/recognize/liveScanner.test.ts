@@ -5,7 +5,7 @@ import { createRgba, type RgbaImage } from '../vision/image';
 import { artCard, cardQuad, emptyBoxFloor, placeCard } from '../vision/testScene';
 import type { Printing } from '../games/types';
 import type { PrintingCandidate } from './identify';
-import { cardSignature, identityOf, isBlank, LiveScanner, muchSurer, presenceSignature } from './liveScanner';
+import { cardSignature, emptySpot, identityOf, isBlank, LiveScanner, muchSurer, pieceOf, presenceSignature } from './liveScanner';
 import { LiveSession, signatureDistance } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
@@ -116,12 +116,38 @@ describe('LiveScanner and things that are no card (round 7)', () => {
     expect(isBlank(artCard(7))).toBe(false);
   });
 
+  it('sees the empty box where a card lay, and not a card, a hand or a blown-out picture there (round 11)', () => {
+    const box = frameWith(null);
+    expect(emptySpot(box, where(), MTG_REGIONS)).toBe(true);
+    // Brighter in the middle (the flashlight), the same colour: still the box.
+    const lit = placeCard(createRgba(1, 1), FRAME, where(), BACKGROUND);
+    for (let i = 0; i < lit.data.length; i += 4) {
+      const x = (i / 4) % FRAME.width;
+      const y = Math.floor(i / 4 / FRAME.width);
+      const gain = 1 + 0.5 * Math.exp(-((x - 360) ** 2 + (y - 480) ** 2) / 200 ** 2);
+      lit.data.set([BACKGROUND[0] * gain, BACKGROUND[1] * gain, BACKGROUND[2] * gain, 255], i);
+    }
+    expect(emptySpot(lit, where(), MTG_REGIONS)).toBe(true);
+    expect(emptySpot(frameWith(where()), where(), MTG_REGIONS)).toBe(false);
+    const hand = placeCard(createRgba(1, 1), FRAME, where(), BACKGROUND);
+    for (let i = 0; i < hand.data.length; i += 4) {
+      const x = (i / 4) % FRAME.width;
+      const y = Math.floor(i / 4 / FRAME.width);
+      if (x > 100 && x < 620 && y > 120 && y < 840) hand.data.set([215, 170, 140, 255], i);
+    }
+    expect(emptySpot(hand, where(), MTG_REGIONS)).toBe(false);
+    const white = frameWith(null);
+    white.data.fill(255);
+    expect(emptySpot(white, where(), MTG_REGIONS)).toBeNull();
+  });
+
   it('never reads, counts or files the floor of an empty box, and still counts a card put there', async () => {
     const ocr = fakeOcr();
     const scanner = new LiveScanner(new LiveSession());
     const seen = [];
     for (let i = 0; i < 6; i++) seen.push(await scanner.frame(floorFrame(), context(ocr)));
-    expect(seen.some((frame) => frame.corners !== null)).toBe(true);
+    // Detection finds the floor's outline, but it holds nothing: live mode shows no card there.
+    expect(seen.every((frame) => frame.corners === null && frame.phase === 'empty')).toBe(true);
     expect(seen.some((frame) => frame.dismissed)).toBe(true);
     expect(seen.every((frame) => frame.read === null)).toBe(true);
     expect(ocr.calls).toBe(0);
@@ -132,6 +158,17 @@ describe('LiveScanner and things that are no card (round 7)', () => {
       if (frame.read) counted.push(frame.read.counted);
     }
     expect(counted).toEqual([true]);
+  });
+});
+
+describe("pieceOf (round 11: junk reads of a card's text box)", () => {
+  it("takes a text or art box inside a card's outline for a piece of it, and a card of the same size on top for no piece", () => {
+    const outline = where();
+    // The text box, read sideways as a card: its middle in the lower half, about a quarter of the area.
+    const textBox = cardQuad({ x: 360, y: 640 }, 260, Math.PI / 2 + 0.03);
+    expect(pieceOf(textBox, outline)).toBe(true);
+    expect(pieceOf(where(10, 6), outline)).toBe(false);
+    expect(pieceOf(cardQuad({ x: 60, y: 480 }, 200), outline)).toBe(false);
   });
 });
 

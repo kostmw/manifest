@@ -257,6 +257,11 @@ export function Scanner({
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
   const streaming = camera.state.status === 'live';
   useWakeLock(streaming);
+  // The camera starting again (back from another tab, or after Stop camera) sees the card read
+  // last anew: live mode holds it while the camera exposes, then reads it once as a check.
+  useEffect(() => {
+    if (streaming && recognizer.status === 'ready') cameraChanged();
+  }, [streaming, recognizer.status, cameraChanged]);
   const { live, photo, again } = recognizer;
   const photoReviewRef = useRef<HTMLElement>(null);
   const photoReviewId = photoReview?.review.id;
@@ -299,12 +304,14 @@ export function Scanner({
 
   /** The last card live mode filed: a much surer re-read of it may stand in for it. */
   const lastLiveRef = useRef<RecentScan | null>(null);
+  /** Recent live reads by the worker's number for them, for a later read to stand in for (see `supersede`). */
+  const liveBySeqRef = useRef(new Map<number, RecentScan>());
 
   /**
    * Files a scanned card: into the batch or the review queue, with sound,
    * vibration and a flash. `replaces`: the scan id of the read it stands in for.
    */
-  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null, replaces?: string) => {
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null, replaces?: string, seq?: number) => {
     const target = batchRef.current;
     if (!target) return null;
     try {
@@ -325,11 +332,16 @@ export function Scanner({
         card: scan.card,
       });
       if (source === 'live') lastLiveRef.current = entry;
+      if (seq !== undefined) {
+        const bySeq = liveBySeqRef.current;
+        bySeq.set(seq, entry);
+        for (const old of [...bySeq.keys()]) if (old < seq - 30) bySeq.delete(old);
+      }
       setLast({ entry });
       setFlash((previous) => ({ kind: entry.kind, key: (previous?.key ?? 0) + 1 }));
       setSaveFailed(false);
       cue(entry.kind);
-      return outcome;
+      return { outcome, scanId };
     } catch {
       setSaveFailed(true);
       return null;
@@ -342,18 +354,43 @@ export function Scanner({
    * re-read named it at 0.90): that review, if it still waits, is taken out and
    * the new read filed in its place, added if it clears the bar.
    */
-  const upgrade = useCallback(async (repeat: { result: ScanResult; why: string }, timings: Record<string, number>, live: TestLogLive | null) => {
+  const upgrade = useCallback(async (repeat: { result: ScanResult; why: string }, timings: Record<string, number>, live: TestLogLive | null, seq?: number) => {
     const previous = lastLiveRef.current;
     const target = batchRef.current;
     const waiting = previous?.kind === 'review' && previous.reviewId && previous.batchId === target?.id ? await getReview(previous.reviewId) : undefined;
     if (!previous || !waiting) {
       logRepeat(repeat, timings, live);
-      return;
+      return null;
     }
+    // Filed first: if saving fails, the first read's review is still there (QA M5).
+    const filed = await file(repeat.result, 'live', timings, live, previous.scanId, seq);
+    if (!filed) return null;
     await discardReview(waiting.id);
     removeRecent(previous.id);
-    await file(repeat.result, 'live', timings, live, previous.scanId);
+    return filed;
   }, [file, logRepeat]);
+
+  /**
+   * Junk reads of pieces of the card just filed (its text or art box, read as
+   * no card in particular) are taken out of the review queue, if they still
+   * wait: the card itself is what was scanned (round 11: 49 such reviews from
+   * hard foils). Each is logged as replaced by the new read.
+   */
+  const supersede = useCallback(async (seqs: readonly number[], by: { scanId: string } | null) => {
+    const target = batchRef.current;
+    if (!by || !target) return;
+    const byScanId = by.scanId;
+    for (const seq of seqs) {
+      const entry = liveBySeqRef.current.get(seq);
+      if (!entry || entry.kind !== 'review' || !entry.reviewId || entry.batchId !== target.id) continue;
+      const waiting = await getReview(entry.reviewId);
+      if (!waiting) continue;
+      await discardReview(waiting.id);
+      removeRecent(entry.id);
+      liveBySeqRef.current.delete(seq);
+      if (entry.scanId) logEvent({ type: 'replaced', readIds: [entry.scanId, byScanId] });
+    }
+  }, []);
 
   // The frame the worker is working on, if any: a loop started while it is still being read waits for it.
   const inFlightRef = useRef<Promise<unknown> | null>(null);
@@ -373,12 +410,15 @@ export function Scanner({
           // A read card is filed even when this loop has been stopped meanwhile: the worker has counted it.
           if (outcome?.result) {
             setLastRead(outcome.timings);
-            void file(outcome.result, 'live', outcome.timings, outcome.liveRead ?? null);
+            const supersedes = outcome.supersedes;
+            void file(outcome.result, 'live', outcome.timings, outcome.liveRead ?? null, undefined, outcome.seq).then((filed) => (supersedes ? supersede(supersedes, filed) : undefined));
           } else if (outcome?.sameCard) {
             setLastRead(outcome.timings);
             setRepeats((count) => count + 1);
-            if (outcome.repeat && outcome.upgrade) void upgrade(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
-            else if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
+            if (outcome.repeat && outcome.upgrade) {
+              const supersedes = outcome.supersedes;
+              void upgrade(outcome.repeat, outcome.timings, outcome.liveRead ?? null, outcome.seq).then((filed) => (supersedes ? supersede(supersedes, filed) : undefined));
+            } else if (outcome.repeat) logRepeat(outcome.repeat, outcome.timings, outcome.liveRead ?? null);
           }
           if (outcome?.quiet) logQuiet(outcome.quiet.ms, outcome.quiet.frames, outcome.quiet.summary, outcome.quiet.picture);
           if (outcome?.gone) logGone(outcome.gone.card, outcome.gone.moved, outcome.gone.frames);
@@ -394,7 +434,7 @@ export function Scanner({
     return () => {
       stopped = true;
     };
-  }, [recognizer.status, streaming, photoState, live, file, logRepeat, upgrade]);
+  }, [recognizer.status, streaming, photoState, live, file, logRepeat, upgrade, supersede]);
 
   // The big status line shows the last card for a few seconds, then the live hint again.
   useEffect(() => {
@@ -414,7 +454,7 @@ export function Scanner({
       const outcome = await photo(chosen);
       if (outcome?.result) {
         setLastRead(outcome.timings);
-        const filed = await file(outcome.result, 'photo', outcome.timings);
+        const filed = (await file(outcome.result, 'photo', outcome.timings))?.outcome;
         if (filed?.kind === 'review') {
           setPhotoReview({
             review: filed.review,
