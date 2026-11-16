@@ -23,7 +23,7 @@ export function labelsFromLog(log: Pick<TestLogFile, 'events'>): Map<string, Rea
     for (const id of event.readIds) {
       if ((event.type === 'review-accepted' || event.type === 'printing-changed') && event.printing) {
         labels.set(id, { printing: event.printing, from: event.type, ...(event.via ? { via: event.via } : {}) });
-      } else if (event.type === 'undo' || event.type === 'review-discarded') {
+      } else if (event.type === 'undo' || event.type === 'review-discarded' || event.type === 'bulk-undone') {
         labels.delete(id);
       }
     }

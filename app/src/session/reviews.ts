@@ -26,7 +26,7 @@ export async function discardReview(id: string): Promise<void> {
   await db.reviews.delete(id);
 }
 
-export async function updateReview(id: string, changes: Partial<Pick<ReviewItem, 'foil' | 'qty'>>): Promise<void> {
+export async function updateReview(id: string, changes: Partial<Pick<ReviewItem, 'foil' | 'qty' | 'chosen' | 'markedWrong'>>): Promise<void> {
   await db.reviews.update(id, changes);
 }
 
@@ -36,29 +36,36 @@ export interface Resolution {
   qty: number;
 }
 
+/** A group of reviews accepted together, and the batch rows they went into, so the group can be undone. */
+export interface AcceptedGroup {
+  batchId: string;
+  entries: { review: ReviewItem; itemId: string; qty: number }[];
+}
+
 /**
  * Accepts reviews as the given printing: each adds its cards to the batch (in
  * the language and condition it was scanned with) and leaves the queue, all or
- * nothing. Returns the ids of the batch rows that hold them.
+ * nothing. Returns what each became, for undoing the group.
  */
-export async function acceptReviews(batch: Batch, resolutions: readonly { review: ReviewItem; resolution: Resolution }[]): Promise<string[]> {
+export async function acceptReviewGroup(batch: Batch, resolutions: readonly { review: ReviewItem; resolution: Resolution }[]): Promise<AcceptedGroup> {
   return db.transaction('rw', db.items, db.reviews, async () => {
-    const ids: string[] = [];
+    const entries: AcceptedGroup['entries'] = [];
     for (const { review, resolution } of resolutions) {
       if (!(await db.reviews.get(review.id))) continue; // Already handled, in another tab say.
       const { printing, finish, qty } = resolution;
       const lang = printing.lang !== 'en' ? printing.lang : review.lang;
       const mergeKey = mergeKeyFor(printing.id, finish, lang, review.condition);
       const existing = await db.items.where({ batchId: batch.id, mergeKey }).first();
+      let itemId: string;
       if (existing) {
         const scanIds = withScan(existing.scanIds, review.scanId);
         await db.items.update(existing.id, { qty: existing.qty + qty, ...(scanIds ? { scanIds } : {}) });
-        ids.push(existing.id);
+        itemId = existing.id;
       } else {
-        const id = crypto.randomUUID();
+        itemId = crypto.randomUUID();
         await db.items.add({
           ...(review.scanId ? { scanIds: [review.scanId] } : {}),
-          id,
+          id: itemId,
           batchId: batch.id,
           printing,
           finish,
@@ -68,11 +75,41 @@ export async function acceptReviews(batch: Batch, resolutions: readonly { review
           addedAt: review.createdAt,
           mergeKey,
         });
-        ids.push(id);
       }
       await db.reviews.delete(review.id);
+      entries.push({ review, itemId, qty });
     }
-    return ids;
+    return { batchId: batch.id, entries };
+  });
+}
+
+/** Accepts reviews as the given printing (see acceptReviewGroup). Returns the ids of the batch rows that hold them. */
+export async function acceptReviews(batch: Batch, resolutions: readonly { review: ReviewItem; resolution: Resolution }[]): Promise<string[]> {
+  return (await acceptReviewGroup(batch, resolutions)).entries.map((entry) => entry.itemId);
+}
+
+/**
+ * Undoes a group accepted together: each review's cards come out of their
+ * batch row again (a row left empty goes) and the review waits again, as it
+ * was. Returns how many came back.
+ */
+export async function undoAcceptedGroup(group: AcceptedGroup): Promise<number> {
+  return db.transaction('rw', db.items, db.reviews, async () => {
+    let restored = 0;
+    for (const { review, itemId, qty } of group.entries) {
+      // Already waiting again (undone before): leave it, and its batch row, alone.
+      if (await db.reviews.get(review.id)) continue;
+      const item = await db.items.get(itemId);
+      if (item) {
+        const left = item.qty - qty;
+        const scanIds = item.scanIds?.filter((id) => id !== review.scanId);
+        if (left > 0) await db.items.update(itemId, { qty: left, ...(scanIds ? { scanIds } : {}) });
+        else await db.items.delete(itemId);
+      }
+      await db.reviews.add(review);
+      restored += 1;
+    }
+    return restored;
   });
 }
 

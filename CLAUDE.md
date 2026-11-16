@@ -510,6 +510,24 @@ The adapter is split in two. `buildIndex()` is in `scripts/games/`, because it n
     - **Real-scan fixtures:** the 28 review-accepted reads, 68 in all.
     - **Not fixed:** why detection loses foils, special frames (Grand Nagus Zek TRK 458), partial outlines.
     - **Tests:** 429 unit and 50 e2e pass on Linux in Docker.
+  - **Review tab quick confirm (2026-11-15, PR #17, not yet merged or phone-tested).** PR #16 was merged (main f4502b2). Most reviews aren't wrong, only a little under 0.9, and about 30 per stack took minutes one by one. UI only: recognition and auto-accept (0.9) are unchanged.
+    - **The rules** (`review/quickConfirm.ts`): a review looks right at a name confidence of 0.8 or more with a printing that is clear or settled.
+      - Clear: the printing's share of the confidence is ≥ 0.9, and the reason isn't unsure-printing.
+      - Settled: the lock's number lookup, a clean collector match (set and number exact), the only printing of the name in the locked sets, or a printing the user set.
+      - Otherwise it needs a look, even at a high name confidence. Two reviews at 0.90/0.95 were a foil full-art Plains TRK 307 guessed as Plains SLD 359, and printing twins are the same risk.
+      - Clearly read outside-lock rows may look right, badged "not in <SET>".
+      - Below 0.8, a clean collector line or art within 26 bits sorts first in "needs a look", the guess preselected.
+      - Rows sort by name, set and number.
+      - From the owner's labelled logs (rounds 7–10, 67 accepted reviews): at a name confidence of 0.8 or more the top guess was the exact printing 34 times in 34.
+    - **What reviews keep:** the read's `trace` and the `lockSets` in force when scanned, a printing the user set (`chosen`), and whether the user marked the guess wrong (`markedWrong`). Reviews from before have no trace and use the batch's current lock.
+    - **The tab** (`review/ReviewQueue.tsx`, `QuickConfirmRow.tsx`):
+      - "Looks right" lists 88 px rows (scan beside guess, 60×84 pictures, set and number large where the printing was in doubt), with a ✓/✗ toggle on the right edge; tapping the rest opens the ReviewCard.
+      - A sticky "Add N cards" bar sits above the home indicator. "Added N cards" offers a group Undo for 9 s, which then stays at the top of the tab until the next add or a reload (not stored). Rows marked wrong move to "needs a look", badged.
+      - "Needs a look" is one by one as before. With nothing that looks right, the tab opens straight on the first card.
+      - "Use <set number> for all N <name>" banners, after a card is added by hand, set that printing on the name's other reviews in place, which then look right; never on a row marked wrong.
+    - **Store:** `acceptReviewGroup` returns what each review became; `undoAcceptedGroup` takes a group back out and queues the reviews again, once.
+    - **Debug log:** `via: 'bulk'` and `cutoff` on these accepts, `bulk-rejected` for guesses marked wrong (labelled negatives for the cutoff), `bulk-undone` (the fixtures script drops those labels).
+    - **Tests:** 437 unit and 51 e2e pass on Linux in Docker. The new e2e: under an M11 lock, a clearly read Sol Ring looks right while a junk read needs a look; add, then Undo.
 
 ## Working agreements for Claude Code
 

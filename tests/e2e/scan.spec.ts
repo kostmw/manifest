@@ -216,6 +216,43 @@ test('locks the batch to a set, which settles look-alike printings', async ({ pa
   await expect(result.getByText("This card isn't from the locked sets (M11). Is it one of these?")).toBeVisible({ timeout: 30_000 });
 });
 
+test('confirms the reviews that look right together, and undoes the group (quick confirm)', async ({ page }) => {
+  // Locked to M11, a clearly read Sol Ring (its collector line clean) waits for review only for being from another set.
+  const settings = page.getByRole('region', { name: 'Scan settings' });
+  await settings.getByRole('button', { name: 'Sets: any' }).click();
+  await settings.getByRole('combobox', { name: 'Add a set' }).fill('m11');
+  await settings.getByRole('option', { name: /^M11 · Magic 2011/ }).click();
+  await settings.getByRole('button', { name: 'Done' }).click();
+  await scanPhoto(page, SOL_RING);
+  const result = page.getByRole('region', { name: 'Scan result' });
+  await expect(result.getByText("This card isn't from the locked sets (M11). Is it one of these?")).toBeVisible({ timeout: 30_000 });
+  await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
+  // And one that didn't read at all (under the lock it's filed as outside it, at a low confidence).
+  await scanPhoto(page, { title: 'Xqzv Jwkp' });
+  await result.getByRole('button', { name: 'Later: keep it in Review' }).click({ timeout: 30_000 });
+
+  await nav(page).getByRole('button', { name: 'Review (2)' }).click();
+  const looksRight = page.getByRole('region', { name: 'Looks right' });
+  await expect(looksRight.getByTestId('review-row')).toHaveCount(1);
+  await expect(looksRight).toContainText('not in M11');
+  await expect(page.getByRole('region', { name: 'Needs a look' }).getByTestId('review-row')).toHaveCount(1);
+  // Marked wrong, there's nothing to add; kept after all, one card.
+  await looksRight.getByRole('button', { name: /^Looks right: Sol Ring/ }).click();
+  await expect(page.getByRole('button', { name: 'Nothing to add' })).toBeDisabled();
+  await looksRight.getByRole('button', { name: /^Marked wrong: Sol Ring/ }).click();
+  await page.getByRole('button', { name: 'Add 1 card' }).click();
+
+  const added = page.getByRole('status').filter({ hasText: 'Added 1 card' });
+  await expect(added).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Batch (1)' })).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
+  // The whole group comes back with one Undo.
+  await added.getByRole('button', { name: 'Undo' }).click();
+  await expect(nav(page).getByRole('button', { name: 'Review (2)' })).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Batch', exact: true })).toBeVisible();
+  await expect(looksRight.getByTestId('review-row')).toHaveCount(1);
+});
+
 async function openScannerWithDebug(page: Page) {
   await page.goto('./?debug=1');
   await openScanner(page);

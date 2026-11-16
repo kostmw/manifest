@@ -4,7 +4,7 @@ import type { Printing } from '../games/types';
 import { addCard, createBatch, getItems } from './batches';
 import { db } from './db';
 import { decideIntake, intake, type ScannedCard } from './intake';
-import { acceptReview, acceptReviews, discardReview, getReviews, queueReview, reviewFinish, similarReviews, type NewReview } from './reviews';
+import { acceptReview, acceptReviewGroup, acceptReviews, discardReview, getReviews, queueReview, reviewFinish, similarReviews, undoAcceptedGroup, type NewReview } from './reviews';
 
 const FOREST_A: Printing = { id: 'forest-a', name: 'Forest', set: 'dmu', setName: 'Dominaria United', number: '277', finishes: ['nonfoil', 'foil'], lang: 'en' };
 const FOREST_B: Printing = { ...FOREST_A, id: 'forest-b', set: 'one', setName: 'Phyrexia', number: '271' };
@@ -148,5 +148,29 @@ describe('reviews', () => {
     await discardReview(queued.id);
     expect(await acceptReview(batch, queued, { printing: FOREST_A, finish: 'nonfoil', qty: 1 })).toEqual([]);
     expect(await getItems(batch.id)).toEqual([]);
+  });
+});
+
+describe('accepting a group of reviews and undoing it (quick confirm)', () => {
+  it('adds each review as its own printing, and the undo takes them all back out and queues them again', async () => {
+    const batch = await createBatch('B');
+    const row = await addCard(batch, FOREST_A, { finish: 'nonfoil' });
+    const forest = await queueReview(newReview(batch.id, { scanId: 's1' }));
+    const island = await queueReview(newReview(batch.id, { names: ['Island'], candidates: [candidate(ISLAND)], qty: 2, scanId: 's2' }));
+    const group = await acceptReviewGroup(batch, [
+      { review: forest, resolution: { printing: FOREST_A, finish: 'nonfoil', qty: 1 } },
+      { review: island, resolution: { printing: ISLAND, finish: 'nonfoil', qty: 2 } },
+    ]);
+    expect(group.entries.map((entry) => entry.qty)).toEqual([1, 2]);
+    expect((await getItems(batch.id)).map((item) => [item.printing.id, item.qty]).sort()).toEqual([['forest-a', 2], ['island', 2]]);
+    expect(await getReviews(batch.id)).toEqual([]);
+
+    expect(await undoAcceptedGroup(group)).toBe(2);
+    // The row that was there before keeps its own card; the one made by the group goes.
+    expect(await getItems(batch.id)).toMatchObject([{ id: row, qty: 1, printing: { id: 'forest-a' } }]);
+    expect((await getReviews(batch.id)).map((review) => review.id).sort()).toEqual([forest.id, island.id].sort());
+    // Undoing twice changes nothing more.
+    expect(await undoAcceptedGroup(group)).toBe(0);
+    expect(await getItems(batch.id)).toMatchObject([{ id: row, qty: 1 }]);
   });
 });

@@ -80,4 +80,12 @@ export interface ReviewItem {
   qty: number;
   /** The test log's id of the scan that queued it. */
   scanId?: string;
+  /** The paths recognition took (Recognition.trace), for telling what settled the printing. Missing on reviews from before. */
+  trace?: string[];
+  /** The batch's set lock when the card was scanned, if any. */
+  lockSets?: string[];
+  /** A printing the user set for it from the list (a "use … for all" banner): it counts as confirmed. */
+  chosen?: Printing;
+  /** The user marked the quick-confirm guess wrong: it waits to be looked at one by one. */
+  markedWrong?: boolean;
 }
