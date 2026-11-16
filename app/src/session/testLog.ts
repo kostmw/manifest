@@ -272,8 +272,18 @@ export async function addTestLogRead(read: TestLogRead, max = TESTLOG_MAX_READS)
   });
 }
 
-export async function addTestLogEvent(event: Omit<TestLogEvent, 'id' | 'kind' | 'at'>): Promise<void> {
+/**
+ * Quiet spells kept: an idle camera with the log on adds one every 30 s (with
+ * a frame picture when nothing is in view), and events were only pruned when
+ * a read came (QA L-c). The oldest beyond this go.
+ */
+export const TESTLOG_MAX_QUIET = 200;
+
+export async function addTestLogEvent(event: Omit<TestLogEvent, 'id' | 'kind' | 'at'>, maxQuiet = TESTLOG_MAX_QUIET): Promise<void> {
   await db.testlog.put({ ...event, id: crypto.randomUUID(), kind: 'event', at: new Date().toISOString() });
+  if (event.type !== 'quiet') return;
+  const quiet = (await db.testlog.where('kind').equals('event').sortBy('at')).filter((entry) => entry.kind === 'event' && entry.type === 'quiet');
+  if (quiet.length > maxQuiet) await db.testlog.bulkDelete(quiet.slice(0, quiet.length - maxQuiet).map((entry) => entry.id));
 }
 
 /** A follow-up, recorded only while the log is on, and never in the way if storage fails. */
