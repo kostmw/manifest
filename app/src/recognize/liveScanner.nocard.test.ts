@@ -7,6 +7,14 @@ import { LiveSession } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { Recognition, RecognizeOptions } from './pipeline';
 
+/**
+ * These tests run live detection, fingerprints and the session on many frames
+ * (recognition itself is stubbed): 0.7 s on a Mac, near 1.5 s on a slow CI
+ * runner, where liveScanner.test.ts hit vitest's 5 s default (deploy run
+ * 43921141435). Room to spare.
+ */
+vi.setConfig({ testTimeout: 30_000 });
+
 /** What each read was given: the detections it was told to use, if any. */
 const given: (CardDetection[] | undefined)[] = [];
 
