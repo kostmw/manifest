@@ -1,8 +1,9 @@
 /**
- * The Review tab: the batch's scanned cards that wait for the user's say.
- * Those whose top guess looks right are listed, to be added together with one
- * tap ("quick confirm", see quickConfirm.ts); the rest are looked at one at a
- * time. With none that look right, it opens straight on the first card.
+ * The Review tab: the batch's scanned cards that wait for the user's say, in
+ * two lists. Those whose top guess looks right ("quick confirm", see
+ * quickConfirm.ts) are added together with one tap, unless marked wrong; those
+ * that need a look can be ticked to join them (their guesses are often right
+ * too), or opened and looked at one at a time.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -39,6 +40,38 @@ function useLastGroup(batchId: string) {
   return value?.group.batchId === batchId ? value : null;
 }
 
+/**
+ * Rows marked on screen and not yet sent, per batch: guesses that look right
+ * marked wrong, and guesses that need a look ticked for adding. Kept while
+ * the app runs, so that leaving the tab and coming back keeps them (QA M6).
+ */
+type MarkKind = 'wrong' | 'ticked';
+let marks: Readonly<Record<MarkKind, ReadonlyMap<string, ReadonlySet<string>>>> = { wrong: new Map(), ticked: new Map() };
+const markListeners = new Set<() => void>();
+function setMarks(kind: MarkKind, batchId: string, ids: ReadonlySet<string>): void {
+  const next = new Map(marks[kind]);
+  next.set(batchId, ids);
+  marks = { ...marks, [kind]: next };
+  for (const listener of markListeners) listener();
+}
+const EMPTY: ReadonlySet<string> = new Set();
+function useMarks(batchId: string) {
+  const current = useSyncExternalStore(
+    (listener) => {
+      markListeners.add(listener);
+      return () => markListeners.delete(listener);
+    },
+    () => marks,
+  );
+  return { wrong: current.wrong.get(batchId) ?? EMPTY, ticked: current.ticked.get(batchId) ?? EMPTY };
+}
+function toggleMark(kind: MarkKind, batchId: string, id: string): void {
+  const next = new Set(marks[kind].get(batchId) ?? EMPTY);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  setMarks(kind, batchId, next);
+}
+
 type View = { kind: 'list' } | { kind: 'one'; order: string[]; currentId: string };
 
 export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?: string | null; onScan: () => void }) {
@@ -46,8 +79,9 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
   const game = getGame(batch.game);
   const [view, setView] = useState<View | null>(startAt ? { kind: 'one', order: [startAt], currentId: startAt } : null);
   const [done, setDone] = useState(0);
-  /** Rows of "looks right" the user marked wrong, not yet sent (they become `markedWrong` when the rest are added). */
-  const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
+  /** Rows of "looks right" marked wrong (they become `markedWrong` when the rest are added), and rows of "needs a look" ticked for adding. */
+  const { wrong: marked, ticked } = useMarks(batch.id);
+  const [adding, setAdding] = useState(false);
   /** Printings the user just chose for a name, offered for the other reviews of it ("use … for all"). */
   const [choices, setChoices] = useState<Map<string, Printing>>(new Map());
   const [toast, setToast] = useState<{ count: number; key: number } | null>(null);
@@ -63,7 +97,7 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
     return groupReviews(reviews, lockedFor);
   }, [reviews, batch.settings.lockSets, game]);
 
-  // Opening the tab: the list when some look right, else straight to the first card, as before.
+  // Opening the tab: the lists (both can be added from), or the card the scanner sent here.
   const effective: View | null = (() => {
     if (!grouped || !reviews) return null;
     if (view?.kind === 'one' && reviews.some((review) => review.id === view.currentId)) return view;
@@ -71,14 +105,6 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
       // The card was resolved: on to the next in the order that still waits.
       const next = view.order.find((id) => reviews.some((review) => review.id === id));
       if (next) return { ...view, currentId: next };
-      if (grouped.looksRight.length === 0 && grouped.needsLook.length > 0) {
-        return { kind: 'one', order: grouped.needsLook.map((entry) => entry.review.id), currentId: grouped.needsLook[0]!.review.id };
-      }
-      return { kind: 'list' };
-    }
-    if (view?.kind === 'list') return view;
-    if (grouped.looksRight.length === 0 && grouped.needsLook.length > 0) {
-      return { kind: 'one', order: grouped.needsLook.map((entry) => entry.review.id), currentId: grouped.needsLook[0]!.review.id };
     }
     return { kind: 'list' };
   })();
@@ -92,7 +118,7 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
   if (!reviews || !grouped || !effective) return <p className="text-sm text-zinc-400">Opening the review queue…</p>;
 
   const banners = [...choices]
-    .map(([name, printing]) => ({ name, printing, targets: bannerTargets(reviews, name, printing) }))
+    .map(([name, printing]) => ({ name, printing, targets: bannerTargets(reviews, name, printing, marked) }))
     .filter((banner) => banner.targets.length > 0);
   const applyBanner = async (name: string, printing: Printing, targets: readonly ReviewItem[]) => {
     try {
@@ -144,7 +170,7 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
       setFailed(true);
     }
   };
-  const addBarShown = effective.kind === 'list' && grouped.looksRight.length > 0;
+  const addBarShown = effective.kind === 'list' && (grouped.looksRight.length > 0 || grouped.needsLook.some((entry) => ticked.has(entry.review.id)));
   const undoLink = undoable && !toast && (
     <button type="button" onClick={() => void undoGroup()} className={`${BUTTON_SECONDARY} self-start`}>
       Undo adding {undoable.count} {undoable.count === 1 ? 'card' : 'cards'}
@@ -153,7 +179,7 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
   const undoBar = toast ? (
     <div
       role="status"
-      className={`fixed inset-x-0 z-30 px-4 ${addBarShown ? 'bottom-[calc(env(safe-area-inset-bottom)+4.75rem)]' : 'bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]'}`}
+      className={`fixed inset-x-0 z-30 px-4 ${addBarShown || effective.kind === 'one' ? 'bottom-[calc(env(safe-area-inset-bottom)+4.75rem)]' : 'bottom-[calc(env(safe-area-inset-bottom)+0.75rem)]'}`}
     >
       <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-xl bg-zinc-100 p-3 text-sm text-zinc-900 shadow-lg">
         <span className="flex-1">
@@ -176,11 +202,9 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
         <OneByOneKeys order={order} index={index} go={go} />
         {undoLink}
         <div className="flex items-center gap-2">
-          {grouped.looksRight.length > 0 && (
-            <button type="button" onClick={() => setView({ kind: 'list' })} className={BUTTON_SECONDARY}>
-              ‹ List
-            </button>
-          )}
+          <button type="button" onClick={() => setView({ kind: 'list' })} className={BUTTON_SECONDARY}>
+            ‹ List
+          </button>
           <h2 className="flex-1 text-base font-semibold" data-testid="review-position">
             {index + 1} of {order.length} to review
           </h2>
@@ -202,8 +226,9 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
           key={current.id}
           batch={batch}
           review={current}
+          stickyActions
           // "Use … for all" never changes a row the user marked wrong.
-          pending={reviews.filter((review) => !review.markedWrong && !marked.has(review.id))}
+          pending={reviews.filter((review) => !review.markedWrong && !marked.has(review.id) && review.nameConfidence >= 0.5)}
           onResolved={(_outcome, printing) => {
             setDone((value) => value + 1);
             if (printing) setChoices((choicesNow) => new Map(choicesNow).set(printing.name, printing));
@@ -222,11 +247,17 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
   }
 
   const { looksRight, needsLook } = grouped;
-  const toAdd = looksRight.filter((entry) => !marked.has(entry.review.id));
+  const tickedRows = needsLook.filter((entry) => ticked.has(entry.review.id) && entry.placement.printing);
+  const toAdd = [...looksRight.filter((entry) => !marked.has(entry.review.id)), ...tickedRows];
   const lockLabel = (batch.settings.lockSets ?? []).map((code) => code.toUpperCase()).join(', ');
+  const closeMatches = needsLook.filter((entry) => entry.placement.quick && entry.placement.printing);
 
   const addAll = async () => {
+    // A second tap while the first is saving adds nothing, and never replaces the group to undo (QA L-a).
+    if (adding || toAdd.length === 0) return;
     const rejected = looksRight.filter((entry) => marked.has(entry.review.id));
+    const viaOf = new Map(toAdd.map((entry) => [entry.review.id, ticked.has(entry.review.id) ? 'bulk-ticked' : 'bulk']));
+    setAdding(true);
     try {
       setFailed(false);
       const group = await acceptReviewGroup(
@@ -237,30 +268,38 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
         })),
       );
       await Promise.all(rejected.map(({ review }) => updateReview(review.id, { markedWrong: true })));
-      for (const { review, placement } of toAdd) {
+      // Only what was really added (a review handled meanwhile, in another tab say, isn't).
+      const placed = new Map(toAdd.map((entry) => [entry.review.id, entry.placement]));
+      for (const { review } of group.entries) {
+        const printing = placed.get(review.id)!.printing!;
         logEvent({
           type: 'review-accepted',
           readIds: knownIds(review.scanId),
-          printing: logPrinting(placement.printing!),
-          finish: reviewFinish(batch, review, placement.printing!),
+          printing: logPrinting(printing),
+          finish: reviewFinish(batch, review, printing),
           qty: review.qty,
-          via: 'bulk',
-          cutoff: LOOKS_RIGHT_NAME,
+          via: viaOf.get(review.id)!,
+          ...(viaOf.get(review.id) === 'bulk' ? { cutoff: LOOKS_RIGHT_NAME } : {}),
         });
       }
       for (const { review, placement } of rejected) {
         logEvent({ type: 'bulk-rejected', readIds: knownIds(review.scanId), ...(placement.printing ? { printing: logPrinting(placement.printing) } : {}), cutoff: LOOKS_RIGHT_NAME });
       }
-      const count = group.entries.reduce((sum, entry) => sum + entry.qty, 0);
-      setLastGroup({ group, count });
-      setToast({ count, key: Date.now() });
-      setMarked(new Set());
+      setMarks('wrong', batch.id, EMPTY);
+      setMarks('ticked', batch.id, EMPTY);
+      if (group.entries.length > 0) {
+        const count = group.entries.reduce((sum, entry) => sum + entry.qty, 0);
+        setLastGroup({ group, count });
+        setToast({ count, key: Date.now() });
+        setDone((value) => value + group.entries.length);
+        cue('added');
+      }
       // Stay on the list, where the cards marked wrong now wait under "needs a look".
       setView({ kind: 'list' });
-      setDone((value) => value + group.entries.length);
-      cue('added');
     } catch {
       setFailed(true);
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -282,7 +321,7 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
   }
 
   return (
-    <div className={`flex flex-col gap-4 ${looksRight.length > 0 ? 'pb-28' : ''}`}>
+    <div className={`flex flex-col gap-4 ${addBarShown ? 'pb-28' : ''}`}>
       {undoLink}
       {bannerList}
       {failed && (
@@ -294,22 +333,15 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
       {looksRight.length > 0 && (
         <section aria-label="Looks right" className="flex flex-col gap-2">
           <h2 className="text-base font-semibold">Looks right ({looksRight.length})</h2>
-          <p className="text-xs text-zinc-400">Check each guess against your scan. Tap its ✓ to mark one wrong; tap a card to look closer.</p>
+          <p className="text-xs text-zinc-400">Check each guess against your scan. Tap ✗ Wrong on any guess that's wrong, then Add. Tap a card to look closer.</p>
           <ul className="flex flex-col gap-2">
             {looksRight.map((entry) => (
               <QuickConfirmRow
                 key={entry.review.id}
                 entry={entry}
                 lockLabel={lockLabel}
-                wrong={marked.has(entry.review.id)}
-                onToggle={() =>
-                  setMarked((current) => {
-                    const next = new Set(current);
-                    if (next.has(entry.review.id)) next.delete(entry.review.id);
-                    else next.add(entry.review.id);
-                    return next;
-                  })
-                }
+                control={{ kind: 'wrong', pressed: marked.has(entry.review.id) }}
+                onToggle={() => toggleMark('wrong', batch.id, entry.review.id)}
                 onOpen={() => open(entry)}
               />
             ))}
@@ -320,25 +352,43 @@ export function ReviewQueue({ batch, startAt, onScan }: { batch: Batch; startAt?
       {needsLook.length > 0 && (
         <section aria-label="Needs a look" className="flex flex-col gap-2">
           <h2 className="text-base font-semibold">Needs a look ({needsLook.length})</h2>
-          <button
-            type="button"
-            onClick={() => setView({ kind: 'one', order: needsLook.map((entry) => entry.review.id), currentId: needsLook[0]!.review.id })}
-            className={`${BUTTON_SECONDARY} self-start`}
-          >
-            Check them one by one
-          </button>
+          <p className="text-xs text-zinc-400">Tick Add on each guess that matches your scan, or tap a card to choose another printing or search.</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setView({ kind: 'one', order: needsLook.map((entry) => entry.review.id), currentId: needsLook[0]!.review.id })}
+              className={BUTTON_SECONDARY}
+            >
+              Check them one by one
+            </button>
+            {closeMatches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMarks('ticked', batch.id, new Set([...ticked, ...closeMatches.map((entry) => entry.review.id)]))}
+                className={BUTTON_SECONDARY}
+              >
+                Tick all close matches ({closeMatches.length})
+              </button>
+            )}
+          </div>
           <ul className="flex flex-col gap-2">
             {needsLook.map((entry) => (
-              <QuickConfirmRow key={entry.review.id} entry={entry} lockLabel={lockLabel} onOpen={() => open(entry)} />
+              <QuickConfirmRow
+                key={entry.review.id}
+                entry={entry}
+                lockLabel={lockLabel}
+                {...(entry.placement.printing ? { control: { kind: 'tick' as const, pressed: ticked.has(entry.review.id) }, onToggle: () => toggleMark('ticked', batch.id, entry.review.id) } : {})}
+                onOpen={() => open(entry)}
+              />
             ))}
           </ul>
         </section>
       )}
 
-      {looksRight.length > 0 && (
+      {addBarShown && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-900/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           <div className="mx-auto flex max-w-3xl">
-            <button type="button" disabled={toAdd.length === 0} onClick={() => void addAll()} className={`${BUTTON_PRIMARY} min-h-12 flex-1`}>
+            <button type="button" disabled={toAdd.length === 0 || adding} onClick={() => void addAll()} className={`${BUTTON_PRIMARY} min-h-12 flex-1`}>
               {toAdd.length === 0 ? 'Nothing to add' : `Add ${cardsToAdd} ${cardsToAdd === 1 ? 'card' : 'cards'}`}
             </button>
           </div>

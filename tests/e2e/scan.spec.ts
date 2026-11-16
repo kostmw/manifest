@@ -51,12 +51,12 @@ test('adds one more copy of the card just added with +1, and undoes the copy alo
   await expect(page.getByTestId('scan-counter')).toHaveText('1');
 
   // An identical copy put straight on top isn't counted by live mode: +1 counts it.
-  await strip.getByRole('button', { name: 'One more Sol Ring' }).click();
+  await page.getByRole('button', { name: 'One more Sol Ring' }).click();
   await expect(page.getByTestId('scan-counter')).toHaveText('2');
   await expect(strip.getByRole('listitem')).toHaveCount(2);
   await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
-  // Only the newest card has +1.
-  await expect(strip.getByRole('button', { name: 'One more Sol Ring' })).toHaveCount(1);
+  // One +1, for the newest card.
+  await expect(page.getByRole('button', { name: 'One more Sol Ring' })).toHaveCount(1);
 
   await strip.getByRole('button', { name: 'Undo Sol Ring' }).first().click();
   await expect(page.getByTestId('scan-counter')).toHaveText('1');
@@ -68,6 +68,7 @@ test('adds the batch’s foil finish to a confidently read card', async ({ page 
   await scanPhoto(page, SOL_RING);
   await expect(page.getByRole('status').filter({ hasText: 'Added Sol Ring · CMM 410' })).toBeVisible({ timeout: 30_000 });
   await nav(page).getByRole('button', { name: 'Batch (1)' }).click();
+  await page.getByRole('button', { name: 'Edit Sol Ring' }).click();
   await expect(page.getByRole('combobox', { name: 'Finish of Sol Ring' })).toHaveValue('foil');
 });
 
@@ -76,6 +77,7 @@ test('reads a card that is upside down, collector line included', async ({ page 
   await expect(page.getByRole('status').filter({ hasText: 'Added Demonic Tutor · CMM 509' })).toBeVisible({ timeout: 30_000 });
   // That printing only comes etched.
   await nav(page).getByRole('button', { name: 'Batch (1)' }).click();
+  await page.getByRole('button', { name: 'Edit Demonic Tutor' }).click();
   await expect(page.getByRole('combobox', { name: 'Finish of Demonic Tutor' })).toHaveValue('etched');
 });
 
@@ -137,7 +139,7 @@ test('says so when a photo has no card in it', async ({ page }) => {
 test('explains what to do while no card is in view of the camera', async ({ page }) => {
   await page.getByRole('button', { name: 'Start camera' }).click();
   // Chromium's fake camera shows a test pattern, not a card.
-  await expect(page.getByRole('status').filter({ hasText: 'Slide a card into view' })).toBeVisible();
+  await expect(page.getByText(/^Slide a card into view/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Sound on' })).toBeVisible();
 });
 
@@ -162,6 +164,7 @@ test('works through the review queue with the keyboard', async ({ page }) => {
   await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
 
   await nav(page).getByRole('button', { name: 'Review (1)' }).click();
+  await page.getByRole('button', { name: 'Check them one by one' }).click();
   await expect(page.getByTestId('review-position')).toHaveText('1 of 1 to review');
   const card = page.getByRole('region', { name: 'Card to review' });
   await expect(card.getByRole('img', { name: 'The card as scanned' })).toBeVisible();
@@ -190,6 +193,7 @@ test('applies one choice to every similar card waiting for review', async ({ pag
     await result.getByRole('button', { name: 'Later: keep it in Review' }).click();
   }
   await nav(page).getByRole('button', { name: 'Review (3)' }).click();
+  await page.getByRole('button', { name: 'Check them one by one' }).click();
   const card = page.getByRole('region', { name: 'Card to review' });
   await card.getByRole('button', { name: 'Pick Lightning Bolt, M11 149' }).click();
   await card.getByRole('button', { name: 'Use M11 149 for all 3 Lightning Bolt' }).click();
@@ -236,9 +240,21 @@ test('confirms the reviews that look right together, and undoes the group (quick
   await expect(looksRight.getByTestId('review-row')).toHaveCount(1);
   await expect(looksRight).toContainText('not in M11');
   await expect(page.getByRole('region', { name: 'Needs a look' }).getByTestId('review-row')).toHaveCount(1);
-  // Marked wrong, there's nothing to add; kept after all, one card.
-  await looksRight.getByRole('button', { name: /^Looks right: Sol Ring/ }).click();
+  // Marked wrong, there's nothing to add; the mark stays after a look at another tab (QA M6).
+  await looksRight.getByRole('button', { name: 'Mark Sol Ring wrong' }).click();
   await expect(page.getByRole('button', { name: 'Nothing to add' })).toBeDisabled();
+  await nav(page).getByRole('button', { name: 'Batch', exact: true }).click();
+  await nav(page).getByRole('button', { name: 'Review (2)' }).click();
+  await expect(looksRight.getByRole('button', { name: /^Marked wrong: Sol Ring/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Nothing to add' })).toBeDisabled();
+  // A guess that needs a look joins the group only when ticked; untick it again.
+  const needsLook = page.getByRole('region', { name: 'Needs a look' });
+  const tick = needsLook.getByRole('checkbox');
+  await expect(tick).toHaveAttribute('aria-checked', 'false');
+  await tick.click();
+  await expect(page.getByRole('button', { name: 'Add 1 card' })).toBeEnabled();
+  await tick.click();
+  // Kept after all: one card.
   await looksRight.getByRole('button', { name: /^Marked wrong: Sol Ring/ }).click();
   await page.getByRole('button', { name: 'Add 1 card' }).click();
 
@@ -282,7 +298,7 @@ test('turns the timings on and off from inside the app', async ({ page }) => {
   await expect(page.getByLabel('Show timings')).toBeChecked();
   await page.getByLabel('Show timings').uncheck();
   await page.getByRole('button', { name: 'Start camera' }).click();
-  await expect(page.getByRole('status').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop camera' })).toBeVisible();
   await expect(page.getByTestId('debug-live')).toHaveCount(0);
 });
 

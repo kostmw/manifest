@@ -150,6 +150,15 @@ export async function removeItem(itemId: string): Promise<void> {
   await db.items.delete(itemId);
 }
 
+/** Puts a removed row back as it was ("Removed X · Undo"); a row added for the same printing meanwhile takes its cards instead. */
+export async function restoreItem(item: BatchItem): Promise<void> {
+  await db.transaction('rw', db.items, async () => {
+    const same = await db.items.where({ batchId: item.batchId, mergeKey: item.mergeKey }).first();
+    if (same && same.id !== item.id) await db.items.update(same.id, { qty: same.qty + item.qty });
+    else await db.items.put(item);
+  });
+}
+
 /**
  * Changes a row's printing, finish, language or condition. Changing a row to
  * match another row merges the two. Returns the id of the row that holds the

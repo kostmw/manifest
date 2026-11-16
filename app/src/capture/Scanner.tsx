@@ -33,6 +33,8 @@ import { useWakeLock } from './useWakeLock';
 /** Time between live frames. Detection takes a fraction of it; OCR runs only on steady frames. */
 const FRAME_INTERVAL_MS = 120;
 /** How long the last card's name stays in the big status line before the live hint returns. */
+/** How long "Removed X · Undo" offers to put a card back. */
+const REMOVED_MS = 6000;
 const LAST_CARD_MS = 4000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -155,21 +157,17 @@ function Flash({ flash }: { flash: { kind: RecentScan['kind']; key: number } | n
 function RecentStrip({
   recent,
   onUndo,
-  onCopy,
   onOpenReview,
 }: {
   recent: readonly RecentScan[];
   onUndo: (entry: RecentScan) => void;
-  /** One more copy of the newest card, when it was added. */
-  onCopy: (entry: RecentScan) => void;
   onOpenReview: (reviewId?: string) => void;
 }) {
   if (recent.length === 0) return null;
   return (
     <ol aria-label="Last cards scanned" className="grid grid-cols-5 gap-2">
-      {recent.map((entry, index) => {
+      {recent.map((entry) => {
         const label = entry.name ?? 'Unreadable card';
-        const copyable = index === 0 && entry.kind === 'added' && Boolean(entry.itemId);
         return (
           <li key={entry.id} className="flex min-w-0 flex-col gap-1">
             <button
@@ -203,16 +201,6 @@ function RecentStrip({
               >
                 Undo
               </button>
-              {copyable && (
-                <button
-                  type="button"
-                  aria-label={`One more ${label}`}
-                  onClick={() => onCopy(entry)}
-                  className="min-h-9 flex-1 rounded-md bg-emerald-900/70 text-xs font-semibold text-emerald-100 hover:bg-emerald-800"
-                >
-                  +1
-                </button>
-              )}
             </div>
           </li>
         );
@@ -330,7 +318,7 @@ export function Scanner({
         batchId: target.id,
         kind: outcome.kind === 'added' ? 'added' : 'review',
         source,
-        name: outcome.kind === 'added' ? (outcome.printing.exportName ?? outcome.printing.name) : sure ? (scan.names[0] ?? null) : null,
+        name: outcome.kind === 'added' ? (outcome.printing.printedName ?? outcome.printing.exportName ?? outcome.printing.name) : sure ? (scan.names[0] ?? null) : null,
         code: outcome.kind === 'added' ? printingCode(outcome.printing) : best && sure ? printingCode(best) : null,
         ...(outcome.kind === 'added' ? { itemId: outcome.itemId } : { reviewId: outcome.review.id }),
         scanId,
@@ -442,10 +430,20 @@ export function Scanner({
     }
   };
 
+  /** "Removed X · Undo": a card just taken out with Undo, and how to put it back, for a few seconds. */
+  const [removed, setRemoved] = useState<{ name: string; putBack: () => Promise<void>; key: number } | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const timer = setTimeout(() => setRemoved(null), REMOVED_MS);
+    return () => clearTimeout(timer);
+  }, [removed]);
   const undo = (entry: RecentScan) => {
     if (photoReview && entry.reviewId === photoReview.review.id) setPhotoReview(null);
     if (last?.entry.id === entry.id) setLast(null);
-    void undoRecent(entry).catch(() => setSaveFailed(true));
+    void undoRecent(entry).then(
+      (putBack) => setRemoved(putBack ? { name: entry.name ?? 'the unreadable card', putBack, key: Date.now() } : null),
+      () => setSaveFailed(true),
+    );
   };
 
   /** "+1": one more copy of the card just added, with the same sound and flash as a scan. */
@@ -461,16 +459,19 @@ export function Scanner({
     );
   };
 
-  /** "Wrong? Read again": take the last live card back out and read the card in view afresh. */
+  /** "Wrong? Read again": take the card live mode read last back out (not a +1 copy of it, QA L-g) and read the card in view afresh. */
   const readAgain = () => {
-    const newest = recent[0];
-    if (newest?.source === 'live') undo(newest);
+    const read = recent.find((entry) => !entry.copy);
+    if (read?.source === 'live') undo(read);
     again();
   };
 
   const showingLast = last && last.entry.batchId === batch?.id && performance.now() - last.entry.at < LAST_CARD_MS;
   const total = cardCount + reviewCount;
   const newestLive = recent[0]?.source === 'live' ? recent[0] : null;
+  const newest = recent[0] ?? null;
+  const copyable = newest?.kind === 'added' && Boolean(newest.itemId);
+  const hint = streaming && recognizer.status === 'ready' ? liveHint(frame, camera.torch, recent[0]?.kind === 'added') : null;
 
   return (
     // Any tap here may unlock sound: browsers only allow audio that a tap started. A touch counts
@@ -498,7 +499,7 @@ export function Scanner({
             {total}
           </span>
           <span className="text-sm text-zinc-400">
-            card{total === 1 ? '' : 's'} in {batch?.name ?? 'this batch'}
+            scanned · {cardCount} in {batch?.name ?? 'this batch'}
           </span>
         </p>
         {reviewCount > 0 && (
@@ -508,10 +509,52 @@ export function Scanner({
         )}
       </div>
 
+      {/* What just happened, and what to do about it: above the camera, so it shows without scrolling while it runs. */}
+      <div className="flex min-h-14 flex-col gap-1">
+        {/* Only cards filed are announced; the hint changes too often to read out. */}
+        <div role="status" aria-live="polite">
+          {showingLast && (
+            <p className={`text-xl font-semibold ${last.entry.kind === 'added' ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {last.entry.kind === 'added'
+                ? `Added ${last.entry.name}${last.entry.code ? ` · ${last.entry.code}` : ''}`
+                : last.entry.name
+                  ? `Check later: ${last.entry.name}?`
+                  : "Couldn't read that one: it's waiting in Review"}
+            </p>
+          )}
+        </div>
+        {hint && <p className={showingLast ? 'text-sm text-zinc-400' : 'text-base text-zinc-200'}>{hint}</p>}
+      </div>
+      {newest && (
+        <div className="flex gap-3">
+          {copyable && (
+            <button
+              type="button"
+              onClick={() => copy(newest)}
+              aria-label={`One more ${newest.name ?? 'card'}`}
+              className="flex min-h-12 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-800 px-3 text-base font-semibold text-emerald-50 hover:bg-emerald-700"
+            >
+              <span className="flex-none">+1</span>
+              <span className="truncate">{newest.name}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => undo(newest)}
+            aria-label={`Undo ${newest.name ?? 'Unreadable card'}`}
+            className={`min-h-12 rounded-lg bg-zinc-800 px-4 text-base text-zinc-200 hover:bg-zinc-700 ${copyable ? 'flex-none' : 'flex-1'}`}
+          >
+            Undo {copyable ? '' : (newest.name ?? 'last card')}
+          </button>
+        </div>
+      )}
+
       <CameraPreview
         camera={camera}
         videoRef={videoRef}
         onStart={unlockAudio}
+        // The tabs, counter, status lines, buttons and the controls under the camera fit beside it on a phone.
+        maxHeight="max(36vh, calc(100dvh - 24rem))"
         overlay={
           <>
             <Outline frame={frame} />
@@ -567,20 +610,6 @@ export function Scanner({
         </aside>
       )}
 
-      <div className="flex min-h-16 flex-col gap-1" role="status" aria-live="polite">
-        {showingLast ? (
-          <p className={`text-xl font-semibold ${last.entry.kind === 'added' ? 'text-emerald-300' : 'text-amber-300'}`}>
-            {last.entry.kind === 'added'
-              ? `Added ${last.entry.name}${last.entry.code ? ` · ${last.entry.code}` : ''}`
-              : last.entry.name
-                ? `Check later: ${last.entry.name}?`
-                : "Couldn't read that one: it's waiting in Review"}
-          </p>
-        ) : (
-          streaming && recognizer.status === 'ready' && <p className="text-base text-zinc-200">{liveHint(frame, camera.torch, recent[0]?.kind === 'added')}</p>
-        )}
-        {showingLast && streaming && <p className="text-sm text-zinc-400">{liveHint(frame, camera.torch, recent[0]?.kind === 'added')}</p>}
-      </div>
       {saveFailed && (
         <p role="alert" className="text-sm text-amber-300">
           Couldn't save the last card. Your browser's storage may be full or blocked.
@@ -588,7 +617,25 @@ export function Scanner({
       )}
       {!batch && <p className="text-sm text-amber-300">Cards can't be saved until on-device storage works.</p>}
 
-      <RecentStrip recent={recent} onUndo={undo} onCopy={copy} onOpenReview={onOpenReview} />
+      <RecentStrip recent={recent} onUndo={undo} onOpenReview={onOpenReview} />
+      {removed && (
+        <div role="status" className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-30 px-4">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-xl bg-zinc-100 p-3 text-sm text-zinc-900 shadow-lg">
+            <span className="min-w-0 flex-1 truncate">Removed {removed.name}</span>
+            <button
+              type="button"
+              onClick={() => {
+                const { putBack } = removed;
+                setRemoved(null);
+                void putBack().catch(() => setSaveFailed(true));
+              }}
+              className="min-h-11 rounded-lg px-3 font-semibold text-sky-800 hover:bg-zinc-200"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
       {streaming && newestLive && frame?.phase === 'read' && (
         <button type="button" onClick={readAgain} className={`${BUTTON_SECONDARY} self-start`}>
           Wrong? Read this card again
@@ -655,8 +702,9 @@ export function Scanner({
         </section>
       )}
 
-      <section aria-label="Sound" className="flex flex-col gap-1 text-xs text-zinc-500">
-        <label className="flex min-h-11 items-center gap-2">
+      <section aria-label="Sound" className="flex flex-col gap-1 text-xs text-zinc-400">
+        {/* The label above, the select full width: beside it, it was wider than a 320 px screen. */}
+        <label className="flex flex-col gap-1">
           Sound
           <select
             value={sound}
@@ -666,7 +714,7 @@ export function Scanner({
               setSound(next);
               unlockAudio();
             }}
-            className="min-h-9 rounded-md border border-zinc-700 bg-zinc-950 px-2 text-sm text-zinc-100"
+            className="min-h-11 w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 text-base text-zinc-100 sm:text-sm"
           >
             <option value="on">On (the silent switch mutes it)</option>
             <option value="always">On, even in silent mode (pauses music)</option>

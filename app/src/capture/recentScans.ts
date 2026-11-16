@@ -6,7 +6,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import { changeQuantity } from '../session/batches';
-import { discardReview } from '../session/reviews';
+import { db } from '../session/db';
+import { discardReview, getReview } from '../session/reviews';
 import { logEvent } from '../session/testLog';
 
 export const RECENT_LIMIT = 5;
@@ -26,6 +27,8 @@ export interface RecentScan {
   reviewId?: string;
   /** The test log's id of this scan. */
   scanId?: string;
+  /** A +1: one more of the card scanned before it, not a scan of its own. */
+  copy?: true;
   /** Object URL of the user's crop. */
   thumb: string | null;
   /** performance.now() when it was scanned. */
@@ -67,7 +70,7 @@ function keep(next: readonly RecentScan[]): void {
 export async function copyRecent(entry: RecentScan): Promise<RecentScan | null> {
   if (entry.kind !== 'added' || !entry.itemId) return null;
   await changeQuantity(entry.itemId, 1);
-  const copy: RecentScan = { ...entry, id: crypto.randomUUID(), at: performance.now() };
+  const copy: RecentScan = { ...entry, id: crypto.randomUUID(), at: performance.now(), copy: true };
   keep([copy, ...entries]);
   if (entry.scanId) logEvent({ type: 'copy-added', readIds: [entry.scanId] });
   return copy;
@@ -81,12 +84,42 @@ export function removeRecent(id: string): void {
   emit(kept);
 }
 
-/** Takes a scanned card back out: one fewer in its batch row, or out of the review queue. */
-export async function undoRecent(entry: RecentScan): Promise<void> {
-  if (entry.kind === 'added' && entry.itemId) await changeQuantity(entry.itemId, -1);
-  if (entry.kind === 'review' && entry.reviewId) await discardReview(entry.reviewId);
+/**
+ * Takes a scanned card back out: one fewer in its batch row, or out of the
+ * review queue. Returns a function that puts it back ("Removed X · Undo", so
+ * a mis-tap on Undo is recoverable), or null when there is nothing to put back.
+ */
+export async function undoRecent(entry: RecentScan): Promise<(() => Promise<void>) | null> {
+  let putBack: (() => Promise<void>) | null = null;
+  if (entry.kind === 'added' && entry.itemId) {
+    const item = await db.items.get(entry.itemId);
+    await changeQuantity(entry.itemId, -1);
+    if (item) {
+      putBack = async () => {
+        const now = await db.items.get(item.id);
+        if (now) await db.items.update(item.id, { qty: now.qty + 1 });
+        else await db.items.add({ ...item, qty: 1 });
+      };
+    }
+  }
+  if (entry.kind === 'review' && entry.reviewId) {
+    const review = await getReview(entry.reviewId);
+    await discardReview(entry.reviewId);
+    if (review) {
+      putBack = async () => {
+        if (!(await db.reviews.get(review.id))) await db.reviews.add(review);
+      };
+    }
+  }
   removeRecent(entry.id);
   if (entry.scanId) logEvent({ type: 'undo', readIds: [entry.scanId] });
+  if (!putBack) return null;
+  const restore = putBack;
+  return async () => {
+    await restore();
+    // Its thumbnail was let go with it.
+    keep([{ ...entry, id: crypto.randomUUID(), thumb: null, at: performance.now() }, ...entries]);
+  };
 }
 
 function subscribe(listener: () => void): () => void {

@@ -39,7 +39,8 @@ export interface Resolution {
 /** A group of reviews accepted together, and the batch rows they went into, so the group can be undone. */
 export interface AcceptedGroup {
   batchId: string;
-  entries: { review: ReviewItem; itemId: string; qty: number }[];
+  /** Each review, the batch row its cards went into, how many, and that row's merge key then (printing, finish, language, condition). */
+  entries: { review: ReviewItem; itemId: string; qty: number; mergeKey: string }[];
 }
 
 /**
@@ -77,7 +78,7 @@ export async function acceptReviewGroup(batch: Batch, resolutions: readonly { re
         });
       }
       await db.reviews.delete(review.id);
-      entries.push({ review, itemId, qty });
+      entries.push({ review, itemId, qty, mergeKey });
     }
     return { batchId: batch.id, entries };
   });
@@ -91,21 +92,23 @@ export async function acceptReviews(batch: Batch, resolutions: readonly { review
 /**
  * Undoes a group accepted together: each review's cards come out of their
  * batch row again (a row left empty goes) and the review waits again, as it
- * was. Returns how many came back.
+ * was. A row that no longer holds them as they were added (its printing was
+ * changed, it was merged into another row or removed, or fewer are left) keeps
+ * what it has, and that review isn't queued again: the card would count twice
+ * (QA M3). Returns how many came back.
  */
 export async function undoAcceptedGroup(group: AcceptedGroup): Promise<number> {
   return db.transaction('rw', db.items, db.reviews, async () => {
     let restored = 0;
-    for (const { review, itemId, qty } of group.entries) {
+    for (const { review, itemId, qty, mergeKey } of group.entries) {
       // Already waiting again (undone before): leave it, and its batch row, alone.
       if (await db.reviews.get(review.id)) continue;
       const item = await db.items.get(itemId);
-      if (item) {
-        const left = item.qty - qty;
-        const scanIds = item.scanIds?.filter((id) => id !== review.scanId);
-        if (left > 0) await db.items.update(itemId, { qty: left, ...(scanIds ? { scanIds } : {}) });
-        else await db.items.delete(itemId);
-      }
+      if (!item || item.mergeKey !== mergeKey || item.qty < qty) continue;
+      const left = item.qty - qty;
+      const scanIds = item.scanIds?.filter((id) => id !== review.scanId);
+      if (left > 0) await db.items.update(itemId, { qty: left, ...(scanIds ? { scanIds } : {}) });
+      else await db.items.delete(itemId);
       await db.reviews.add(review);
       restored += 1;
     }

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Printing } from '../games/types';
-import { addCard, createBatch, getItems } from './batches';
+import { addCard, changeItemPrinting, createBatch, getItems } from './batches';
 import { db } from './db';
 import { decideIntake, intake, type ScannedCard } from './intake';
 import { acceptReview, acceptReviewGroup, acceptReviews, discardReview, getReviews, queueReview, reviewFinish, similarReviews, undoAcceptedGroup, type NewReview } from './reviews';
@@ -172,5 +172,24 @@ describe('accepting a group of reviews and undoing it (quick confirm)', () => {
     // Undoing twice changes nothing more.
     expect(await undoAcceptedGroup(group)).toBe(0);
     expect(await getItems(batch.id)).toMatchObject([{ id: row, qty: 1 }]);
+  });
+
+  it("doesn't queue a review again when its row was changed meanwhile, which would count the card twice (QA M3)", async () => {
+    const batch = await createBatch('B');
+    const forest = await queueReview(newReview(batch.id, { scanId: 's1' }));
+    const island = await queueReview(newReview(batch.id, { names: ['Island'], candidates: [candidate(ISLAND)], scanId: 's2' }));
+    const group = await acceptReviewGroup(batch, [
+      { review: forest, resolution: { printing: FOREST_A, finish: 'nonfoil', qty: 1 } },
+      { review: island, resolution: { printing: ISLAND, finish: 'nonfoil', qty: 1 } },
+    ]);
+    // In the Batch tab, the Island row's printing is changed to Forest A: it merges into the Forest row.
+    const islandRow = (await getItems(batch.id)).find((item) => item.printing.id === 'island')!;
+    await changeItemPrinting(islandRow, FOREST_A, 'mtg');
+    expect((await getItems(batch.id)).map((item) => [item.printing.id, item.qty])).toEqual([['forest-a', 2]]);
+
+    // The Forest review comes back out of its row; the Island one stays where it went.
+    expect(await undoAcceptedGroup(group)).toBe(1);
+    expect((await getItems(batch.id)).map((item) => [item.printing.id, item.qty])).toEqual([['forest-a', 1]]);
+    expect((await getReviews(batch.id)).map((review) => review.id)).toEqual([forest.id]);
   });
 });

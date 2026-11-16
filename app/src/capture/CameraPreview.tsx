@@ -10,6 +10,7 @@ export function CameraPreview({
   overlay,
   controls,
   onStart,
+  maxHeight = '58vh',
 }: {
   camera: ReturnType<typeof useCamera>;
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -19,6 +20,8 @@ export function CameraPreview({
   controls?: ReactNode;
   /** Called inside the Start camera tap, e.g. to unlock sound. */
   onStart?: () => void;
+  /** The tallest the running camera may be, as a CSS length: the scanner leaves room for what it shows around it. */
+  maxHeight?: string;
 }) {
   const { state, start, stop, torch, setTorchOn } = camera;
   const stream = state.status === 'live' ? state.stream : null;
@@ -47,8 +50,12 @@ export function CameraPreview({
         3:4 box hid its top and bottom).
       */}
       <div
-        className={`relative mx-auto overflow-hidden rounded-xl bg-black ${stream ? 'max-h-[58vh] max-w-full' : 'h-56 w-full'}`}
-        style={stream ? { aspectRatio: `${videoSize.width} / ${videoSize.height}`, height: 'auto', width: `min(100%, calc(58vh * ${videoSize.width / videoSize.height}))` } : undefined}
+        className={`relative mx-auto overflow-hidden rounded-xl bg-black ${stream ? 'max-w-full' : 'h-56 w-full'}`}
+        style={
+          stream
+            ? { aspectRatio: `${videoSize.width} / ${videoSize.height}`, height: 'auto', maxHeight, width: `min(100%, calc(${maxHeight} * ${videoSize.width / videoSize.height}))` }
+            : undefined
+        }
       >
         <video
           ref={videoRef}

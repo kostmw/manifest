@@ -13,7 +13,7 @@ import { knownIds, logEvent, logPrinting } from '../session/testLog';
 import type { Batch, ReviewItem } from '../session/types';
 import { UNREADABLE_BELOW } from '../session/intake';
 import { BUTTON_DANGER, BUTTON_PRIMARY, BUTTON_SECONDARY } from '../ui/styles';
-import { matchNote, printingCode, unreadableHint } from './explain';
+import { matchNote, ownNameNote, printingCode, shownName, unreadableHint } from './explain';
 
 const STEPPER = 'flex size-11 items-center justify-center rounded-md bg-zinc-700 text-lg hover:bg-zinc-600';
 const KEY = 'hidden rounded border border-zinc-600 px-1 font-mono text-[10px] text-zinc-400 sm:inline';
@@ -61,6 +61,7 @@ export function ReviewCard({
   review,
   pending,
   keyboard = true,
+  stickyActions = false,
   onResolved,
 }: {
   batch: Batch;
@@ -69,6 +70,13 @@ export function ReviewCard({
   pending: readonly ReviewItem[];
   /** Answer the review queue's single-key shortcuts. */
   keyboard?: boolean;
+  /**
+   * The Review tab, one card at a time: Add and Discard in a bar at the bottom
+   * of the screen, and the card shown from its top (they were two screens down,
+   * and the next card opened scrolled to its own Add: a second tap added a card
+   * nobody had looked at).
+   */
+  stickyActions?: boolean;
   /** `printing`: what it was added as, when it was added on its own (not with all similar). */
   onResolved: (outcome: ReviewOutcome, printing?: Printing) => void;
 }) {
@@ -85,6 +93,9 @@ export function ReviewCard({
   const [qty, setQty] = useState(review.qty);
   const [failed, setFailed] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (stickyActions) window.scrollTo({ top: 0 });
+  }, [stickyActions]);
   const chosen = custom ?? (selected !== null ? candidates[selected]?.printing ?? null : null);
   const finish = chosen ? game.defaultFinish(chosen, foil) : null;
   const finishLabel = finish ? (game.finishes.find((choice) => choice.code === finish)?.label ?? finish) : null;
@@ -172,7 +183,7 @@ export function ReviewCard({
   });
 
   return (
-    <section ref={sectionRef} aria-label="Card to review" className="flex flex-col gap-3">
+    <section ref={sectionRef} aria-label="Card to review" className={`flex flex-col gap-3 ${stickyActions ? 'pb-24' : ''}`}>
       <div className="grid grid-cols-2 gap-3">
         <figure className="flex flex-col gap-1">
           {crop ? (
@@ -260,9 +271,10 @@ export function ReviewCard({
                       )}
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium">{printing.exportName ?? printing.name}</span>
+                          <span className="truncate text-sm font-medium">{shownName(printing)}</span>
                           <span className={KEY}>{index + 1}</span>
                         </span>
+                        {ownNameNote(printing) && <span className="truncate text-xs text-zinc-400">{ownNameNote(printing)}</span>}
                         <span className="truncate text-xs text-zinc-300">{printing.setName}</span>
                         <span className="text-xs text-zinc-400">
                           {printingCode(printing)}
@@ -334,14 +346,26 @@ export function ReviewCard({
           Couldn't save that. Your browser's storage may be full.
         </p>
       )}
+      <div
+        className={
+          stickyActions
+            ? 'fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-900/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]'
+            : 'flex flex-wrap gap-2'
+        }
+      >
+        <div className={stickyActions ? 'mx-auto flex max-w-3xl gap-2' : 'contents'}>
+          <button type="button" disabled={!chosen} onClick={accept} className={`${BUTTON_PRIMARY} ${stickyActions ? 'min-h-12 min-w-0 flex-1' : ''}`}>
+            <span className="truncate">
+              {chosen ? `Add ${qty > 1 ? `${qty} × ` : ''}${stickyActions ? `${chosen.exportName ?? chosen.name} · ` : ''}${printingCode(chosen)}${finish && finish !== 'nonfoil' ? ` ${finishLabel?.toLowerCase()}` : ''}` : 'Add'}
+            </span>
+            <span className={`${KEY} ml-2 hidden border-zinc-800 text-zinc-800 sm:inline`}>Enter</span>
+          </button>
+          <button type="button" onClick={discard} className={`${BUTTON_DANGER} ${stickyActions ? 'min-h-12' : ''}`}>
+            Discard <span className={`${KEY} ml-2 hidden sm:inline`}>X</span>
+          </button>
+        </div>
+      </div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={!chosen} onClick={accept} className={BUTTON_PRIMARY}>
-          {chosen ? `Add ${qty > 1 ? `${qty} × ` : ''}${printingCode(chosen)}${finish && finish !== 'nonfoil' ? ` ${finishLabel?.toLowerCase()}` : ''}` : 'Add'}
-          <span className={`${KEY} ml-2 border-zinc-800 text-zinc-800`}>Enter</span>
-        </button>
-        <button type="button" onClick={discard} className={BUTTON_DANGER}>
-          Discard <span className={`${KEY} ml-2`}>X</span>
-        </button>
         {chosen && similar.length > 0 && (
           <button type="button" onClick={acceptSimilar} className={BUTTON_SECONDARY}>
             Use {printingCode(chosen)} for all {similar.length + 1} {chosen.exportName ?? chosen.name}

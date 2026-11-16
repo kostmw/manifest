@@ -37,7 +37,26 @@ export interface Placement {
   quick: boolean;
 }
 
-const cleanCollector = (candidate: PrintingCandidate | undefined) => candidate?.collector?.number === 'exact' && candidate.collector.set === 'exact';
+/**
+ * The collector line read set and number cleanly for this candidate. A loose
+ * digit guess scores 1.1 with the set (a clean read 1.6), and a match zeroed
+ * for contradicting the art keeps its verdicts at a score of 0 (QA M2).
+ */
+const CLEAN_COLLECTOR_SCORE = 1.5;
+const cleanCollector = (candidate: PrintingCandidate | undefined) =>
+  candidate?.collector?.number === 'exact' && candidate.collector.set === 'exact' && candidate.collector.score >= CLEAN_COLLECTOR_SCORE;
+/**
+ * The number read cleanly for this candidate, whatever the set: 1 alone, 1.35
+ * with a close set; a loose guess scores half, a zeroed match 0. With the set
+ * read exactly, only a clean read (1.6) counts.
+ */
+const cleanNumber = (candidate: PrintingCandidate | undefined) => {
+  const match = candidate?.collector;
+  if (match?.number !== 'exact') return false;
+  return match.set === 'exact' ? match.score >= CLEAN_COLLECTOR_SCORE : match.score >= 1;
+};
+/** Below this name confidence a read named nothing; a printing set from a banner doesn't make it look right (QA L-f). */
+const BANNER_NAME = 0.5;
 const closeArt = (candidate: PrintingCandidate | undefined) => candidate?.hashDistance !== null && candidate?.hashDistance !== undefined && candidate.hashDistance <= ART_CLOSE;
 
 /**
@@ -64,7 +83,8 @@ export function placeReview(review: ReviewItem, locked: ReadonlySet<string>): Pl
   // Basics and look-alike printings: only something beyond the artwork settles which one it is.
   const inLock = locked.size > 0 ? review.candidates.filter((candidate) => candidate.printing.name === printing.name && locked.has(candidate.printing.set)) : [];
   const settledBy: Placement['settledBy'] =
-    review.trace?.includes('lock:number-lookup') && locked.has(printing.set)
+    // The lock's number lookup only settles the printing when the number read is this printing's (QA M1).
+    review.trace?.includes('lock:number-lookup') && locked.has(printing.set) && cleanNumber(top)
       ? 'lock-number'
       : cleanCollector(top)
         ? 'collector'
@@ -110,6 +130,8 @@ export function groupReviews(reviews: readonly ReviewItem[], lockedFor: (review:
  * a printing for, the other waiting reviews whose best guess is that name and
  * whose printing isn't settled yet. Never rows the user marked wrong.
  */
-export function bannerTargets(reviews: readonly ReviewItem[], name: string, printing: Printing): ReviewItem[] {
-  return reviews.filter((review) => !review.markedWrong && review.names[0] === name && review.chosen?.id !== printing.id);
+export function bannerTargets(reviews: readonly ReviewItem[], name: string, printing: Printing, marked: ReadonlySet<string> = new Set()): ReviewItem[] {
+  return reviews.filter(
+    (review) => !review.markedWrong && !marked.has(review.id) && review.nameConfidence >= BANNER_NAME && review.names[0] === name && review.chosen?.id !== printing.id,
+  );
 }

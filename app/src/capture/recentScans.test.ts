@@ -19,7 +19,8 @@ describe('+1 on the card just added (round 7)', () => {
     const scanned = pushRecent({ batchId: batch.id, kind: 'added', source: 'live', name: 'Sol Ring', code: 'CMM 410', itemId, scanId: 'scan-1', card: null });
 
     const copy = await copyRecent(scanned);
-    expect(copy).toMatchObject({ kind: 'added', itemId, name: 'Sol Ring' });
+    // Marked a copy, so "Wrong? Read again" takes back the card read, not the copy (QA L-g).
+    expect(copy).toMatchObject({ kind: 'added', itemId, name: 'Sol Ring', copy: true });
     expect(copy!.id).not.toBe(scanned.id);
     expect((await getItems(batch.id))[0]?.qty).toBe(2);
 
@@ -40,5 +41,27 @@ describe('+1 on the card just added (round 7)', () => {
     const batch = await createBatch('Reviews');
     const waiting = pushRecent({ batchId: batch.id, kind: 'review', source: 'live', name: null, code: null, reviewId: 'r1', card: null });
     expect(await copyRecent(waiting)).toBeNull();
+  });
+});
+
+describe('Undo on a thumbnail, and putting the card back ("Removed X · Undo")', () => {
+  it('puts back the last copy of a row that Undo emptied, and a review it took out', async () => {
+    const batch = await createBatch('Put back');
+    const itemId = await addCard(batch, SOL_RING, { finish: 'nonfoil', scanId: 'scan-1' });
+    const added = pushRecent({ batchId: batch.id, kind: 'added', source: 'live', name: 'Sol Ring', code: 'CMM 410', itemId, scanId: 'scan-1', card: null });
+    const putBack = await undoRecent(added);
+    expect(await getItems(batch.id)).toEqual([]);
+    await putBack!();
+    expect((await getItems(batch.id)).map((item) => [item.printing.id, item.qty])).toEqual([['cmm-410', 1]]);
+
+    await db.reviews.add({
+      id: 'r1', batchId: batch.id, createdAt: '2026-11-16T00:00:00Z', source: 'live', names: [], candidates: [], nameConfidence: 0, confidence: 0,
+      titleText: '', collectorText: '', advice: [], reason: 'unreadable', foil: false, lang: 'en', condition: 'NM', qty: 1,
+    });
+    const waiting = pushRecent({ batchId: batch.id, kind: 'review', source: 'live', name: null, code: null, reviewId: 'r1', card: null });
+    const again = await undoRecent(waiting);
+    expect(await db.reviews.get('r1')).toBeUndefined();
+    await again!();
+    expect(await db.reviews.get('r1')).toMatchObject({ id: 'r1', reason: 'unreadable' });
   });
 });
