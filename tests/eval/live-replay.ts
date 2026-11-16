@@ -189,6 +189,9 @@ function frameText(f: TrailFrame): string {
   return `${f.outline ? 'o' : '-'}${f.moved ?? ''}${f.probe !== null ? `p${f.probe}` : ''}${f.gone ? `g${f.gone}` : ''}${f.hold ? 'h' : ''}/${phase}${f.steady}${f.far !== null ? `f${f.far}` : ''}${f.issues ? `!${f.issues.join('+')}` : ''}`;
 }
 
+/** Which card's tally each counted read went to, by the scanner's number for it (see LiveRead.supersedes). */
+const countedBy = new Map<number, Tally>();
+
 async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally | null, gain = 1, blur = 0, hand: Point | null = null): Promise<void> {
   let frame = frameOf(card, corners, gain, hand);
   if (blur) frame = blurred(frame, blur);
@@ -197,6 +200,15 @@ async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally |
   if (seen.read && tally) {
     if (seen.read.counted) tally.counted += 1;
     else tally.repeats += 1;
+    if (seen.read.seq !== undefined && seen.read.counted) countedBy.set(seen.read.seq, tally);
+    // Junk reads of pieces of this card are taken out of the batch's reviews, as the scanner does.
+    for (const seq of seen.read.supersedes ?? []) {
+      const earlier = countedBy.get(seq);
+      if (!earlier) continue;
+      earlier.counted -= 1;
+      countedBy.delete(seq);
+      tally.triggers.push('(stood in for a junk read)');
+    }
     tally.triggers.push(`${seen.read.trigger}${seen.read.counted ? '' : ' (same card)'}`);
     if (values.verbose) console.log(`    ${seen.read.trigger}${seen.read.counted ? ' COUNTED' : ' same'}: ${seen.read.frames.map(frameText).join(' ')}`);
   }

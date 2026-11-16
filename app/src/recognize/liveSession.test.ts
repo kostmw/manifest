@@ -126,23 +126,28 @@ describe('LiveSession with cards stacked on top of each other', () => {
     return session.next(at(x));
   }
 
-  it("counts a card put on a junk read as its own card unless it has the same best guess (QA M5)", () => {
-    const run = (bitsAway: number, guess: string | null) => {
+  it("counts a card put on a junk read as its own card, after a hand, unless it has the same best guess (QA M5)", () => {
+    const run = (bitsAway: number, guess: string | null, hand: boolean) => {
       const session = new LiveSession({ frames: 2, tolerance: 0.02 }, 3);
       settle(session, 300);
       // Counted as junk: no name, a guess of no weight.
       expect(session.settle(cardA, at(300), id(null, null, 'soc-165'))).toBe(true);
+      // A hand putting another card down: a frame without the card where it lay.
+      if (hand) session.next(null, () => cardB);
       settle(session, 300);
       const look = Uint32Array.from(cardA);
       for (let bit = 0; bit < bitsAway; bit++) look[bit >> 5]! ^= 1 << (bit & 31);
       for (let i = 0; i < 2; i++) session.changed(look);
       return session.settle(look, at(300), id('Constable Odo', null, guess));
     };
-    // Different enough to be read again (more than 24 bits), another guess: a new card, counted;
-    // the junk read stays for the user to discard.
-    expect(run(30, 'trk-230')).toBe(true);
+    // Different enough to be read again (more than 24 bits), another guess, after a hand: a new
+    // card, counted; the junk read stays for the user to discard.
+    expect(run(30, 'trk-230', true)).toBe(true);
     // The same best guess as the junk read: that card, read better.
-    expect(run(30, 'soc-165')).toBe(false);
+    expect(run(30, 'soc-165', true)).toBe(false);
+    // No hand: nothing could have taken its place, so it is that card read better (round 11's
+    // replay: a foil unread, then read).
+    expect(run(30, 'trk-230', false)).toBe(false);
   });
 
   it('tells the fingerprints apart', () => {

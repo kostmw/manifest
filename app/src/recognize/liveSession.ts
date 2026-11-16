@@ -284,6 +284,12 @@ export class LiveSession {
   /** During the run of frames that took the card read last for gone, how many had an outline. */
   private goneOutlines = 0;
   /**
+   * Since the card in view was last read, a frame didn't show it where it lay
+   * (a hand, or another card going down over it): only then can a different
+   * card have taken its place without leaving view.
+   */
+  private disturbed = false;
+  /**
    * The card read last, once it was taken for gone, until it has surely left
    * (see EMPTY_FRAMES): the same card read afresh meanwhile is that card, not
    * another copy. `moved`: outlines kept being found while it went (it was
@@ -381,6 +387,7 @@ export class LiveSession {
       const goneBefore = this.goneRun;
       this.goneRun = there || hold ? 0 : unseen ? this.goneRun : this.goneRun + 1;
       this.goneOutlines = this.goneRun === 0 ? 0 : this.goneOutlines + (this.goneRun > goneBefore && corners !== null ? 1 : 0);
+      if (this.goneRun > goneBefore) this.disturbed = true;
       if (this.countCopies && this.read && !this.identity.junk) this.watchCover(there, corners, stable, unseen);
     }
     this.lastFrame = {
@@ -573,11 +580,15 @@ export class LiveSession {
     // Otherwise it may be another card put on top, whose read must not stand in for the first
     // card's (QA M5): it counts, and the first stays (a junk read of a piece of this card is
     // taken out by LiveScanner, which knows the outlines).
+    // Only after a disturbance (a frame without it where it lay): with none, it is the same card
+    // read better, as when the first read of a foil fails (round 11's replay: Obsidian Order
+    // Operative, unread and then read, counted twice).
     const namedOverUnnamed = !this.identity.name && !this.identity.printingId && identity.name !== null && this.identity.guess !== identity.guess;
-    const tooFar = namedOverUnnamed && this.triggerDistance > NEW_CARD_DISTANCE;
+    const tooFar = namedOverUnnamed && this.disturbed && this.triggerDistance > NEW_CARD_DISTANCE;
     if ((this.trigger === 'different' || camera) && !tooFar && sameCard(this.identity, identity, this.triggerDistance, camera)) {
       this.lastSameCard = sameCardReason(this.identity, identity, this.triggerDistance, camera);
       this.read = true;
+      this.disturbed = false;
       this.failures = 0;
       if (signature) this.signatures = [...this.signatures, signature].slice(-SIGNATURES_KEPT);
       if (corners) this.readCorners = corners;
@@ -606,6 +617,7 @@ export class LiveSession {
     this.read = true;
     this.known = true;
     this.left = null;
+    this.disturbed = false;
     this.coverFrom = null;
     this.coverFrames = 0;
     this.recentOutlines = corners ? [corners] : [];
