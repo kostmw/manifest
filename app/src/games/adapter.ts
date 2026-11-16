@@ -54,7 +54,8 @@ export interface CollectorReading {
 
 /** How a collector reading fits one printing. */
 export interface CollectorMatch {
-  number: 'exact' | 'conflict' | 'unread';
+  /** `close`: a likely misreading of the number (see digitMisreads.ts), told only among one name's printings. */
+  number: 'exact' | 'close' | 'conflict' | 'unread';
   set: 'exact' | 'close' | 'conflict' | 'unread';
   /**
    * Evidence for this printing: about 1.6 when set and number both match,

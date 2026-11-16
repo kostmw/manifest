@@ -24,7 +24,7 @@ export interface EvalOutcome {
   /** The collector line as OCR read it. */
   collectorText?: string;
   /** How the collector reading fitted the labelled printing. */
-  collectorNumber?: 'exact' | 'conflict' | 'unread';
+  collectorNumber?: 'exact' | 'close' | 'conflict' | 'unread';
   collectorSet?: 'exact' | 'close' | 'conflict' | 'unread';
   /** "SET number" of the labelled printing and of the predicted ones, for reading the summary. */
   expectedLabel?: string;

@@ -7,11 +7,12 @@
  */
 import type { CardRegions, CollectorMatch, CollectorReading, GameAdapter } from '../games/adapter';
 import type { Catalog, CatalogPrinting, FingerprintTable } from '../games/catalog';
-import type { CollectorIndex } from '../games/collectorIndex';
+import { collectorNumberCore, type CollectorIndex } from '../games/collectorIndex';
 import type { Printing } from '../games/types';
 import type { Quad } from '../vision/geometry';
 import type { GrayImage, RgbaImage } from '../vision/image';
 import { cropCollectorLines } from './collectorCrop';
+import { numberMisreadCost } from './digitMisreads';
 import {
   canvasFromFrame,
   cornersMapping,
@@ -102,6 +103,30 @@ const ART_MATCH = 14;
 const ART_CONTRADICTS = 48;
 /** The most a name, or a printing, can be trusted when every printing of it has plainly other artwork. */
 const CONTRADICTED_CAP = 0.5;
+/**
+ * …unless the title read the name almost whole and the collector line names
+ * the same card: then the artwork is the card's own under glare (round 11,
+ * foils under the flashlight: Tenacious Drone, title 0.98, its number read
+ * exactly, art 50; Academy Instructor, title 0.99, its set read, art 56).
+ * OCR making a real name out of texture (the veto's reason) doesn't also read
+ * that card's number, or its set code at 0.97.
+ */
+const VETO_LIFT_TITLE = 0.95;
+const VETO_LIFT_TITLE_SET_ONLY = 0.97;
+/**
+ * A collector number misread by a likely swap or two (see digitMisreads.ts)
+ * names one of the title's printings when its number costs at most this, and
+ * every printing with another number costs at least this much more.
+ */
+const NEAR_NUMBER_COST = 0.5;
+const NEAR_NUMBER_MARGIN = 1;
+/**
+ * The most a printing chosen by a misread number can be trusted: it is put
+ * first, never auto-accepted. On the owner's logs (rounds 9–11), 9 of 12 such
+ * picks were right; in the other 3 the number read was no part of the card's
+ * own (Smoldering Marsh 307 read as 617 and 817, nearest 517).
+ */
+const NEAR_NUMBER_CAP = 0.85;
 const TOP = 5;
 /**
  * Score taken off a name with no printing in the batch's locked sets: enough
@@ -359,6 +384,37 @@ export function hashEvidence(distance: number | null): number {
 
 const WEIGHTS = { title: 2, hash: 1.5, collector: 1.2 };
 
+/**
+ * The collector number read with a digit or two misread (round 11: a Doctor
+ * Who card's 5 read as 6 or 8, so no printing had the number read): when the
+ * title is sure of the name and none of its printings has the number read,
+ * the printings whose number is a likely misreading of it, and clearly the
+ * likeliest, get it as `close`. Only ever among that name's printings, and
+ * printings with the same number still split the share between them.
+ */
+function nearNumber(scored: PrintingCandidate[], collector: CollectorReading | null, title: TitleMatch, trace: string[]): void {
+  const name = title.confidence >= SURE_TITLE ? title.candidates[0]?.name : undefined;
+  if (!name || !collector || collector.numbers.length === 0) return;
+  const own = scored.filter((c) => c.printing.name === name);
+  if (own.length < 2 || own.some((c) => c.collector?.number === 'exact')) return;
+  const cores = own.map((c) => collectorNumberCore(c.printing.number));
+  const costs = cores.map((core) => (core === null ? Number.POSITIVE_INFINITY : Math.min(...collector.numbers.map((read) => numberMisreadCost(read, core)))));
+  const best = Math.min(...costs);
+  if (best > NEAR_NUMBER_COST) return;
+  const bestCores = new Set(cores.filter((_, i) => costs[i] === best));
+  const runnerUp = Math.min(Number.POSITIVE_INFINITY, ...costs.filter((_, i) => !bestCores.has(cores[i]!)));
+  if (runnerUp - best < NEAR_NUMBER_MARGIN) return;
+  const conflict = collector.looseNumbers ? -0.2 : -0.6;
+  const close = collector.looseNumbers ? 0.25 : 0.5;
+  own.forEach((candidate, i) => {
+    if (costs[i] !== best || !candidate.collector || candidate.collector.number !== 'conflict') return;
+    const score = candidate.collector.score - conflict + close;
+    candidate.score += WEIGHTS.collector * (score - candidate.collector.score);
+    candidate.collector = { ...candidate.collector, number: 'close', score };
+  });
+  trace.push('collector:near');
+}
+
 /** Softmax share of the first of `scores`. */
 function share(scores: readonly number[], index: number): number {
   const max = Math.max(...scores);
@@ -567,6 +623,7 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
       });
     }
   }
+  nearNumber(scored, collector, title, trace);
   scored.sort((a, b) => b.score - a.score || (b.printing.released ?? '').localeCompare(a.printing.released ?? ''));
   const top = scored[0];
   if (!top) {
@@ -625,13 +682,22 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
   // Every printing of the name has plainly other artwork: whatever the title or collector line
   // said (OCR can make a real name out of texture), this card is not accepted unseen.
   const otherArt = sameName.every((c) => c.hashDistance !== null && c.hashDistance > ART_CONTRADICTS);
-  const cap = otherArt ? CONTRADICTED_CAP : 1;
+  // The collector line naming this card, whatever its art: the number read cleanly, or the set
+  // code, for one of its printings (in the locked sets, when there is a lock).
+  const ownCollector = sameName.filter((c) => !lock || lock.has(c.printing.set)).map((c) => c.collector).filter((m): m is CollectorMatch => m !== null);
+  const numberAgrees = !collector?.looseNumbers && ownCollector.some((m) => m.number === 'exact');
+  const setAgrees = ownCollector.some((m) => m.set === 'exact' || m.set === 'close');
+  const similarity = titleAgrees ? titleTop.similarity : 0;
+  const vetoLifted = otherArt && !outsideNames.has(topName) && ((similarity >= VETO_LIFT_TITLE && numberAgrees) || (similarity >= VETO_LIFT_TITLE_SET_ONLY && setAgrees));
+  if (vetoLifted) trace.push('art-veto-lifted');
+  const cap = otherArt && !vetoLifted ? CONTRADICTED_CAP : 1;
   const nameConfidence = Math.min(cap, 1 - (1 - fromTitle) * (1 - fromCollector) * (1 - fromHash));
 
   // Which printing of that name: fingerprints and collector line only. Printings that look
   // the same split the share between them, so only the collector line can settle those.
   const evidence = sameName.map((c) => -(c.hashDistance ?? NO_FINGERPRINT_DISTANCE) / 3 + 3 * (c.collector?.score ?? 0));
-  const printingConfidence = Math.min(cap, sameName.length === 1 ? 1 : share(evidence, 0));
+  const nearOnly = top.collector?.number === 'close';
+  const printingConfidence = Math.min(cap, nearOnly ? NEAR_NUMBER_CAP : 1, sameName.length === 1 ? 1 : share(evidence, 0));
 
   if (outsideNames.has(topName)) trace.push('lock:outside');
   return {
