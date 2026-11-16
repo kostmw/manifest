@@ -11,21 +11,47 @@ function withMainThreadTimings(outcome: FrameOutcome, capture: number, started: 
 }
 
 /**
- * Starts the recognition worker and loads the name list and OCR engine into
- * it. Mounted only while the scanner is shown, so the OCR download (about
- * 3 MB, once) happens only for people who scan.
+ * The recognition worker, started the first time the scanner opens (so the
+ * OCR download, about 3 MB once, happens only for people who scan) and then
+ * kept while the app runs: its live session remembers the card read last, so
+ * leaving the Scan tab and coming back doesn't count the card still lying
+ * there again (QA H1). Leaving the tab still turns the camera off. A worker
+ * that failed to load is dropped, so trying again starts a new one.
  */
+let shared: { game: GameId; worker: Worker; remote: Remote<RecognizeWorker>; ready: Promise<void> } | null = null;
+
+function sharedWorker(game: GameId): NonNullable<typeof shared> {
+  if (shared && shared.game !== game) {
+    shared.worker.terminate();
+    shared = null;
+  }
+  if (!shared) {
+    const worker = new Worker(new URL('./recognize.worker.ts', import.meta.url), { type: 'module' });
+    const remote = wrap<RecognizeWorker>(worker);
+    const ready = remote.load(game);
+    const entry = { game, worker, remote, ready };
+    ready.catch(() => {
+      if (shared === entry) {
+        worker.terminate();
+        shared = null;
+      }
+    });
+    shared = entry;
+  }
+  return shared;
+}
+
+/** Loads the name list and OCR engine into the shared recognition worker (see sharedWorker). */
 export function useRecognizer(game: GameId, lockSets: readonly string[] = [], countCopies = false) {
   const [status, setStatus] = useState<RecognizerStatus>('loading');
   const [attempt, setAttempt] = useState(0);
   const remoteRef = useRef<Remote<RecognizeWorker> | null>(null);
 
   useEffect(() => {
-    const worker = new Worker(new URL('./recognize.worker.ts', import.meta.url), { type: 'module' });
-    const remote = wrap<RecognizeWorker>(worker);
+    const { remote, ready } = sharedWorker(game);
     let cancelled = false;
     setStatus('loading');
-    remote.load(game).then(
+    ready.then(
       () => {
         if (cancelled) return;
         remoteRef.current = remote;
@@ -38,7 +64,6 @@ export function useRecognizer(game: GameId, lockSets: readonly string[] = [], co
     return () => {
       cancelled = true;
       remoteRef.current = null;
-      worker.terminate();
     };
   }, [game, attempt]);
 

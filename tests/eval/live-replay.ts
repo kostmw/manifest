@@ -10,6 +10,7 @@
  *   … --seed 2             # another shake of the phone
  *   … --verbose            # every read's frames before it (as the test log's `live.frames`), and every quiet spell's
  *   … --copies             # with "Count a copy put straight on top" switched on
+ *   … --hands              # a hand, lit by the flashlight, reaches over the card now and then (round 11)
  *
  * The frames between pictures are made up, the same way every run (seeded):
  * the hand-held phone drifts and now and then jumps a tenth or more of the
@@ -43,6 +44,7 @@ const { values, positionals } = parseArgs({
     'no-camera-events': { type: 'boolean', default: false },
     verbose: { type: 'boolean', default: false },
     copies: { type: 'boolean', default: false },
+    hands: { type: 'boolean', default: false },
     seed: { type: 'string', default: '1' },
     data: { type: 'string', default: 'data' },
     cache: { type: 'string', default: '.cache/eval' },
@@ -66,6 +68,11 @@ const FRAME_MS = 120;
 const LOOK_FRAMES = 8;
 const EMPTY_FRAMES = 6;
 const FLASH_FRAMES = 4;
+/** With --hands: the chance, before each look of a card after its first, that a hand reaches over it for HAND_FRAMES frames. */
+const HAND_CHANCE = 0.35;
+const HAND_FRAMES = 4;
+/** A hand: smooth, skin-coloured, brighter than the box (lit by the flashlight, round 11: light 80 → 130–155). */
+const SKIN = [215, 165, 135] as const;
 /** Chances per look and per frame. */
 const JUMP_CHANCE = 0.5;
 const BLUR_CHANCE = 0.15;
@@ -75,8 +82,8 @@ const BOX = [118, 30, 34] as const;
 let state = Number(values.seed) * 7919 + 13;
 const random = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648;
 
-/** The card picture warped onto `corners` over the box, bilinearly, with a little camera noise. */
-function frameOf(card: RgbaImage | null, corners: Quad | null, gain = 1): RgbaImage {
+/** The card picture warped onto `corners` over the box, bilinearly, with a little camera noise; with a hand over `hand` (its centre). */
+function frameOf(card: RgbaImage | null, corners: Quad | null, gain = 1, hand: Point | null = null): RgbaImage {
   const out = createRgba(FRAME.width, FRAME.height);
   const toCard = card && corners ? homography(corners, [{ x: 0, y: 0 }, { x: card.width, y: 0 }, { x: card.width, y: card.height }, { x: 0, y: card.height }] as Point[]) : null;
   for (let y = 0; y < FRAME.height; y++) {
@@ -98,6 +105,7 @@ function frameOf(card: RgbaImage | null, corners: Quad | null, gain = 1): RgbaIm
           }) as [number, number, number];
         }
       }
+      if (hand && ((x - hand.x) / 330) ** 2 + ((y - hand.y) / 520) ** 2 < 1) rgb = [SKIN[0], SKIN[1], SKIN[2]];
       const noise = (random() - 0.5) * 10;
       out.data[o] = rgb[0] * gain + noise;
       out.data[o + 1] = rgb[1] * gain + noise;
@@ -181,8 +189,8 @@ function frameText(f: TrailFrame): string {
   return `${f.outline ? 'o' : '-'}${f.moved ?? ''}${f.probe !== null ? `p${f.probe}` : ''}${f.gone ? `g${f.gone}` : ''}${f.hold ? 'h' : ''}/${phase}${f.steady}${f.far !== null ? `f${f.far}` : ''}${f.issues ? `!${f.issues.join('+')}` : ''}`;
 }
 
-async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally | null, gain = 1, blur = 0): Promise<void> {
-  let frame = frameOf(card, corners, gain);
+async function show(card: RgbaImage | null, corners: Quad | null, tally: Tally | null, gain = 1, blur = 0, hand: Point | null = null): Promise<void> {
+  let frame = frameOf(card, corners, gain, hand);
   if (blur) frame = blurred(frame, blur);
   const seen = await scanner.frame(frame, context);
   now += FRAME_MS + (seen.read ? (seen.timings.total ?? 300) : 0);
@@ -223,6 +231,11 @@ for (const card of cards) {
       const drift = { x: base.x + (random() - 0.5) * 12, y: base.y + (random() - 0.5) * 12 };
       await show(picture, cardQuad(drift, CARD_HEIGHT, 0.02 + (random() - 0.5) * 0.01), tally, 1, random() < BLUR_CHANCE ? 6 : 0);
     }
+    if (values.hands && random() < HAND_CHANCE) {
+      // A hand reaches over the card lying there, lit by the flashlight, and leaves it lying: one card still.
+      for (let i = 0; i < HAND_FRAMES; i++) await show(picture, cardQuad(base, CARD_HEIGHT, 0.02), tally, 1.3, 0, { x: base.x + 40, y: base.y + 60 });
+      for (let i = 0; i < 3; i++) await show(picture, cardQuad(base, CARD_HEIGHT, 0.02), tally);
+    }
   }
   results.push({ name: card.name, looks: card.reads.length, tally });
   // Taken away: the empty box for a moment before the next card.
@@ -230,7 +243,7 @@ for (const card of cards) {
 }
 await ocr.dispose();
 
-console.log(`Live replay of ${logPath}: ${cards.length} cards, ${log.reads.length} reads in the log${values['no-camera-events'] ? ', no flashlight events' : ''}${values.copies ? ', counting copies put on top' : ''}, seed ${values.seed}`);
+console.log(`Live replay of ${logPath}: ${cards.length} cards, ${log.reads.length} reads in the log${values['no-camera-events'] ? ', no flashlight events' : ''}${values.copies ? ', counting copies put on top' : ''}${values.hands ? ', with hands reaching over' : ''}, seed ${values.seed}`);
 for (const { name, looks, tally } of results) {
   const verdict = tally.counted === 1 ? 'ok' : tally.counted === 0 ? 'MISSED' : `COUNTED ${tally.counted}×`;
   console.log(`  ${verdict.padEnd(12)} ${name} (${looks} pictures): ${tally.triggers.join(', ') || 'never read'}`);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Quad } from '../vision/geometry';
 import { StabilityTracker } from '../vision/stability';
 import { cardQuad } from '../vision/testScene';
-import { CAMERA_SETTLE_MS, LiveSession, NO_IDENTITY, sameCard, sameCardReason, signatureDistance, type CardIdentity, type SignatureProbe } from './liveSession';
+import { CAMERA_SETTLE_MS, LiveSession, NO_IDENTITY, sameCard, sameCardReason, signatureDistance, type CardIdentity, type EmptyProbe, type SignatureProbe } from './liveSession';
 
 const at = (x: number): Quad => cardQuad({ x, y: 300 }, 400);
 /** What a read said: a name, a sure printing, and the best printing however unsure. */
@@ -106,6 +106,10 @@ describe('LiveSession with cards stacked on top of each other', () => {
   const cardA = Uint32Array.of(0x12345678, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
   const cardAAgain = Uint32Array.of(0x12345679, 0x9abcdef0, 0x0f0f0f0f, 0x33333333);
   const cardB = Uint32Array.of(0xedcba987, 0x6543210f, 0xf0f0f0f0, 0xcccccccc);
+  /** What lies where the card lay: a hand (not the empty box), the empty box's floor, or a picture too blown out to say. */
+  const hand: EmptyProbe = () => false;
+  const floor: EmptyProbe = () => true;
+  const blownOut: EmptyProbe = () => null;
 
   /** A session that has just read card A, lying at x = 300. */
   function afterReading() {
@@ -121,6 +125,25 @@ describe('LiveSession with cards stacked on top of each other', () => {
     session.next(at(x));
     return session.next(at(x));
   }
+
+  it("counts a card put on a junk read as its own card unless it has the same best guess (QA M5)", () => {
+    const run = (bitsAway: number, guess: string | null) => {
+      const session = new LiveSession({ frames: 2, tolerance: 0.02 }, 3);
+      settle(session, 300);
+      // Counted as junk: no name, a guess of no weight.
+      expect(session.settle(cardA, at(300), id(null, null, 'soc-165'))).toBe(true);
+      settle(session, 300);
+      const look = Uint32Array.from(cardA);
+      for (let bit = 0; bit < bitsAway; bit++) look[bit >> 5]! ^= 1 << (bit & 31);
+      for (let i = 0; i < 2; i++) session.changed(look);
+      return session.settle(look, at(300), id('Constable Odo', null, guess));
+    };
+    // Different enough to be read again (more than 24 bits), another guess: a new card, counted;
+    // the junk read stays for the user to discard.
+    expect(run(30, 'trk-230')).toBe(true);
+    // The same best guess as the junk read: that card, read better.
+    expect(run(30, 'soc-165')).toBe(false);
+  });
 
   it('tells the fingerprints apart', () => {
     expect(signatureDistance(cardA, cardAAgain)).toBe(1);
@@ -148,22 +171,63 @@ describe('LiveSession with cards stacked on top of each other', () => {
     expect(session.changed(cardB)).toBe(true);
   });
 
-  it('counts an identical copy put on top as a second card once the hand has covered the first', () => {
+  it("takes the same card read again after a hand covered it for a while for that card, not a copy (round 11: a hand reaching over it)", () => {
     const session = afterReading();
-    // The hand covers the card for three frames while the copy goes down: the card read last is gone.
-    session.next(null);
-    session.next(null);
-    session.next(null);
-    session.next(at(302));
-    // So the copy is read like any new card, and counts though it reads as the same card.
+    // The hand covers the card for three frames: the card read last is gone, but no empty box showed.
+    session.next(null, undefined, hand);
+    session.next(null, undefined, hand);
+    expect(session.next(null, undefined, hand).forgot).toEqual({ card: null, moved: false });
+    session.next(at(302), undefined, hand);
+    // Read afresh, it is the same card: not counted (an identical copy put straight on top needs +1).
     expect(session.next(at(302))).toMatchObject({ recognize: true, checkCard: false });
-    expect(session.settle(cardAAgain, at(302), id('Sol Ring', 'cmm-410'))).toBe(true);
-    // And a third.
-    session.next(null);
-    session.next(null);
-    session.next(null);
+    expect(session.settle(cardAAgain, at(302), id('Sol Ring', 'cmm-410'))).toBe(false);
+    expect(session.lastSameCard).toMatch(/^the card read last, back after something covered it/);
+    // A different card in its place counts.
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
     session.next(at(301));
     expect(session.next(at(301)).recognize).toBe(true);
+    expect(session.settle(cardB, at(301), id('Lightning Bolt', 'm11-146'))).toBe(true);
+  });
+
+  it('counts an identical copy put down once the empty box showed where the card lay', () => {
+    const session = afterReading();
+    // Taken away: the empty floor shows where it lay, while it goes and after.
+    for (let i = 0; i < 3; i++) session.next(null, undefined, floor);
+    session.next(at(302));
+    expect(session.next(at(302)).recognize).toBe(true);
+    expect(session.settle(cardAAgain, at(302), id('Sol Ring', 'cmm-410'))).toBe(true);
+    // A hand for three frames, then the floor for two: the card left; the copy counts.
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
+    session.next(null, undefined, floor);
+    expect(session.next(null, undefined, floor).phase).toBe('empty');
+    session.next(at(301));
+    expect(session.next(at(301)).recognize).toBe(true);
+    expect(session.settle(cardAAgain, at(301), id('Sol Ring', 'cmm-410'))).toBe(true);
+    // Pictures that show nothing either way (blown out) after a hand don't show the floor.
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
+    for (let i = 0; i < 3; i++) session.next(null, undefined, blownOut);
+    session.next(at(300));
+    session.next(at(300));
+    expect(session.settle(cardAAgain, at(300), id('Sol Ring', 'cmm-410'))).toBe(false);
+  });
+
+  it("tells two printings of one name apart when the card read last was taken for gone: sure of both, or looking different (QA H2)", () => {
+    const plains307 = id('Plains', 'trk-307');
+    const session = new LiveSession({ frames: 2, tolerance: 0.02 }, 3);
+    settle(session, 300);
+    expect(session.settle(cardA, at(300), plains307)).toBe(true);
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
+    settle(session, 300);
+    // Another printing, both reads sure of theirs: two cards.
+    expect(session.settle(cardB, at(300), id('Plains', 'sld-359'))).toBe(true);
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
+    settle(session, 300);
+    // The same name, unsure, another printing guessed, and looking different: two cards.
+    expect(session.settle(cardA, at(300), id('Plains', null, 'trk-307'))).toBe(true);
+    for (let i = 0; i < 3; i++) session.next(null, undefined, hand);
+    settle(session, 300);
+    // The same name and the same best printing: the same card.
+    expect(session.settle(cardAAgain, at(300), id('Plains', null, 'trk-307'))).toBe(false);
   });
 
   it("doesn't count a card as gone for two frames of a hand, or when its outline only jumps (a hand-held phone moved)", () => {
@@ -322,10 +386,15 @@ describe('LiveSession under glare and foil shimmer (the owner’s deck box with 
     expect(sameCard(id('Forest', 'dmu-277'), id('Forest', 'one-271'), 52, true)).toBe(false);
   });
 
-  it('counts an identical copy put on top, once the hand or the falling card covered the first', () => {
+  it('counts an identical copy put down after the empty box showed, not one that only slid over the first', () => {
     const session = lyingAndRead();
     // The next copy slides down the chute over the first: for three frames there is no card where it lay.
-    for (let i = 0; i < 3; i++) session.next(null, probeSeeing(emptyBox));
+    for (let i = 0; i < 3; i++) session.next(null, probeSeeing(emptyBox), () => false);
+    session.next(at(301));
+    expect(session.next(at(301)).recognize).toBe(true);
+    expect(session.settle(flipped(foil, 5), at(301), GRAY_AND_ADIRA)).toBe(false);
+    // Taken out, the empty box showing, and a copy put in: counted.
+    for (let i = 0; i < 3; i++) session.next(null, probeSeeing(emptyBox), () => true);
     session.next(at(301));
     expect(session.next(at(301)).recognize).toBe(true);
     expect(session.settle(flipped(foil, 5), at(301), GRAY_AND_ADIRA)).toBe(true);
@@ -558,13 +627,13 @@ describe('LiveSession in round 10', () => {
     session.next(far(740));
     expect(session.next(far(740)).recognize).toBe(true);
     expect(session.settle(card, far(740), ROGUE_AI)).toBe(false);
-    expect(session.lastSameCard).toBe('the card read last, moved (Rogue Artificial Intelligence)');
+    expect(session.lastSameCard).toMatch(/^the card read last, moved: same printing/);
   });
 
-  it('still counts an identical copy put down after the card was taken away (nothing in view)', () => {
+  it('still counts an identical copy put down after the card was taken away (the empty box in view)', () => {
     const session = lyingAndRead();
-    for (let i = 0; i < 2; i++) session.next(null, probeSeeing(elsewhere));
-    expect(session.next(null, probeSeeing(elsewhere)).forgot).toEqual({ card: 'Rogue Artificial Intelligence', moved: false });
+    for (let i = 0; i < 2; i++) session.next(null, probeSeeing(elsewhere), () => true);
+    expect(session.next(null, probeSeeing(elsewhere), () => true).forgot).toEqual({ card: 'Rogue Artificial Intelligence', moved: false });
     session.next(at(300));
     expect(session.next(at(300)).recognize).toBe(true);
     expect(session.settle(card, at(300), ROGUE_AI)).toBe(true);
@@ -575,7 +644,8 @@ describe('LiveSession in round 10', () => {
       const session = lyingAndRead(id('Dominion Assault Force', 'trk-194'));
       session.setCountCopies(countCopies);
       session.next(at(300));
-      // The hand putting the copy down: no outline, the spot looks unlike the card, for one frame.
+      // The hand putting the copy down: no outline, the spot looks unlike the card, for two frames.
+      session.next(null, probeSeeing(elsewhere));
       session.next(null, probeSeeing(elsewhere));
       // The copy settles 8% of the diagonal off.
       session.next(at(330));
@@ -586,6 +656,31 @@ describe('LiveSession in round 10', () => {
     };
     expect(run(false)).toBe(false);
     expect(run(true)).toBe(true);
+  });
+
+  it("doesn't take one lost frame, or blown-out frames, for a cover, nor an outline flipping between its places for a copy (QA M4)", () => {
+    const session = lyingAndRead(id('Dominion Assault Force', 'trk-194'));
+    session.setCountCopies(true);
+    // Detection flips between two outlines of the card, 5% apart.
+    session.next(at(300));
+    session.next(at(324));
+    session.next(at(300));
+    // One frame lost (a foil under the flashlight), then the other outline: no cover.
+    session.next(null, probeSeeing(elsewhere));
+    session.next(at(324));
+    expect(session.next(at(324)).checkCard).toBe(true);
+    expect(session.changed(flipped(card, 6))).toBe(false);
+    // Blown out for three frames (the picture shows nothing), then the other outline: no cover.
+    for (let i = 0; i < 3; i++) session.next(null, () => null);
+    session.next(at(300));
+    expect(session.next(at(300)).checkCard).toBe(true);
+    expect(session.changed(flipped(card, 6))).toBe(false);
+    // A cover of two frames, but the card settles where it already lay a moment ago: no copy.
+    session.next(null, probeSeeing(elsewhere));
+    session.next(null, probeSeeing(elsewhere));
+    session.next(at(324));
+    expect(session.next(at(324)).checkCard).toBe(true);
+    expect(session.changed(flipped(card, 6))).toBe(false);
   });
 
   it("doesn't count a nudge without a cover, or a copy put back exactly in place, even with the switch on", () => {

@@ -56,6 +56,13 @@ const JUNK: CardIdentity = { ...NO_IDENTITY, junk: true };
 export type SignatureProbe = (corners: Quad) => Uint32Array | null;
 
 /**
+ * Whether what lies at the given corners of the current frame is the empty
+ * surface the cards are put on (an empty deck box's floor): true, false
+ * (a card, a hand, anything else), or null when the picture can't say.
+ */
+export type EmptyProbe = (corners: Quad) => boolean | null;
+
+/**
  * What to do after a failed read: try again, report the card as unreadable,
  * or nothing: it was the card read last (`same-card`), or no card at all
  * (`no-card`: every try found none).
@@ -81,6 +88,8 @@ export interface FrameNote {
   away?: number | null;
   /** Frames in a row, so far, that showed the card read last gone. */
   gone: number;
+  /** After the card read last went: frames in a row that showed the empty surface where it lay (see EmptyProbe). */
+  empty?: number;
   /** The camera was still settling after the flashlight changed. */
   hold: boolean;
   /** Steady frames so far: a card is read, or checked against the card read last, once it has been steady for a couple. */
@@ -152,6 +161,18 @@ const MOVED_OUTLINES = 2;
 const MOVED_MS = 4000;
 const MOVED_EMPTY_FRAMES = 2;
 /**
+ * Frames in a row that must show the empty surface where the card read last
+ * lay (`EmptyProbe`) before it has surely left. Until then, the same card read
+ * afresh is that card back, not another copy: round 11's re-counts were a hand
+ * reaching over a card (lit by the flashlight) or a foil that detection lost,
+ * three frames that didn't look like the card, with no empty box in between.
+ */
+export const EMPTY_FRAMES = 2;
+/** Frames in a row without the card read last, and no outline in view, before they count as a cover (copy-on-top). */
+const COVER_FRAMES = 2;
+/** Outlines of the card read last kept from before a cover, for telling a copy put down from the card shifting. */
+const COVER_OUTLINES = 3;
+/**
  * Counting an identical copy put on top (off unless switched on): after a
  * cover (frames in which the card read last isn't seen where it lay, as when
  * a hand puts the copy down) shorter than GONE_FRAMES, the card settles again
@@ -221,14 +242,17 @@ export function sameCardReason(before: CardIdentity, after: CardIdentity, distan
  * - A different card put on top looks different on two checks in a row and
  *   reads as a different card: counted.
  * - The card read last is gone once it isn't there for `GONE_FRAMES` frames in
- *   a row (taken away, or covered by the hand putting the next card down).
- *   Then the next card counts, whatever it is: that is how identical copies count.
- *   Except when outlines kept being found while it went (`MOVED_OUTLINES`): it
- *   was moved, partly out of view, so the same card read afresh soon after is
- *   that card, not another copy.
- * - With copies counted (`setCountCopies`, off by default), a cover shorter
- *   than that (a hand) followed by the card settling `COPY_MOVED` or more from
- *   where it lay reads it again, and it counts.
+ *   a row (taken away, covered by a hand, or lost by detection). A different
+ *   card read next counts. The same card read next counts only once it had
+ *   surely left: the empty surface showed where it lay (`EMPTY_FRAMES`,
+ *   `EmptyProbe`); that is how an identical copy counts after the card was
+ *   taken away. Otherwise it is that card back, not counted (an identical copy
+ *   put straight in its place needs +1). When outlines kept being found while
+ *   it went (`MOVED_OUTLINES`), it was moved partly out of view, and is that
+ *   card for `MOVED_MS` or until nothing is in view.
+ * - With copies counted (`setCountCopies`, off by default), a cover of a
+ *   couple of frames (a hand) followed by the card settling `COPY_MOVED` or
+ *   more from each of its last places reads it again, and it counts.
  * - The flashlight switching (`cameraChanged`) holds all this while the camera
  *   re-exposes, then reads the card again, as a check.
  */
@@ -259,13 +283,25 @@ export class LiveSession {
   private cameraCheck = false;
   /** During the run of frames that took the card read last for gone, how many had an outline. */
   private goneOutlines = 0;
-  /** A card forgotten while outlines kept being found: probably moved, so the same card read afresh soon after isn't counted again. */
-  private moved: { identity: CardIdentity; signatures: Uint32Array[]; until: number } | null = null;
+  /**
+   * The card read last, once it was taken for gone, until it has surely left
+   * (see EMPTY_FRAMES): the same card read afresh meanwhile is that card, not
+   * another copy. `moved`: outlines kept being found while it went (it was
+   * moved, partly out of view): then it is remembered for MOVED_MS, or until
+   * nothing is in view.
+   */
+  private left: { identity: CardIdentity; signatures: Uint32Array[]; corners: Quad | null; moved: boolean; until: number; emptyRun: number } | null = null;
   private movedEmpty = 0;
+  /** Frames in a row, while the card read last isn't where it lay, that showed the empty surface there. */
+  private spotEmpty = 0;
   /** Count an identical copy put on top (see COPY_MOVED). */
   private countCopies = false;
-  /** Where the card read last lay when a cover began, while the cover lasts and until it settles again. */
-  private coverFrom: Quad | null = null;
+  /** Frames in a row so far that may be a cover (see watchCover). */
+  private coverFrames = 0;
+  /** The card read last's latest outlines while it lay there, newest last. */
+  private recentOutlines: Quad[] = [];
+  /** Where the card read last lay when a cover began (its latest outlines), while the cover lasts and until it settles again. */
+  private coverFrom: Quad[] | null = null;
   /** The card settled again after a cover, moved: read it as a possible copy at the next check. */
   private copyCheck = false;
   /** Why the last read settled as the card already counted, for the test log. */
@@ -287,6 +323,7 @@ export class LiveSession {
   setCountCopies(on: boolean): void {
     this.countCopies = on;
     this.coverFrom = null;
+    this.coverFrames = 0;
     this.copyCheck = false;
   }
 
@@ -306,7 +343,7 @@ export class LiveSession {
     return signature === null ? 'unseen' : this.closest(signature);
   }
 
-  next(corners: Quad | null, probe?: SignatureProbe): LiveStep {
+  next(corners: Quad | null, probe?: SignatureProbe, empty?: EmptyProbe): LiveStep {
     const hold = this.clock() < this.holdUntil;
     const { steadyFrames, stable } = this.tracker.update(corners);
     const moved = corners && this.readCorners ? movedShare(this.readCorners, corners) : null;
@@ -334,26 +371,42 @@ export class LiveSession {
       } else if (away !== null) {
         probed = away;
       }
+      // Whether the empty surface shows where it lay: then, once it is gone, it has surely left.
+      if (there || hold) this.spotEmpty = 0;
+      else if (this.readCorners && empty) {
+        const seen = empty(this.readCorners);
+        if (seen !== null) this.spotEmpty = seen ? this.spotEmpty + 1 : 0;
+      }
       // A blown-out or black picture shows nothing: it neither keeps the card nor takes it away.
       const goneBefore = this.goneRun;
       this.goneRun = there || hold ? 0 : unseen ? this.goneRun : this.goneRun + 1;
       this.goneOutlines = this.goneRun === 0 ? 0 : this.goneOutlines + (this.goneRun > goneBefore && corners !== null ? 1 : 0);
-      if (this.countCopies && this.read && !this.identity.junk) this.watchCover(there, corners, stable);
+      if (this.countCopies && this.read && !this.identity.junk) this.watchCover(there, corners, stable, unseen);
     }
-    this.lastFrame = { outline: corners !== null, moved: moved === null ? null : Math.round(moved * 100) / 100, probe: probed, ...(away !== null ? { away } : {}), gone: this.goneRun, hold, steady: steadyFrames, far: null };
+    this.lastFrame = {
+      outline: corners !== null,
+      moved: moved === null ? null : Math.round(moved * 100) / 100,
+      probe: probed,
+      ...(away !== null ? { away } : {}),
+      gone: this.goneRun,
+      ...(this.known && this.spotEmpty > 0 ? { empty: this.spotEmpty } : {}),
+      hold,
+      steady: steadyFrames,
+      far: null,
+    };
     let forgot: LiveStep['forgot'];
     if (this.known && this.goneRun >= this.goneFrames) {
       const wasMoved = this.goneOutlines >= MOVED_OUTLINES && !this.identity.junk;
       forgot = { card: this.identity.name ?? this.identity.guess, moved: wasMoved };
-      if (wasMoved) {
-        this.moved = { identity: this.identity, signatures: this.signatures, until: this.clock() + MOVED_MS };
-        this.movedEmpty = 0;
-      }
+      // Not remembered once the empty surface showed where it lay (it was taken away), unless it moved.
+      const leftSurely = !wasMoved && this.spotEmpty >= EMPTY_FRAMES;
+      this.left = this.identity.junk || leftSurely
+        ? null
+        : { identity: this.identity, signatures: this.signatures, corners: this.readCorners, moved: wasMoved, until: wasMoved ? this.clock() + MOVED_MS : Number.POSITIVE_INFINITY, emptyRun: this.spotEmpty };
+      this.movedEmpty = 0;
       this.forget();
-    } else if (this.moved && !this.known) {
-      // A moved card that then leaves view altogether has left.
-      this.movedEmpty = corners ? 0 : this.movedEmpty + 1;
-      if (this.movedEmpty >= MOVED_EMPTY_FRAMES || this.clock() > this.moved.until) this.moved = null;
+    } else if (this.left && !this.known) {
+      this.watchLeft(corners, empty);
     }
 
     if (!corners) {
@@ -370,19 +423,60 @@ export class LiveSession {
   }
 
   /**
-   * Copy-on-top counting: a cover (the card read last not seen where it lay,
-   * without an outline in view: a hand) that ends before the card is gone,
-   * then the card settling at least COPY_MOVED from where it lay before the
-   * cover, is read as a possible copy.
+   * After the card read last went: whether it has surely left. A moved card
+   * has left once nothing is in view for a couple of frames (or after
+   * MOVED_MS); any other once the empty surface shows where it lay for
+   * EMPTY_FRAMES frames in a row. Until then the same card read afresh is
+   * that card (see settle).
    */
-  private watchCover(there: boolean, corners: Quad | null, stable: boolean): void {
-    if (!there && !corners) {
-      this.coverFrom ??= this.readCorners;
+  private watchLeft(corners: Quad | null, empty: EmptyProbe | undefined): void {
+    const left = this.left!;
+    if (left.moved) {
+      // A moved card that then leaves view altogether has left.
+      this.movedEmpty = corners ? 0 : this.movedEmpty + 1;
+      if (this.movedEmpty >= MOVED_EMPTY_FRAMES || this.clock() > left.until) this.left = null;
       return;
     }
-    if (!this.coverFrom || !there || !corners || !stable) return;
-    if (movedShare(this.coverFrom, corners) >= COPY_MOVED) this.copyCheck = true;
+    if (!left.corners) {
+      // Nowhere to look: nothing in view for a couple of frames will do.
+      left.emptyRun = corners ? 0 : left.emptyRun + 1;
+    } else if (corners && movedShare(left.corners, corners) <= SAME_SPOT_SHARE) {
+      // Something card-shaped lies where it lay.
+      left.emptyRun = 0;
+    } else {
+      const seen = empty?.(left.corners) ?? null;
+      if (seen !== null) left.emptyRun = seen ? left.emptyRun + 1 : 0;
+    }
+    this.lastFrame = { ...this.lastFrame, empty: left.emptyRun };
+    if (left.emptyRun >= EMPTY_FRAMES) this.left = null;
+  }
+
+  /**
+   * Copy-on-top counting: a cover (COVER_FRAMES frames in a row in which the
+   * card read last isn't seen where it lay, nothing else is in view, and the
+   * picture shows something: a hand) that ends before the card is gone, then
+   * the card settling at least COPY_MOVED from each of its last outlines
+   * before the cover, is read as a possible copy. A blown-out frame, or one in
+   * which only detection lost a foil, isn't a cover, and an outline flipping
+   * between two places it already took isn't a copy (QA M4).
+   */
+  private watchCover(there: boolean, corners: Quad | null, stable: boolean, unseen: boolean): void {
+    if (!there && !corners) {
+      if (unseen) return;
+      this.coverFrames += 1;
+      if (this.coverFrames >= COVER_FRAMES && !this.coverFrom && this.recentOutlines.length > 0) this.coverFrom = this.recentOutlines;
+      return;
+    }
+    if (!this.coverFrom) {
+      this.coverFrames = 0;
+      if (there && corners) this.recentOutlines = [...this.recentOutlines, corners].slice(-COVER_OUTLINES);
+      return;
+    }
+    if (!there || !corners || !stable) return;
+    if (this.coverFrom.every((before) => movedShare(before, corners) >= COPY_MOVED)) this.copyCheck = true;
     this.coverFrom = null;
+    this.coverFrames = 0;
+    this.recentOutlines = [corners];
   }
 
   private closest(signature: Uint32Array): number {
@@ -457,17 +551,31 @@ export class LiveSession {
    */
   settle(signature: Uint32Array | null, corners: Quad | null, identity: CardIdentity): boolean {
     const camera = this.trigger === 'camera';
-    // A card read afresh just after the card read last was taken for gone while it was only moved
-    // (outlines kept being found), naming the same card: it is that card, not another copy.
-    const moved = this.moved;
-    if (this.trigger === 'fresh' && moved && !this.known && this.clock() <= moved.until && namesSame(moved.identity, identity)) {
-      this.moved = null;
-      this.markRead(signature, corners, moved.identity.name || moved.identity.printingId ? moved.identity : identity);
-      this.signatures = [...moved.signatures, ...(signature ? [signature] : [])].slice(-SIGNATURES_KEPT);
-      this.lastSameCard = `the card read last, moved (${identity.name ?? identity.guess})`;
-      return false;
+    // A card read afresh after the card read last was taken for gone, before it had surely left
+    // (it was moved, or no empty box showed where it lay), that is the same card: it is that card
+    // back from under a hand, or a foil detection lost, not another copy. Two reads sure of
+    // different printings, or naming one card's different printings that don't look alike, are
+    // two cards (QA H2).
+    const left = this.left;
+    if (this.trigger === 'fresh' && left && !this.known && this.clock() <= left.until) {
+      const distance = signature && left.signatures.length > 0 ? Math.min(...left.signatures.map((known) => signatureDistance(signature, known))) : Number.POSITIVE_INFINITY;
+      if (sameCard(left.identity, identity, distance)) {
+        this.left = null;
+        this.markRead(signature, corners, left.identity.name || left.identity.printingId ? left.identity : identity);
+        this.signatures = [...left.signatures, ...(signature ? [signature] : [])].slice(-SIGNATURES_KEPT);
+        const how = left.moved ? 'moved' : 'back after something covered it, with no empty box seen in between';
+        this.lastSameCard = `the card read last, ${how}: ${sameCardReason(left.identity, identity, distance)}`;
+        return false;
+      }
     }
-    if ((this.trigger === 'different' || camera) && sameCard(this.identity, identity, this.triggerDistance, camera)) {
+    // The card read last named nothing and this read names a card: only the same best guess (or a
+    // look within NEW_CARD_DISTANCE, which isn't read again at all) makes it that card read better.
+    // Otherwise it may be another card put on top, whose read must not stand in for the first
+    // card's (QA M5): it counts, and the first stays (a junk read of a piece of this card is
+    // taken out by LiveScanner, which knows the outlines).
+    const namedOverUnnamed = !this.identity.name && !this.identity.printingId && identity.name !== null && this.identity.guess !== identity.guess;
+    const tooFar = namedOverUnnamed && this.triggerDistance > NEW_CARD_DISTANCE;
+    if ((this.trigger === 'different' || camera) && !tooFar && sameCard(this.identity, identity, this.triggerDistance, camera)) {
       this.lastSameCard = sameCardReason(this.identity, identity, this.triggerDistance, camera);
       this.read = true;
       this.failures = 0;
@@ -497,8 +605,10 @@ export class LiveSession {
   markRead(signature: Uint32Array | null = null, corners: Quad | null = null, identity: CardIdentity = NO_IDENTITY): void {
     this.read = true;
     this.known = true;
-    this.moved = null;
+    this.left = null;
     this.coverFrom = null;
+    this.coverFrames = 0;
+    this.recentOutlines = corners ? [corners] : [];
     this.copyCheck = false;
     this.goneOutlines = 0;
     this.failures = 0;
@@ -506,6 +616,7 @@ export class LiveSession {
     this.readCorners = corners;
     this.identity = identity;
     this.goneRun = 0;
+    this.spotEmpty = 0;
     this.differentRun = 0;
     this.cameraCheck = false;
     this.trigger = 'fresh';
@@ -560,6 +671,7 @@ export class LiveSession {
     this.readCorners = null;
     this.identity = NO_IDENTITY;
     this.goneRun = 0;
+    this.spotEmpty = 0;
     this.differentRun = 0;
     this.cameraCheck = false;
     this.trigger = 'fresh';
@@ -567,11 +679,6 @@ export class LiveSession {
   }
 }
 
-/** Whether two reads name the same card: the same name, or the same best printing. No fingerprint fallback. */
-function namesSame(a: CardIdentity, b: CardIdentity): boolean {
-  if (a.junk || b.junk) return false;
-  return (a.name !== null && a.name === b.name) || (a.guess !== null && a.guess === b.guess);
-}
 
 /** The largest corner movement between two outlines, as a share of the first's diagonal. */
 function movedShare(from: Quad, to: Quad): number {
