@@ -436,6 +436,14 @@ describe("identifyPrinting with a collector number misread (round 11: a Doctor W
     expect(result.printingConfidence).toBeLessThanOrEqual(0.85);
   });
 
+  it('caps nothing when the artwork alone already settled the printing, the near number only agreeing', async () => {
+    // C21 263 has its own art (under glare, so the collector line is read); "0268" (3 read as 8) agrees with it.
+    const result = await identify(1, { title: sure('Sol Ring'), collector: ['U0268'], picture: glared(1) });
+    expect(result.candidates[0]?.printing.id).toBe('c21-263');
+    expect(result.candidates[0]?.collector).toMatchObject({ number: 'close' });
+    expect(result.printingConfidence).toBeGreaterThan(0.9);
+  });
+
   it('leaves the number alone when no printing is a likely misreading, or two equally are', async () => {
     // 390 is no likely misreading of 410, 703 or 263.
     const none = await identify(2, { title: sure('Sol Ring'), collector: ['U0390'] });

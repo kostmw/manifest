@@ -121,12 +121,16 @@ const VETO_LIFT_TITLE_SET_ONLY = 0.97;
 const NEAR_NUMBER_COST = 0.5;
 const NEAR_NUMBER_MARGIN = 1;
 /**
- * The most a printing chosen by a misread number can be trusted: it is put
- * first, never auto-accepted. On the owner's logs (rounds 9–11), 9 of 12 such
- * picks were right; in the other 3 the number read was no part of the card's
- * own (Smoldering Marsh 307 read as 617 and 817, nearest 517).
+ * The most a printing can be trusted when a misread number is what made it
+ * sure: it is put first, never auto-accepted. On the owner's logs (rounds
+ * 9–11), 9 of 12 such picks were right; in the other 3 the number read was no
+ * part of the card's own (Smoldering Marsh 307 read as 617 and 817, nearest
+ * 517). When the artwork alone already settled the printing, the near number
+ * only agrees, and nothing is capped.
  */
 const NEAR_NUMBER_CAP = 0.85;
+/** The printing share from which the artwork alone settles a printing (the auto-accept bar). */
+const ART_ALONE_SURE = 0.9;
 const TOP = 5;
 /**
  * Score taken off a name with no printing in the batch's locked sets: enough
@@ -695,9 +699,12 @@ export async function identifyPrinting(input: IdentifyInput): Promise<PrintingId
 
   // Which printing of that name: fingerprints and collector line only. Printings that look
   // the same split the share between them, so only the collector line can settle those.
-  const evidence = sameName.map((c) => -(c.hashDistance ?? NO_FINGERPRINT_DISTANCE) / 3 + 3 * (c.collector?.score ?? 0));
-  const nearOnly = top.collector?.number === 'close';
-  const printingConfidence = Math.min(cap, nearOnly ? NEAR_NUMBER_CAP : 1, sameName.length === 1 ? 1 : share(evidence, 0));
+  const evidenceOf = (score: (c: PrintingCandidate) => number) => sameName.map((c) => -(c.hashDistance ?? NO_FINGERPRINT_DISTANCE) / 3 + 3 * score(c));
+  const evidence = evidenceOf((c) => c.collector?.score ?? 0);
+  // Without the near number (its match back to a conflict), would the top printing still be sure?
+  const withoutNear = evidenceOf((c) => (c.collector?.number === 'close' ? c.collector.score - (collector?.looseNumbers ? 0.45 : 1.1) : (c.collector?.score ?? 0)));
+  const nearDecided = top.collector?.number === 'close' && sameName.length > 1 && share(withoutNear, 0) < ART_ALONE_SURE;
+  const printingConfidence = Math.min(cap, nearDecided ? NEAR_NUMBER_CAP : 1, sameName.length === 1 ? 1 : share(evidence, 0));
 
   if (outsideNames.has(topName)) trace.push('lock:outside');
   return {
