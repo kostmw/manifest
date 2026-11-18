@@ -21,6 +21,7 @@ export function tally(job: Pick<ImportJob, 'photos' | 'cards'>): string {
     plural(job.cards.added, 'card added', 'cards added'),
     ...(job.cards.review ? [`${count(job.cards.review)} to review`] : []),
     ...(job.photos.failed ? [`${count(job.photos.failed)} without a card`] : []),
+    ...(job.cards.unread ? [plural(job.cards.unread, 'outline not read', 'outlines not read')] : []),
     ...(job.photos.skipped ? [`${count(job.photos.skipped)} skipped`] : []),
   ];
   return parts.join(' · ');
@@ -71,6 +72,8 @@ export function failureText(failure: ImportFailure, name: string): string {
       return /\.(heic|heif)$/i.test(name) ? 'This browser can’t open HEIC photos: use Safari, or save them as JPEG' : 'This browser can’t open it';
     case 'error':
       return 'Reading it went wrong';
+    case 'unread':
+      return 'Some outlines in it named no card (an empty pocket, or a card it couldn’t read)';
   }
 }
 

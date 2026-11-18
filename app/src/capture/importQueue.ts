@@ -59,6 +59,8 @@ export interface ImportFailureView {
   canRetry: boolean;
   /** There's a picture of the photo to send to review. */
   canReview: boolean;
+  /** For `unread`: how many outlines in the photo named no card. */
+  count?: number;
 }
 
 export interface ImportView {
@@ -162,7 +164,11 @@ export class ImportRunner {
         last: null,
         perMinute: null,
         remainingMs: null,
-        failures: failures.map((file) => ({ key: file.key, name: file.name, failure: file.failure ?? 'error', canRetry: false, canReview: Boolean(file.picture) })),
+        failures: failures.map((file) =>
+          file.status === 'failed'
+            ? { key: file.key, name: file.name, failure: file.failure ?? 'error', canRetry: false, canReview: Boolean(file.picture) }
+            : { key: file.key, name: file.name, failure: 'unread' as const, canRetry: false, canReview: true, count: file.unread!.length },
+        ),
         skippedAtHand: 0,
         saveFailed: false,
       };
@@ -294,20 +300,12 @@ export class ImportRunner {
     void this.run();
   }
 
-  /**
-   * Sends a photo with no card found to the review queue anyway, as an
-   * unreadable card with a picture of the photo, to be named by search.
-   */
-  async reviewAnyway(key: string): Promise<boolean> {
-    const view = this.view;
-    if (!view) return false;
-    const record = await getImportFile(view.job.id, key);
-    const batch = await this.deps.batch(view.job.batchId);
-    if (!record?.picture || record.status !== 'failed' || !batch) return false;
-    const review = await queueReview({
+  /** An unreadable card in the review queue, with a picture of it, to be named by search. */
+  private async unreadableReview(batch: Batch, crop: ArrayBuffer) {
+    return queueReview({
       batchId: batch.id,
       source: 'file',
-      crop: record.picture,
+      crop,
       names: [],
       candidates: [],
       nameConfidence: 0,
@@ -322,14 +320,33 @@ export class ImportRunner {
       condition: batch.settings.defaultCondition,
       qty: 1,
     });
+  }
+
+  /**
+   * Sends a listed photo to the review queue anyway: a photo with no card
+   * found, as an unreadable card with a picture of the photo; or, from a photo
+   * of several cards, each outline that named no card, with its picture.
+   */
+  async reviewAnyway(key: string): Promise<boolean> {
+    const view = this.view;
+    if (!view) return false;
+    const record = await getImportFile(view.job.id, key);
+    const batch = await this.deps.batch(view.job.batchId);
+    if (!record || !batch) return false;
+    const pictures = record.status === 'failed' ? (record.picture ? [record.picture] : []) : (record.unread ?? []);
+    if (pictures.length === 0) return false;
+    const reviewIds: string[] = [];
+    for (const picture of pictures) reviewIds.push((await this.unreadableReview(batch, picture)).id);
     const now = this.view;
     if (!now || now.job.id !== view.job.id) return true;
-    const job = this.job({
-      photos: { ...now.job.photos, failed: now.job.photos.failed - 1, review: now.job.photos.review + 1 },
-      cards: { ...now.job.cards, review: now.job.cards.review + 1 },
-    });
-    const { picture: _picture, failure: _failure, ...rest } = record;
-    await saveFile(job, { ...rest, status: 'review', reviewIds: [review.id], at: new Date(this.deps.now()).toISOString() });
+    const photos = { ...now.job.photos, review: now.job.photos.review + (record.status === 'review' ? 0 : 1) };
+    if (record.status === 'failed') photos.failed -= 1;
+    if (record.status === 'added') photos.added -= 1;
+    const cards = { ...now.job.cards, review: now.job.cards.review + reviewIds.length };
+    if (record.status !== 'failed') cards.unread = Math.max(0, (cards.unread ?? 0) - reviewIds.length);
+    const job = this.job({ photos, cards });
+    const { picture: _picture, failure: _failure, unread: _unread, ...rest } = record;
+    await saveFile(job, { ...rest, status: 'review', reviewIds: [...(record.reviewIds ?? []), ...reviewIds], at: new Date(this.deps.now()).toISOString() });
     this.atHand.delete(key);
     this.set({ job, failures: now.failures.filter((failure) => failure.key !== key) });
     return true;
@@ -446,10 +463,15 @@ export class ImportRunner {
       }
     }
     const status = reviewIds.length > 0 ? 'review' : 'added';
+    const unread = (await Promise.all(read.unread.map((picture) => picture.arrayBuffer().catch(() => null)))).filter((bytes): bytes is ArrayBuffer => bytes !== null);
     const now = this.view!;
     const job = this.job({
       photos: { ...now.job.photos, [status]: now.job.photos[status] + 1 },
-      cards: { added: now.job.cards.added + itemIds.length, review: now.job.cards.review + reviewIds.length },
+      cards: {
+        added: now.job.cards.added + itemIds.length,
+        review: now.job.cards.review + reviewIds.length,
+        ...(unread.length || now.job.cards.unread ? { unread: (now.job.cards.unread ?? 0) + unread.length } : {}),
+      },
     });
     await saveFile(job, {
       jobId: job.id,
@@ -460,9 +482,11 @@ export class ImportRunner {
       status,
       ...(itemIds.length ? { itemIds } : {}),
       ...(reviewIds.length ? { reviewIds } : {}),
+      ...(unread.length ? { unread } : {}),
       at: new Date(this.deps.now()).toISOString(),
     });
-    this.set({ job, last, pending: this.queue.length, ...this.timed() });
+    const listed: ImportFailureView[] = unread.length ? [{ key, name: file.name, failure: 'unread', canRetry: false, canReview: true, count: unread.length }] : [];
+    this.set({ job, last, pending: this.queue.length, ...(listed.length ? { failures: [...now.failures, ...listed] } : {}), ...this.timed() });
     return false;
   }
 

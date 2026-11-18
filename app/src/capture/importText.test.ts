@@ -40,6 +40,7 @@ describe('import wording', () => {
   it('tallies cards and photos, leaving out what is 0', () => {
     expect(tally(counts)).toBe('380 cards added · 30 to review · 3 without a card');
     expect(tally({ photos: { added: 1, review: 0, failed: 0, skipped: 12 }, cards: { added: 1, review: 0 } })).toBe('1 card added · 12 skipped');
+    expect(tally({ photos: { added: 0, review: 1, failed: 0, skipped: 0 }, cards: { added: 6, review: 2, unread: 1 } })).toBe('6 cards added · 2 to review · 1 outline not read');
   });
 
   it('rounds the time left', () => {

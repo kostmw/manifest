@@ -19,7 +19,7 @@ import { LiveScanner, type LiveRead, type QuietSpell, type TrailFrame } from './
 import type { LivePhase, ReadTrigger } from './liveSession';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
-import { recognizeFrame, type Decision, type Recognition } from './pipeline';
+import { recognizeCards, type Decision, type Recognition } from './pipeline';
 import { createTesseractEngine } from './tesseract';
 
 declare const __OCR_DIR__: string;
@@ -57,6 +57,8 @@ export interface ScanResult {
   quality: (QualityMetrics & { issues: QualityIssue[]; inFrame: boolean }) | null;
   /** The frame or photo's size, as read. */
   frame: { width: number; height: number };
+  /** In a photo of several cards: this one is cut off by the photo's edge (never auto-accepted). */
+  partial?: boolean;
 }
 
 export interface FrameOutcome {
@@ -76,6 +78,8 @@ export interface FrameOutcome {
   timings: Record<string, number>;
   /** Present when this frame was read and it is a new card. */
   result: ScanResult | null;
+  /** A photo of several cards (then `result` is null): every card read from it, and the outlines that named nothing. */
+  several?: { results: ScanResult[]; unread: Blob[] };
   /**
    * This frame read the card already counted again, because it looked
    * different (glare, foil shimmer), and found it was the same card: nothing
@@ -109,6 +113,12 @@ export type FileRead =
       kind: 'cards';
       /** One per card found, each with its own crop. */
       results: ScanResult[];
+      /**
+       * In a photo of several cards: outlines found as cards whose read named
+       * nothing (an empty binder pocket, or a card too worn or glared to read),
+       * as pictures. Never filed by themselves, never dropped: listed for the user.
+       */
+      unread: Blob[];
       frame: { width: number; height: number };
       timings: Record<string, number>;
     }
@@ -225,6 +235,24 @@ async function toResult(recognition: Recognition, started: number, frame: { widt
   };
 }
 
+/** The cards read from a photo of several: those that named a card, and pictures of the outlines that named nothing. */
+async function severalResults(
+  cards: readonly (Recognition & { partial: boolean })[],
+  started: number,
+  frame: { width: number; height: number },
+): Promise<{ results: ScanResult[]; unread: Blob[] }> {
+  const results: ScanResult[] = [];
+  const unread: Blob[] = [];
+  for (const card of cards) {
+    if (card.names.length > 0) results.push({ ...(await toResult(card, started, frame)), ...(card.partial ? { partial: true } : {}) });
+    else if (card.card) {
+      const picture = await toJpeg(card.card).catch(() => null);
+      if (picture) unread.push(picture);
+    }
+  }
+  return { results, unread };
+}
+
 /** A live read as the main thread gets it: a new card (`result`), or the card already counted (`repeat`). */
 async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcome): Promise<void> {
   const result = await toResult(read.recognition, started, outcome.frame, read.gaveUp);
@@ -316,23 +344,44 @@ const api = {
     lockSets = [...sets];
   },
 
-  /** A still photo: always read, since it can't be retaken the way a live frame can. */
+  /**
+   * A still photo: always read, since it can't be retaken the way a live
+   * frame can. A photo of several cards (a binder page, a spread) gives every
+   * card in it; a photo of one is read as it always was.
+   */
   async photo(bitmap: ImageBitmap): Promise<FrameOutcome> {
     const started = performance.now();
     const context = ready();
     const frame = pixels(bitmap, PHOTO_MAX_SIDE);
     const copied = performance.now() - started;
-    const recognition = await recognizeFrame(frame, { ...context, readDespiteQuality: true, keepImages: true, centerFallback: true });
+    const size = { width: frame.width, height: frame.height };
+    const read = await recognizeCards(frame, { ...context, readDespiteQuality: true, keepImages: true, centerFallback: true });
+    if (read.multi) {
+      const several = await severalResults(read.cards, started, size);
+      return {
+        frame: size,
+        corners: null,
+        steadyFrames: 0,
+        phase: 'empty',
+        issues: [],
+        advice: [],
+        metrics: null,
+        timings: { pixels: copied, ...read.timings, total: performance.now() - started },
+        result: null,
+        several,
+      };
+    }
+    const recognition = read.cards[0] ?? null;
     return {
-      frame: { width: frame.width, height: frame.height },
-      corners: recognition.detection?.corners ?? null,
+      frame: size,
+      corners: recognition?.detection?.corners ?? null,
       steadyFrames: 0,
       phase: 'empty',
-      issues: recognition.quality?.issues ?? [],
-      advice: recognition.quality?.advice ?? [],
-      metrics: recognition.quality?.metrics ?? null,
-      timings: { pixels: copied, ...recognition.timings, total: performance.now() - started },
-      result: recognition.decision === 'no-card' ? null : await toResult(recognition, started, { width: frame.width, height: frame.height }),
+      issues: recognition?.quality?.issues ?? [],
+      advice: recognition?.quality?.advice ?? [],
+      metrics: recognition?.quality?.metrics ?? null,
+      timings: { pixels: copied, ...read.timings, total: performance.now() - started },
+      result: recognition && recognition.decision !== 'no-card' ? await toResult(recognition, started, size) : null,
     };
   },
 
@@ -354,7 +403,7 @@ const api = {
     const decoded = performance.now();
     const frame = pixels(bitmap, PHOTO_MAX_SIDE);
     const copied = performance.now();
-    const recognition = await recognizeFrame(frame, {
+    const read = await recognizeCards(frame, {
       ...context,
       printings: { ...context.printings, lockSets: [...options.lockSets] },
       readDespiteQuality: true,
@@ -362,13 +411,13 @@ const api = {
       centerFallback: true,
     });
     const size = { width: frame.width, height: frame.height };
-    const timings = { decode: decoded - started, pixels: copied - decoded, ...recognition.timings };
-    if (recognition.decision === 'no-card') {
+    const timings = { decode: decoded - started, pixels: copied - decoded, ...read.timings };
+    if (read.cards.length === 0) {
       const picture = await wholePicture(frame).catch(() => null);
       return { kind: 'no-card', picture, frame: size, timings: { ...timings, total: performance.now() - started } };
     }
-    const result = await toResult(recognition, started, size);
-    return { kind: 'cards', results: [result], frame: size, timings: { ...timings, total: performance.now() - started } };
+    const { results, unread } = read.multi ? await severalResults(read.cards, started, size) : { results: [await toResult(read.cards[0]!, started, size)], unread: [] };
+    return { kind: 'cards', results, unread, frame: size, timings: { ...timings, total: performance.now() - started } };
   },
 };
 

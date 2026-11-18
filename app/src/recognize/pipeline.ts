@@ -12,6 +12,7 @@ import { detectCards, type CardDetection } from '../vision/detect';
 import { distance } from '../vision/geometry';
 import type { GrayImage, RgbaImage } from '../vision/image';
 import { rotateRgba180 } from '../vision/image';
+import { findCards } from '../vision/multiCard';
 import { assessQuality, DEFAULT_QUALITY, type QualityReport, type QualityThresholds } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
 import { cornersMapping, boxCorners, type CardMapping } from './fingerprint';
@@ -450,3 +451,51 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),
   };
 }
+
+/** Every card read from a photo of one or several (see recognizeCards). */
+export interface CardsRecognition {
+  /** One per card found, in reading order (rows from the top). */
+  cards: (Recognition & { partial: boolean })[];
+  /** True when several cards were found; false when the photo was read as one card, exactly as recognizeFrame reads it. */
+  multi: boolean;
+  timings: Record<string, number>;
+}
+
+/**
+ * A photo that may hold several cards (a binder page, a table spread): each
+ * card found (vision/multiCard.ts) read on its own, as recognizeFrame reads
+ * one outline. A photo with one card, or none found, is read by
+ * recognizeFrame itself, so its result is what it always was. A card cut off
+ * by the photo's edge is never auto-accepted.
+ */
+export async function recognizeCards(frame: RgbaImage, options: RecognizeOptions): Promise<CardsRecognition> {
+  const clock = options.clock ?? (() => performance.now());
+  const started = clock();
+  const found = findCards(frame, detectOptions(options.regions));
+  const find = clock() - started;
+  if (found.length < 2) {
+    const single = await recognizeFrame(frame, options);
+    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings: { find, ...single.timings } };
+  }
+  const timings: Record<string, number> = { find };
+  const cards: CardsRecognition['cards'] = [];
+  for (const card of found) {
+    const read = await recognizeFrame(frame, { ...options, detections: [card.detection], centerFallback: false });
+    for (const [stage, ms] of Object.entries(read.timings)) timings[stage] = (timings[stage] ?? 0) + ms;
+    const partial = card.visible < 1;
+    cards.push({ ...read, decision: partial && read.decision === 'accept' ? 'review' : read.decision, partial });
+  }
+  // Pieces of one card can look like cards (an art box has a card's shape, a split card's halves
+  // each have a title): unless two or more outlines surely name different cards, the photo is one
+  // card, read as recognizeFrame reads it.
+  const named = new Set(cards.filter((card) => card.nameConfidence >= MULTI_NAMED && (card.names[0]?.length ?? 0) > 3).map((card) => card.names[0]));
+  if (named.size < 2) {
+    const single = await recognizeFrame(frame, options);
+    for (const [stage, ms] of Object.entries(single.timings)) timings[stage] = (timings[stage] ?? 0) + ms;
+    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings };
+  }
+  return { cards, multi: true, timings };
+}
+
+/** A read that names a card at least this surely counts towards a photo being several cards. */
+const MULTI_NAMED = 0.7;

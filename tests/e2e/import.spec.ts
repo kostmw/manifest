@@ -1,6 +1,6 @@
 import { PNG } from 'pngjs';
 import { expect, test, type Page } from '@playwright/test';
-import { drawFakeCard, type FakeCardOptions } from './fakeCard';
+import { drawFakeCard, drawFakeSpread, type FakeCardOptions } from './fakeCard';
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -68,7 +68,7 @@ test('imports a stack of photos: adds the sure cards, queues the unsure ones, li
   await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
   await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
 
-  const failures = panel(page).getByRole('list', { name: 'Photos that gave no card' });
+  const failures = panel(page).getByRole('list', { name: 'Photos to look at' });
   await expect(failures.getByRole('listitem')).toHaveCount(3);
   await expect(failures.getByRole('listitem').filter({ hasText: 'IMG_0004.png' })).toContainText('No card found');
   await expect(failures.getByRole('listitem').filter({ hasText: 'IMG_0005.png' })).toContainText('This browser can’t open it');
@@ -168,7 +168,7 @@ test('reads a thousand photos one at a time without holding up the page', async 
 
   await expect(status).toContainText('Import finished: 1,000 photos', { timeout: 540_000 });
   await expect(page.getByTestId('import-tally')).toHaveText('0 cards added · 1,000 without a card');
-  const failures = panel(page).getByRole('list', { name: 'Photos that gave no card' });
+  const failures = panel(page).getByRole('list', { name: 'Photos to look at' });
   await expect(failures.getByRole('listitem')).toHaveCount(30);
   await expect(panel(page).getByRole('button', { name: 'Show all 1,000' })).toBeVisible();
 
@@ -179,4 +179,52 @@ test('reads a thousand photos one at a time without holding up the page', async 
   expect(Math.max(0, ...longTasks)).toBeLessThan(500);
   // Memory doesn't grow with the number of photos read.
   if (early > 0) expect(late - early).toBeLessThan(40e6);
+});
+
+/** A photo of several fake cards in a row on the table. */
+async function spreadPhoto(page: Page, name: string, cards: FakeCardOptions[], size = { width: 2400, height: 1150 }): Promise<Upload> {
+  const layers: string[] = [];
+  const pitch = size.width / cards.length;
+  for (const [i, card] of cards.entries()) {
+    layers.push(
+      await page.evaluate(drawFakeCard, {
+        ...card,
+        transparent: true,
+        width: size.width,
+        height: size.height,
+        // As big as in the one-card photos: the collector line is what settles a printing.
+        scale: 1.15,
+        rotation: card.rotation ?? 0.03 * (i - 1),
+        offset: { x: -size.width / 2 + pitch * (i + 0.5), y: 0 },
+      }),
+    );
+  }
+  const dataUrl = await page.evaluate(drawFakeSpread, { layers, width: size.width, height: size.height });
+  return { name, mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+// At the angles the one-card tests read them at.
+const THREE = [{ ...SOL_RING, rotation: 0.06 }, { ...TUTOR, flipped: true, rotation: -0.1 }, { title: 'Lightning Bolt', rotation: 0.06 }];
+
+test('reads every card in a photo of several, from Scan a photo', async ({ page }) => {
+  const upload = await spreadPhoto(page, 'spread.png', THREE);
+  if (process.env.SAVE_SPREAD) (await import('node:fs')).writeFileSync(process.env.SAVE_SPREAD, upload.buffer);
+  await page.getByLabel('Scan a photo').setInputFiles(upload);
+  const summary = page.getByTestId('photo-several');
+  await expect(summary).toContainText('Found 3 cards in the photo: 2 added, 1 waiting in Review.', { timeout: 60_000 });
+  await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
+  const strip = page.getByRole('list', { name: 'Last cards scanned' });
+  await expect(strip.getByRole('button', { name: 'Sol Ring, CMM 410, added' })).toBeVisible();
+  await expect(strip.getByRole('button', { name: 'Demonic Tutor, CMM 509, added' })).toBeVisible();
+  // One card per photo still gets its own confirm step.
+  await expect(page.getByRole('region', { name: 'Scan result' })).toHaveCount(0);
+});
+
+test('imports photos of several cards, each card filed', async ({ page }) => {
+  const files = [await spreadPhoto(page, 'page-1.png', THREE), await cardPhoto(page, 'single.png', SOL_RING)];
+  await page.getByLabel('Import photos').setInputFiles(files);
+  await expect(panel(page).getByRole('status')).toContainText('Import finished: 2 photos', { timeout: 90_000 });
+  await expect(page.getByTestId('import-tally')).toHaveText('3 cards added · 1 to review');
+  await expect(nav(page).getByRole('button', { name: 'Batch (3)' })).toBeVisible();
 });

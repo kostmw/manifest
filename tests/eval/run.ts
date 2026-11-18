@@ -22,7 +22,7 @@ import { mtg } from '../../app/src/games/mtg/adapter';
 import type { NameDictionary, Printing } from '../../app/src/games/types';
 import { FINGERPRINT_VERSION } from '../../app/src/recognize/fingerprint';
 import { NameIndex } from '../../app/src/recognize/nameSearch';
-import { DEFAULT_DECISION, recognizeFrame } from '../../app/src/recognize/pipeline';
+import { DEFAULT_DECISION, recognizeCards, recognizeFrame, type Recognition, type RecognizeOptions } from '../../app/src/recognize/pipeline';
 import { createTesseractEngine } from '../../app/src/recognize/tesseract';
 import { grayToRgba, shrinkRgba } from '../../app/src/vision/image';
 import { realScanFixtures, SYNTHETIC_VARIANTS, syntheticFixtures, type Fixture, type SyntheticVariant } from './fixtures';
@@ -61,6 +61,8 @@ const { values } = parseArgs({
     out: { type: 'string', default: '.cache/eval/report' },
     // The model the app ships; see vendor/tessdata_fast/README.md.
     'ocr-model': { type: 'string', default: 'vendor/tessdata_fast' },
+    // `cards`: read each photo as the app does from M5 on (recognizeCards: several cards when it finds them).
+    reader: { type: 'string', default: 'frame' },
   },
 });
 
@@ -128,13 +130,26 @@ await mkdir(join(outDir, 'img'), { recursive: true });
 
 log(`Evaluating ${fixtures.length} photos…`);
 const outcomes: EvalOutcome[] = [];
+if (!['frame', 'cards'].includes(values.reader!)) throw new Error('--reader must be frame or cards');
+/** With --reader cards: photos read as several cards, the other cards read from them, and how many of those were auto-accepted. */
+const several = { photos: [] as string[], extraCards: 0, extraAccepted: 0 };
+
+/** The read of the labelled card among several: the one whose outline best fits its corners, else the surest. */
+function pickRead(reads: readonly Recognition[], corners: Fixture['corners']): Recognition {
+  const fit = (read: Recognition) => {
+    if (!corners || !read.detection) return read.confidence;
+    const size = Math.hypot(corners[1]!.x - corners[0]!.x, corners[1]!.y - corners[0]!.y);
+    return 10 - quadError(read.detection.corners, corners) / size;
+  };
+  return reads.reduce((best, read) => (fit(read) > fit(best) ? read : best));
+}
 /** Milliseconds per stage, for every card that reached it. */
 const stageTimes: Record<string, number[]> = {};
 const failures: GalleryItem[] = [];
 for (const [index, fixture] of fixtures.entries()) {
   const frame = await readImage(fixture.path);
   const lockSets = await lockFor(fixture);
-  const result = await recognizeFrame(frame, {
+  const recognizeOptions: RecognizeOptions = {
     regions: mtg.regions,
     names,
     ocr,
@@ -144,7 +159,21 @@ for (const [index, fixture] of fixtures.entries()) {
     keepImages: true,
     ...(values['detect-size'] ? { detectSize: Number(values['detect-size']) } : {}),
     ...(printingSources ? { printings: { ...printingSources, ...(lockSets ? { lockSets } : {}) } } : {}),
-  });
+  };
+  let result: Recognition;
+  if (values.reader === 'cards') {
+    const read = await recognizeCards(frame, recognizeOptions);
+    if (read.multi) {
+      result = pickRead(read.cards, fixture.corners);
+      several.photos.push(fixture.file);
+      several.extraCards += read.cards.length - 1;
+      several.extraAccepted += read.cards.filter((card) => card !== result && card.decision === 'accept').length;
+    } else {
+      result = read.cards[0] ?? (await recognizeFrame(frame, recognizeOptions));
+    }
+  } else {
+    result = await recognizeFrame(frame, recognizeOptions);
+  }
   const expected = printingSources ? await expectedPrinting(fixture) : null;
   const collectorFit = expected && result.collector ? mtg.matchCollector(result.collector, expected) : null;
   const outcome: EvalOutcome = {
@@ -287,7 +316,15 @@ const notes = [
 await writeFile(
   join(outDir, 'summary.json'),
   JSON.stringify(
-    { generatedAt: new Date().toISOString(), overall: Object.fromEntries(overall), byTag: Object.fromEntries(byTag), sweep, signals, outcomes },
+    {
+      generatedAt: new Date().toISOString(),
+      overall: Object.fromEntries(overall),
+      byTag: Object.fromEntries(byTag),
+      sweep,
+      signals,
+      ...(values.reader === 'cards' ? { several } : {}),
+      outcomes,
+    },
     null,
     1,
   ),
@@ -296,4 +333,8 @@ await writeFile(
   join(outDir, 'index.html'),
   renderReport({ title: 'Manifest recognition eval', generatedAt: new Date().toISOString(), notes, overall, byTag, failures }),
 );
+if (values.reader === 'cards') {
+  console.log(`\nRead as several cards: ${several.photos.length} photos, ${several.extraCards} other cards read from them, ${several.extraAccepted} of those auto-accepted.`);
+  if (several.photos.length) console.log(`  ${several.photos.join(' ')}`);
+}
 console.log(`\nReport: ${join(outDir, 'index.html')}`);

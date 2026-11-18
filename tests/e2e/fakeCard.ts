@@ -32,6 +32,8 @@ export interface FakeCardOptions {
   shimmer?: number;
   /** Blur the whole picture by this many pixels, as when the camera refocuses: detection loses the card. */
   blur?: number;
+  /** Just the card, no table: a layer for a photo of several cards (see drawFakeSpread). */
+  transparent?: boolean;
 }
 
 export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
@@ -43,11 +45,13 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
   const ctx = canvas.getContext('2d')!;
 
   // A wood-ish table.
-  ctx.fillStyle = '#7a5a3a';
-  ctx.fillRect(0, 0, width, height);
-  for (let y = 0; y < height; y += 6) {
-    ctx.fillStyle = `rgba(40, 25, 10, ${0.08 + 0.08 * Math.sin(y / 23)})`;
-    ctx.fillRect(0, y, width, 3);
+  if (!options.transparent) {
+    ctx.fillStyle = '#7a5a3a';
+    ctx.fillRect(0, 0, width, height);
+    for (let y = 0; y < height; y += 6) {
+      ctx.fillStyle = `rgba(40, 25, 10, ${0.08 + 0.08 * Math.sin(y / 23)})`;
+      ctx.fillRect(0, y, width, 3);
+    }
   }
 
   if (options.noCard) return canvas.toDataURL('image/png');
@@ -134,6 +138,30 @@ export async function drawFakeCard(options: FakeCardOptions): Promise<string> {
     copyContext.filter = [options.blur ? `blur(${options.blur}px)` : '', options.exposure ? `brightness(${options.exposure})` : ''].join(' ').trim();
     copyContext.drawImage(canvas, 0, 0);
     return copy.toDataURL('image/png');
+  }
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Several cards (each drawn by drawFakeCard with `transparent`, as data URLs)
+ * on one wood-ish table, as a PNG data URL. Runs inside the browser.
+ */
+export async function drawFakeSpread({ layers, width, height }: { layers: string[]; width: number; height: number }): Promise<string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#7a5a3a';
+  ctx.fillRect(0, 0, width, height);
+  for (let y = 0; y < height; y += 6) {
+    ctx.fillStyle = `rgba(40, 25, 10, ${0.08 + 0.08 * Math.sin(y / 23)})`;
+    ctx.fillRect(0, y, width, 3);
+  }
+  for (const layer of layers) {
+    const image = new Image();
+    image.src = layer;
+    await image.decode();
+    ctx.drawImage(image, 0, 0);
   }
   return canvas.toDataURL('image/png');
 }

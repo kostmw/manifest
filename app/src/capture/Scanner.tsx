@@ -264,6 +264,8 @@ export function Scanner({
   const rate = useFrameRate(frame);
   const recent = useRecentScans(batch?.id ?? null);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
+  /** A photo of several cards: what became of them, and pictures of the outlines that named no card. */
+  const [several, setSeveral] = useState<{ found: number; added: number; review: number; partial: number; unread: Blob[]; key: number } | null>(null);
   const importView = useImport();
   const importInputRef = useRef<HTMLInputElement>(null);
   const [importRefused, setImportRefused] = useState(false);
@@ -325,7 +327,7 @@ export function Scanner({
    * Files a scanned card: into the batch or the review queue, with sound,
    * vibration and a flash. `replaces`: the scan id of the read it stands in for.
    */
-  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null, replaces?: string, seq?: number) => {
+  const file = useCallback(async (scan: ScanResult, source: 'live' | 'photo', timings: Record<string, number>, live: TestLogLive | null = null, replaces?: string, seq?: number, quiet = false) => {
     const target = batchRef.current;
     if (!target) return null;
     try {
@@ -352,9 +354,12 @@ export function Scanner({
         for (const old of [...bySeq.keys()]) if (old < seq - 30) bySeq.delete(old);
       }
       setLast({ entry });
-      setFlash((previous) => ({ kind: entry.kind, key: (previous?.key ?? 0) + 1 }));
       setSaveFailed(false);
-      cue(entry.kind);
+      // Several cards from one photo get one sound and flash between them (see onPhoto).
+      if (!quiet) {
+        setFlash((previous) => ({ kind: entry.kind, key: (previous?.key ?? 0) + 1 }));
+        cue(entry.kind);
+      }
       return { outcome, scanId };
     } catch {
       setSaveFailed(true);
@@ -463,10 +468,25 @@ export function Scanner({
     if (!chosen) return;
     unlockAudio();
     setPhotoReview(null);
+    setSeveral(null);
     setPhotoState('reading');
     try {
       const outcome = await photo(chosen);
-      if (outcome?.result) {
+      if (outcome?.several) {
+        setLastRead(outcome.timings);
+        let added = 0;
+        let review = 0;
+        for (const result of outcome.several.results) {
+          const filed = (await file(result, 'photo', outcome.timings, null, undefined, undefined, true))?.outcome;
+          if (filed?.kind === 'added') added += 1;
+          else if (filed) review += 1;
+        }
+        const kind = review > 0 || outcome.several.unread.length > 0 ? 'review' : 'added';
+        setFlash((previous) => ({ kind, key: (previous?.key ?? 0) + 1 }));
+        cue(kind);
+        setSeveral({ found: added + review, added, review, partial: outcome.several.results.filter((result) => result.partial).length, unread: outcome.several.unread, key: Date.now() });
+        setPhotoState('idle');
+      } else if (outcome?.result) {
         setLastRead(outcome.timings);
         const filed = (await file(outcome.result, 'photo', outcome.timings))?.outcome;
         if (filed?.kind === 'review') {
@@ -501,6 +521,25 @@ export function Scanner({
     const files = [...(event.target.files ?? [])];
     event.target.value = '';
     startImport(files);
+  };
+
+  /** The outlines of a photo of several that named no card, to the review queue as unreadable cards. */
+  const reviewUnread = async () => {
+    const target = batchRef.current;
+    const pending = several;
+    if (!target || !pending) return;
+    try {
+      for (const picture of pending.unread) {
+        await intake(
+          target,
+          { decision: 'review', names: [], printings: [], nameConfidence: 0, confidence: 0, titleText: '', collectorText: '', advice: [], gaveUp: false, guessedOutline: false, card: picture },
+          'photo',
+        );
+      }
+      setSeveral((now) => (now && now.key === pending.key ? { ...now, found: now.found + now.unread.length, review: now.review + now.unread.length, unread: [] } : now));
+    } catch {
+      setSaveFailed(true);
+    }
   };
 
   /** "Removed X · Undo": a card just taken out with Undo, and how to put it back, for a few seconds. */
@@ -798,6 +837,36 @@ export function Scanner({
           </p>
         )}
         {photoState === 'reading' && <p className="text-sm text-zinc-400">Reading the photo…</p>}
+        {several && (
+          <div role="status" data-testid="photo-several" className="flex flex-col gap-2 rounded-xl bg-zinc-800/40 p-3 text-sm text-zinc-200">
+            <p className="font-semibold">
+              Found {several.found} cards in the photo: {several.added} added
+              {several.review > 0 ? `, ${several.review} waiting in Review` : ''}.
+            </p>
+            {several.partial > 0 && (
+              <p className="text-xs text-zinc-400">
+                {several.partial === 1 ? '1 card is' : `${several.partial} cards are`} cut off by the photo’s edge, so {several.partial === 1 ? 'it waits' : 'they wait'} in Review
+                to be checked.
+              </p>
+            )}
+            {several.unread.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="min-w-0 flex-1 text-xs text-zinc-400">
+                  {several.unread.length === 1 ? '1 more outline' : `${several.unread.length} more outlines`} named no card: an empty pocket, or a card
+                  it couldn’t read.
+                </p>
+                <button type="button" onClick={() => void reviewUnread()} className={BUTTON_SECONDARY}>
+                  Review {several.unread.length === 1 ? 'it' : 'them'} anyway
+                </button>
+              </div>
+            )}
+            {several.review > 0 && (
+              <button type="button" onClick={() => onOpenReview()} className={`${BUTTON_SECONDARY} self-start`}>
+                Review ›
+              </button>
+            )}
+          </div>
+        )}
         {photoState === 'no-card' && (
           <p role="alert" className="text-sm text-amber-300">
             Couldn't find a card in that photo. Its edges need to stand out: photograph one card on a plain background

@@ -25,8 +25,8 @@ export interface ImportJob {
   total: number;
   /** Files by what became of them. */
   photos: { added: number; review: number; failed: number; skipped: number };
-  /** Cards found in them. */
-  cards: { added: number; review: number };
+  /** Cards found in them; `unread`: outlines in photos of several cards that named no card (see ImportFile.unread). */
+  cards: { added: number; review: number; unread?: number };
   /** The user closed its summary. */
   dismissed?: true;
 }
@@ -40,7 +40,9 @@ export type ImportFailure =
   /** Opened, but no card was found in it. */
   | 'no-card'
   /** Reading it went wrong (or took far too long). */
-  | 'error';
+  | 'error'
+  /** A photo of several cards: some outlines in it named no card (see ImportFile.unread). The others were filed. */
+  | 'unread';
 
 export interface ImportFile {
   jobId: string;
@@ -56,6 +58,12 @@ export interface ImportFile {
   reviewIds?: string[];
   /** For `no-card`: the photo, small, as JPEG bytes, for "Review it anyway". */
   picture?: ArrayBuffer;
+  /**
+   * A photo of several cards: pictures of the outlines in it that named no
+   * card (an empty binder pocket, or a card too worn or glared to read), as
+   * JPEG bytes, for "Review it anyway". Cleared once sent to review.
+   */
+  unread?: ArrayBuffer[];
   /** ISO timestamp. */
   at: string;
 }
@@ -98,10 +106,10 @@ export async function latestOpenJob(): Promise<ImportJob | undefined> {
   return jobs.find((job) => !job.dismissed);
 }
 
-/** A job's files that gave no card, oldest first. */
+/** A job's files that gave no card, or have outlines that named none, oldest first. */
 export async function jobFailures(jobId: string): Promise<ImportFile[]> {
   const files = await db.importFiles.where('jobId').equals(jobId).toArray();
-  return files.filter((file) => file.status === 'failed').sort((a, b) => a.at.localeCompare(b.at));
+  return files.filter((file) => file.status === 'failed' || (file.unread?.length ?? 0) > 0).sort((a, b) => a.at.localeCompare(b.at));
 }
 
 export async function getImportFile(jobId: string, key: string): Promise<ImportFile | undefined> {
