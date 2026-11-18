@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { removeOldOcrCopies } from './ocrStorage';
 import { BUTTON_SECONDARY } from './styles';
 import { watchForUpdates } from './updates';
+
+declare const __OCR_DIR__: string;
+declare const __OCR_PRECACHED__: string[];
+/** Old OCR copies are tidied away this long after start-up, out of the way of the first scan. */
+const OCR_CLEANUP_DELAY_MS = 10_000;
 
 /**
  * "Update ready": shown when a new version of the app has been downloaded and
@@ -17,7 +23,12 @@ export function UpdateBanner() {
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_url, registration) {
-      if (registration) stop.current = watchForUpdates(registration);
+      if (!registration) return;
+      stop.current = watchForUpdates(registration);
+      // Once a service worker is active, its precache is complete: remove the OCR copies it replaces.
+      void navigator.serviceWorker.ready.then(() => {
+        setTimeout(() => void removeOldOcrCopies(__OCR_DIR__, __OCR_PRECACHED__), OCR_CLEANUP_DELAY_MS);
+      });
     },
   });
   useEffect(() => () => stop.current?.(), []);
