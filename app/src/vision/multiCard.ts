@@ -66,6 +66,8 @@ const MAX_GAP = 0.2;
 const NEIGHBOUR_SUPPORT = 0.55;
 /** Cells mostly outside the photo aren't worth reading. */
 const MIN_VISIBLE = 0.6;
+/** An outline with a corner this close to the photo's edge (a share of its long side) may be cut off by it. */
+const EDGE_MARGIN = 0.005;
 /** At most this many cards in a photo. */
 const MAX_CARDS = 20;
 
@@ -418,6 +420,13 @@ export function findCards(image: RgbaImage, options: Pick<DetectOptions, 'aspect
     const median = sizes[Math.floor(sizes.length / 2)]!;
     kept = kept.filter((card) => area(card) >= median * 0.45 && area(card) <= median * 2.2);
   }
+  // An outline touching the photo's edge may be a card cut off by it: never treated as whole.
+  const margin = EDGE_MARGIN * Math.max(frame.width, frame.height);
+  kept = kept.map((card) =>
+    card.visible === 1 && card.detection.corners.some((p) => p.x < margin || p.y < margin || p.x > frame.width - margin || p.y > frame.height - margin)
+      ? { ...card, visible: 0.99 }
+      : card,
+  );
   // A grid of two or more: the cards next to them that detection missed.
   const final = kept.length >= 2 ? growGrid(kept, map, frame) : kept;
   // Reading order: rows from the top, left to right.
