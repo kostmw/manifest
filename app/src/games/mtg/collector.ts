@@ -112,7 +112,7 @@ const isSeparator = (c: string) => /[^A-Z0-9]/.test(c) || 'EASW*'.includes(c);
  * Set codes and the language from "DMR•EN": the language anchors where the
  * code ends. Returns the line with that part blanked out.
  */
-function readSet(line: string, reading: { sets: string[]; lang?: string }): string {
+function readSet(line: string, reading: { sets: string[]; looseSets?: string[]; lang?: string }): string {
   // The code starts the line (after a stray mark or two, such as The List's symbol), and the
   // artist's name runs straight on after the language, so only an early match counts. OCR
   // often reads the E of EN as &.
@@ -131,14 +131,17 @@ function readSet(line: string, reading: { sets: string[]; lang?: string }): stri
       // A separator read as some other letter or digit ("WHOCEN", "WHOPEN", "WHOTEN" on Doctor
       // Who cards, round 11): the code before it is a candidate too, after the likelier ones.
       if (![...separator].every(isSeparator)) {
-        found.push({ code, rank: 2 + strip });
+        found.push({ code, rank: 3 });
         continue;
       }
       const punctuation = [...separator].filter((c) => /[^A-Z0-9]/.test(c)).length;
       found.push({ code, rank: strip === 0 ? 2 : punctuation === strip ? 0 : 1 });
     }
     if (found.length === 0) continue;
-    found.sort((a, b) => a.rank - b.rank).forEach(({ code }) => addUnique(reading.sets, code));
+    found.sort((a, b) => a.rank - b.rank).forEach(({ code, rank }) => {
+      if (rank < 3) addUnique(reading.sets, code);
+      else if (!reading.sets.includes(code)) addUnique((reading.looseSets ??= []), code);
+    });
     reading.lang ??= LANGUAGES[match[1] === '&N' ? 'EN' : match[1]!];
     return line.slice(0, Math.max(0, end - 5)) + ' '.repeat(Math.min(end, 5) + 2) + line.slice(end + 2);
   }
@@ -156,7 +159,7 @@ export function parseMtgCollectorLine(lines: readonly string[]): CollectorReadin
     rests.forEach((rest) => readLooseNumbers(rest, reading));
     if (reading.numbers.length > 0) reading.looseNumbers = true;
   }
-  return reading.numbers.length || reading.sets.length ? reading : null;
+  return reading.numbers.length || reading.sets.length || reading.looseSets?.length ? reading : null;
 }
 
 /** OCR confusions between set-code characters, which mix letters and digits. */
@@ -198,9 +201,10 @@ export function matchMtgCollector(reading: CollectorReading, printing: Pick<Prin
     reading.numbers.length === 0 || core === null ? 'unread' : reading.numbers.includes(core) ? 'exact' : 'conflict';
 
   let set: CollectorMatch['set'] = 'unread';
-  if (reading.sets.length > 0) {
+  const sets = [...reading.sets, ...(reading.looseSets ?? [])];
+  if (sets.length > 0) {
     const codes = printedSetCodes(printing);
-    const distance = (list: string[]) => Math.min(Number.POSITIVE_INFINITY, ...list.flatMap((code) => reading.sets.map((read) => setCodeDistance(read, code))));
+    const distance = (list: string[]) => Math.min(Number.POSITIVE_INFINITY, ...list.flatMap((code) => sets.map((read) => setCodeDistance(read, code))));
     const own = distance(codes.exact);
     // A promo or a List card printed with another set's code fits less well than that set's own printing.
     const best = Math.min(own, distance(codes.derived) + 0.5);

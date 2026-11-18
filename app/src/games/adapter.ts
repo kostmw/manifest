@@ -46,6 +46,12 @@ export interface CollectorReading {
   /** Set codes the text could spell, upper case, most likely first. */
   sets: string[];
   /**
+   * Set codes found only by reading past a separator that came out as a
+   * letter or digit: used when matching a printing, but they don't make one
+   * reading look fuller than another.
+   */
+  looseSets?: string[];
+  /**
    * True when the numbers are guesses from loose digits (a lost slash or
    * rarity), not a recognizable collector-number shape: weaker evidence.
    */

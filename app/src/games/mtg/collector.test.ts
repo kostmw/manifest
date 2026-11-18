@@ -31,10 +31,12 @@ describe('parseMtgCollectorLine', () => {
       ['R0S46 / WHOPSEN&StrveMonats', '546'],
     ] as const) {
       const reading = parseMtgCollectorLine(line.split(' / '))!;
-      expect(reading.sets).toContain('WHO');
+      expect([...reading.sets, ...(reading.looseSets ?? [])]).toContain('WHO');
       expect(reading.lang).toBe('en');
       expect(matchMtgCollector(reading, { set: 'who', number }).set).toBe('exact');
     }
+    // Codes read past a misread separator don't make a reading look fuller than another.
+    expect(parseMtgCollectorLine(['R0418', 'WHOCENtyAtsran'])!.sets).toEqual(['HOC']);
     // The likelier readings still come first.
     expect(parseMtgCollectorLine(['C0249', 'TLA-&N&leConseco'])!.sets[0]).toBe('TLA');
     expect(parseMtgCollectorLine(['R0166', 'LTRaENlesemrErsinc'])!.sets[0]).toBe('LTR');
