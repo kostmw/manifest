@@ -475,9 +475,10 @@ export async function recognizeCards(frame: RgbaImage, options: RecognizeOptions
   const find = clock() - started;
   if (found.length < 2) {
     const single = await recognizeFrame(frame, options);
-    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings: { find, ...single.timings } };
+    // `find` last: the readout's familiar stages (detect, rectify, ocr…) come first.
+    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings: { ...single.timings, find } };
   }
-  const timings: Record<string, number> = { find };
+  const timings: Record<string, number> = {};
   const cards: CardsRecognition['cards'] = [];
   for (const card of found) {
     const read = await recognizeFrame(frame, { ...options, detections: [card.detection], centerFallback: false });
@@ -492,9 +493,9 @@ export async function recognizeCards(frame: RgbaImage, options: RecognizeOptions
   if (named.size < 2) {
     const single = await recognizeFrame(frame, options);
     for (const [stage, ms] of Object.entries(single.timings)) timings[stage] = (timings[stage] ?? 0) + ms;
-    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings };
+    return { cards: single.decision === 'no-card' ? [] : [{ ...single, partial: false }], multi: false, timings: { ...timings, find } };
   }
-  return { cards, multi: true, timings };
+  return { cards, multi: true, timings: { ...timings, find } };
 }
 
 /** A read that names a card at least this surely counts towards a photo being several cards. */
