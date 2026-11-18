@@ -9,14 +9,14 @@ import type { Catalog } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
 import { centerCardSearch, refineBox, type Box4 } from '../vision/centerCard';
 import { detectCards, type CardDetection } from '../vision/detect';
-import { distance } from '../vision/geometry';
+import { applyHomography, distance, homography, polygonArea, type Point } from '../vision/geometry';
 import type { GrayImage, RgbaImage } from '../vision/image';
 import { rotateRgba180 } from '../vision/image';
 import { findCards } from '../vision/multiCard';
 import { assessQuality, DEFAULT_QUALITY, type QualityReport, type QualityThresholds } from '../vision/quality';
 import { warpQuad } from '../vision/rectify';
 import { cornersMapping, boxCorners, type CardMapping } from './fingerprint';
-import { identifyPrinting, nearestArt, type PrintingCandidate } from './identify';
+import { identifyPrinting, nearestArt, nearestArtOfCards, type PrintingCandidate } from './identify';
 import type { NameIndex } from './nameSearch';
 import type { OcrEngine, OcrLine } from './ocr';
 import { cropTitle, cropTitleFromFrame, MAX_TITLE_DETAIL } from './titleCrop';
@@ -316,6 +316,76 @@ async function readCandidate(
   return { detection, quality, read, score: read.match.confidence };
 }
 
+/** A card inferred around a piece of it must have artwork at most this far from some card in the index (identify's GLOBAL_MAX_DISTANCE). */
+const PIECE_ART = 26;
+/** Below this name confidence, the outline may be a piece of the card (see aroundPiece). */
+const PIECE_BELOW = 0.75;
+/** Cards inferred around a piece that are read, nearest art first. */
+const PIECE_READS = 2;
+/** How far an outline's shape may be from a piece's, as the log of the ratio of their aspects (perspective). */
+const PIECE_SHAPE = 0.35;
+/** A card inferred around a piece must be at least this much inside the frame. */
+const PIECE_IN_FRAME = 0.85;
+
+/** Share of a quad inside the frame, from a grid of points over it. */
+function shareInFrame(corners: readonly Point[], frame: { width: number; height: number }): number {
+  const toFrame = homography(
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ],
+    corners,
+  );
+  if (!toFrame) return 0;
+  let inside = 0;
+  for (let i = 0; i < 8; i++) {
+    for (let j = 0; j < 8; j++) {
+      const p = applyHomography(toFrame, (i + 0.5) / 8, (j + 0.5) / 8);
+      if (p.x >= 0 && p.y >= 0 && p.x < frame.width && p.y < frame.height) inside++;
+    }
+  }
+  return inside / 64;
+}
+
+/**
+ * The cards an outline could be a piece of (CardRegions.pieces): for each
+ * piece, each way round the outline fits its shape, the card around it, kept
+ * when it lies mostly inside the frame. Its corners come out in the card's
+ * own reading order, either way up.
+ */
+export function cardsAroundPiece(frame: RgbaImage, detection: CardDetection, regions: CardRegions): { id: string; detection: CardDetection }[] {
+  const { width, height } = regions.size;
+  const found: { id: string; detection: CardDetection }[] = [];
+  for (const piece of regions.pieces ?? []) {
+    const { x, y, width: w, height: h } = piece.box;
+    const box = [
+      { x, y },
+      { x: x + w, y },
+      { x: x + w, y: y + h },
+      { x, y: y + h },
+    ];
+    for (let turn = 0; turn < 4; turn++) {
+      const corners = [0, 1, 2, 3].map((i) => detection.corners[(i + turn) % 4]!);
+      const top = distance(corners[0]!, corners[1]!) + distance(corners[3]!, corners[2]!);
+      const side = distance(corners[0]!, corners[3]!) + distance(corners[1]!, corners[2]!);
+      if (Math.abs(Math.log(top / side / (w / h))) > PIECE_SHAPE) continue;
+      const toFrame = homography(box, corners);
+      if (!toFrame) continue;
+      const card = [
+        applyHomography(toFrame, 0, 0),
+        applyHomography(toFrame, width, 0),
+        applyHomography(toFrame, width, height),
+        applyHomography(toFrame, 0, height),
+      ] as CardDetection['corners'];
+      if (shareInFrame(card, frame) < PIECE_IN_FRAME) continue;
+      found.push({ id: piece.id, detection: { ...detection, corners: card, areaFraction: polygonArea(card) / (frame.width * frame.height) } });
+    }
+  }
+  return found;
+}
+
 export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions): Promise<Recognition> {
   const clock = options.clock ?? (() => performance.now());
   const decision = options.decision ?? DEFAULT_DECISION;
@@ -350,10 +420,6 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     if (!best || (attempt.score >= SWITCH_FLOOR && attempt.score > best.score)) best = attempt;
     if (best.score >= decision.retryRotated || !attempt.read) break;
   }
-  if (!best!.read) {
-    return { decision: 'retake', detection: best!.detection, quality: best!.quality, title: null, ...EMPTY, timings };
-  }
-
   /** Names and printings for one read outline. */
   const conclude = async (attempt: Attempt & { read: NonNullable<Attempt['read']> }) => {
     const { detection, quality } = attempt;
@@ -396,7 +462,50 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     return { detection, quality, title, titleCandidates, names, nameConfidence, confidence, printings, collector, collectorCrops, upright, outsideLock, trace };
   };
 
-  let chosen = await conclude(best as Attempt & { read: NonNullable<Attempt['read']> });
+  /**
+   * The card around a piece of it (CardRegions.pieces): an outline whose read
+   * names nothing may be the card's text box or lower part, its own edge lost
+   * (art to the edge, a dark border in a dark box). Each card it could be part
+   * of, mostly in the frame, whose artwork matches the index, is read; the
+   * best that names a card is kept. Never auto-accepted, like a centre guess.
+   */
+  const aroundPiece = async (detection: CardDetection) => {
+    if (!options.printings) return null;
+    const cards = cardsAroundPiece(frame, detection, options.regions);
+    if (cards.length === 0) return null;
+    const distances = await nearestArtOfCards(
+      frame,
+      cards.map((card) => card.detection.corners),
+      options.regions,
+      options.printings.catalog,
+    );
+    lap('pieces');
+    if (!distances) return null;
+    const ranked = cards
+      .map((card, i) => ({ ...card, distance: distances[i]! }))
+      .filter((card) => card.distance <= PIECE_ART)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, PIECE_READS);
+    let found: Awaited<ReturnType<typeof conclude>> | null = null;
+    for (const card of ranked) {
+      const attempt = await readCandidate(frame, card.detection, options, decision, lap);
+      if (!attempt.read) continue;
+      const read = await conclude(attempt as Attempt & { read: NonNullable<Attempt['read']> });
+      if (read.nameConfidence >= CENTER_MIN_NAME && (!found || read.confidence > found.confidence)) found = { ...read, trace: [...read.trace, `piece:${card.id}`] };
+    }
+    return found;
+  };
+
+  let fromPiece = false;
+  let chosen: Awaited<ReturnType<typeof conclude>>;
+  if (best!.read) {
+    chosen = await conclude(best as Attempt & { read: NonNullable<Attempt['read']> });
+  } else {
+    const around = await aroundPiece(best!.detection);
+    if (!around) return { decision: 'retake', detection: best!.detection, quality: best!.quality, title: null, ...EMPTY, timings };
+    chosen = around;
+    fromPiece = true;
+  }
   // Neither title read and the chosen outline's artwork matches nothing: the card may be the other outline.
   if (options.printings && chosen.nameConfidence < OUTLINE_FALLBACK_BELOW) {
     for (const other of attempts) {
@@ -405,8 +514,17 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
       if (alternative.confidence > chosen.confidence) chosen = { ...alternative, trace: [...alternative.trace, 'outline:fallback'] };
     }
   }
+  // Still no sure name: the outline may be a piece of the card (its text box, the part below its
+  // art). A text box's own words can make a name at 0.5–0.6, so this looks a little higher.
+  if (!fromPiece && !guessed && options.printings && chosen.nameConfidence < PIECE_BELOW) {
+    const around = await aroundPiece(chosen.detection);
+    if (around && around.confidence > chosen.confidence) {
+      chosen = around;
+      fromPiece = true;
+    }
+  }
   // Still no name from what detection found: the card may be one with no outline of its own.
-  if (!guessed && options.centerFallback && options.printings && chosen.nameConfidence < OUTLINE_FALLBACK_BELOW) {
+  if (!fromPiece && !guessed && options.centerFallback && options.printings && chosen.nameConfidence < OUTLINE_FALLBACK_BELOW) {
     const guess = await centerGuess(frame, options, lap);
     const attempt = guess ? await readCandidate(frame, guess, options, decision, lap) : null;
     if (attempt?.read) {
@@ -432,7 +550,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     ...chosen.trace,
   ];
 
-  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed && !outsideLock ? 'accept' : 'review';
+  const verdict: Decision = names.length > 0 && confidence >= decision.autoAccept && quality.ok && !guessed && !fromPiece && !outsideLock ? 'accept' : 'review';
   return {
     decision: verdict,
     detection,
@@ -445,7 +563,7 @@ export async function recognizeFrame(frame: RgbaImage, options: RecognizeOptions
     confidence,
     collector,
     timings,
-    guessedOutline: guessed,
+    guessedOutline: guessed || fromPiece,
     outsideLock,
     trace,
     ...(options.keepImages ? { card: upright, ...(collectorCrops ? { collectorCrops } : {}) } : {}),

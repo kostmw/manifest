@@ -126,9 +126,14 @@ function readSet(line: string, reading: { sets: string[]; lang?: string }): stri
     const found: { code: string; rank: number }[] = [];
     for (let strip = 0; strip <= 2; strip++) {
       const separator = before.slice(before.length - strip);
-      if (![...separator].every(isSeparator)) continue;
       const code = before.slice(0, before.length - strip).slice(-3);
       if (!/^[A-Z0-9]{3}$/.test(code)) continue;
+      // A separator read as some other letter or digit ("WHOCEN", "WHOPEN", "WHOTEN" on Doctor
+      // Who cards, round 11): the code before it is a candidate too, after the likelier ones.
+      if (![...separator].every(isSeparator)) {
+        found.push({ code, rank: 2 + strip });
+        continue;
+      }
       const punctuation = [...separator].filter((c) => /[^A-Z0-9]/.test(c)).length;
       found.push({ code, rank: strip === 0 ? 2 : punctuation === strip ? 0 : 1 });
     }

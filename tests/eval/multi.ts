@@ -22,6 +22,8 @@ import { NameIndex } from '../../app/src/recognize/nameSearch';
 import { recognizeCards, recognizeFrame, type RecognizeOptions } from '../../app/src/recognize/pipeline';
 import { createTesseractEngine } from '../../app/src/recognize/tesseract';
 import type { RgbaImage } from '../../app/src/vision/image';
+import { latestBulkFile } from './fixtures';
+import { framesById, withFrame } from './frames';
 import { readImage } from './imageIo';
 import { fileIndexSource } from './indexSource';
 import { MULTI_SETS, multiFixtures, type MultiSet } from './multiFixtures';
@@ -46,6 +48,12 @@ const set = values.set as MultiSet;
 const log = (message: string) => console.log(message);
 
 let fixtures = await multiFixtures({ cacheDir: values.cache!, set, regenerate: values.regenerate!, log });
+{
+  // Every card's frame (frame:borderless, frame:extended-art…), for the breakdown by tag.
+  const bulk = latestBulkFile();
+  const frames = bulk ? await framesById(bulk, values.cache!) : null;
+  fixtures = fixtures.map((fixture) => ({ ...fixture, cards: fixture.cards.map((card) => ({ ...card, tags: withFrame(card.tags, card.id, frames) })) }));
+}
 if (values.limit) fixtures = fixtures.slice(0, Number(values.limit));
 
 const dataDir = values.data!;

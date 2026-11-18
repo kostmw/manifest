@@ -22,6 +22,24 @@ describe('parseMtgCollectorLine', () => {
     expect(reading.lang).toBe(lang);
   });
 
+  it('finds the set code when the separator was read as a letter or digit (round 11, Doctor Who)', () => {
+    for (const [line, number] of [
+      ['R0418 / WHOCENtyAtsranntaGraine.', '418'],
+      ['R1066 / WHOPENfeLOGANFILICIANO', '1066'],
+      ['ROS16 / WHOTENteNinois', '516'],
+      ['RO395 / WWHOCENGfaisarnaSCTIawas', '395'],
+      ['R0S46 / WHOPSEN&StrveMonats', '546'],
+    ] as const) {
+      const reading = parseMtgCollectorLine(line.split(' / '))!;
+      expect(reading.sets).toContain('WHO');
+      expect(reading.lang).toBe('en');
+      expect(matchMtgCollector(reading, { set: 'who', number }).set).toBe('exact');
+    }
+    // The likelier readings still come first.
+    expect(parseMtgCollectorLine(['C0249', 'TLA-&N&leConseco'])!.sets[0]).toBe('TLA');
+    expect(parseMtgCollectorLine(['R0166', 'LTRaENlesemrErsinc'])!.sets[0]).toBe('LTR');
+  });
+
   it('takes the number and set size from the copyright line of 2003–2014 frames', () => {
     const reading = parseMtgCollectorLine(['™&©1993–2010WizardsoftheCoastLLC36/249'])!;
     expect(reading.numbers).toEqual(['36']);

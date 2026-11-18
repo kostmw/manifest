@@ -30,6 +30,13 @@ export interface CardRegions {
    * sleeve's edge. The art hash tries each and keeps the best fit.
    */
   outlines: readonly { id: string; box: Box }[];
+  /**
+   * Parts of the card that detection can take for the whole card when the
+   * card's own edge is faint (art running to the edge, a dark border in a
+   * dark box), in card pixels: an outline whose read names nothing may be one
+   * of these, and the card around it is tried (see recognize/pipeline.ts).
+   */
+  pieces?: readonly { id: string; box: Box }[];
 }
 
 /** What a collector line says, as far as OCR could read it. */

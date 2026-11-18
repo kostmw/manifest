@@ -317,6 +317,46 @@ export async function nearestArt(frame: RgbaImage, boxes: readonly FrameBox[], r
 }
 
 /**
+ * For each card outline, how far its artwork is from the nearest in the
+ * whole index (either way up): the art check for a card inferred around a
+ * piece of it (recognize/pipeline.ts). Null without fingerprints.
+ */
+export async function nearestArtOfCards(frame: RgbaImage, cards: readonly Quad[], regions: CardRegions, catalog: Catalog): Promise<number[] | null> {
+  if (cards.length === 0 || !(await catalog.hasFingerprints())) return null;
+  const table = await catalog.fingerprintTable();
+  if (!table) return null;
+  const size = regions.size;
+  const query = new Uint32Array(cards.length * 8);
+  for (const [q, corners] of cards.entries()) {
+    for (const [k, turned] of [false, true].entries()) {
+      const mapping = cornersMapping(turned ? turnCorners(corners) : corners, size);
+      if (!mapping) continue;
+      const canvas = canvasFromFrame(frame, mapping, size, CANVAS_MARGIN);
+      query.set(toWords(fingerprintAt(canvas, regions, [0, 0, size.width, size.height])).subarray(0, 4), q * 8 + k * 4);
+    }
+  }
+  const count = cards.length * 2;
+  const best = new Float64Array(count).fill(Number.POSITIVE_INFINITY);
+  for (const { words, rows } of table.shards) {
+    for (let row = 0; row < rows; row++) {
+      const o = row * table.rowWords;
+      const w0 = words[o]!;
+      const w1 = words[o + 1]!;
+      const w2 = words[o + 2]!;
+      const w3 = words[o + 3]!;
+      if ((w0 | w1 | w2 | w3) === 0) continue;
+      for (let k = 0; k < count; k++) {
+        const b = k * 4;
+        if ((query[b]! | query[b + 1]! | query[b + 2]! | query[b + 3]!) === 0) continue;
+        const d = bits(query[b]! ^ w0) + bits(query[b + 1]! ^ w1) + bits(query[b + 2]! ^ w2) + bits(query[b + 3]! ^ w3);
+        if (d < best[k]!) best[k] = d;
+      }
+    }
+  }
+  return cards.map((_, q) => Math.min(best[q * 2]!, best[q * 2 + 1]!));
+}
+
+/**
  * The GLOBAL_HITS rows of the whole fingerprint table nearest to any of the
  * queries, nearest first. Written as one tight loop with nothing allocated
  * per row (about 111k rows times a few queries): Safari's JIT keeps the
