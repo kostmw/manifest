@@ -73,6 +73,16 @@ const OCR_FILES: Record<string, string> = {
   'tesseract-core-lstm.wasm': `${packageDir('tesseract.js-core')}/tesseract-core-lstm.wasm`,
   'eng.traineddata.gz': resolve('vendor/tessdata_fast/eng.traineddata.gz'),
 };
+/**
+ * Installed with the app by the service worker, not fetched on first use. A first visit's
+ * recognition worker starts before the service worker is in control, so files it fetches
+ * itself are never cached, and the scanner couldn't start offline. In the precache they're
+ * there from the first visit, and a new version's files are ready before "Update ready"
+ * shows. The non-SIMD wasm is left out: only browsers without wasm SIMD (iOS before 16.4)
+ * load it, through the runtime route below. No revision: the directory name is the version.
+ */
+const OCR_RUNTIME_ONLY = new Set(['tesseract-core-lstm.wasm']);
+const OCR_PRECACHED = Object.keys(OCR_FILES).filter((file) => !OCR_RUNTIME_ONLY.has(file));
 const CONTENT_TYPES: Record<string, string> = {
   js: 'text/javascript',
   wasm: 'application/wasm',
@@ -107,7 +117,11 @@ export default defineConfig({
   base,
   build: { outDir: '../dist', emptyOutDir: true },
   worker: { format: 'es' },
-  define: { __OCR_DIR__: JSON.stringify(OCR_DIR), __BUILD__: JSON.stringify(BUILD) },
+  define: {
+    __OCR_DIR__: JSON.stringify(OCR_DIR),
+    __OCR_PRECACHED__: JSON.stringify(OCR_PRECACHED),
+    __BUILD__: JSON.stringify(BUILD),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -135,17 +149,20 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // On a first visit, take charge as soon as installed, so the OCR files the scanner fetches
-        // are cached for offline use straight away rather than from the next launch. Safe with
+        // On a first visit, take charge of the page as soon as installed. Workers it started before
+        // then stay outside the service worker, which is why the OCR files are precached. Safe with
         // `prompt`: an update only activates when the user taps Reload, which reloads anyway.
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // Listed rather than globbed: they're copied into dist after the bundle, and the wasm
+        // and the model are over Workbox's size limit for globbed files.
+        additionalManifestEntries: OCR_PRECACHED.map((file) => ({ url: `${OCR_DIR}/${file}`, revision: null })),
         navigateFallback: 'index.html',
-        // Index shards are versioned by the app and cached separately, on demand. OCR files
-        // (about 3 MB) are cached the first time the scanner starts, not on install.
+        // Index shards are versioned by the app and cached separately, on demand.
         globIgnores: ['data/**', 'ocr/**'],
         navigateFallbackDenylist: [/\/data\//, /\/ocr\//],
         runtimeCaching: [
+          // OCR files left out of the precache (the non-SIMD wasm), cached the first time they load.
           {
             urlPattern: ({ url }) => url.pathname.includes('/ocr/'),
             handler: 'CacheFirst',
