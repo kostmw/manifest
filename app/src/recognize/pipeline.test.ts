@@ -4,7 +4,7 @@ import { createRgba } from '../vision/image';
 import { cardQuad, makeCard, placeCard } from '../vision/testScene';
 import { NameIndex } from './nameSearch';
 import type { OcrEngine } from './ocr';
-import { recognizeFrame } from './pipeline';
+import { cardsAroundPiece, recognizeFrame } from './pipeline';
 
 const names = new NameIndex({ names: ['Sol Ring', 'Soaring', 'Lightning Bolt', 'Lightning Helix'], faces: {} });
 const FRAME = { width: 720, height: 960 };
@@ -109,5 +109,32 @@ describe('recognizeFrame', () => {
     const result = await recognizeFrame(small, { regions: MTG_REGIONS, names, ocr: fakeOcr('Sol Ring'), readDespiteQuality: true });
     expect(result.names[0]).toBe('Sol Ring');
     expect(result.decision).toBe('review');
+  });
+});
+
+describe('cardsAroundPiece', () => {
+  it('gives the card around an outline that is its text box, and only cards mostly in the frame', () => {
+    // A text box 412×200 at a quarter scale, near the bottom of the frame: only the card above it fits.
+    const s = 0.5;
+    const x0 = 100;
+    const y0 = 700;
+    const textBox = [
+      { x: x0 + 412 * s, y: y0 },
+      { x: x0 + 412 * s, y: y0 + 200 * s },
+      { x: x0, y: y0 + 200 * s },
+      { x: x0, y: y0 },
+    ] as const;
+    const detection = { corners: [...textBox] as [typeof textBox[0], typeof textBox[0], typeof textBox[0], typeof textBox[0]], score: 1, edgeSupport: 1, aspect: 0.5, areaFraction: 0.05, tilt: 0 };
+    const frame = { width: 600, height: 900, data: new Uint8ClampedArray(600 * 900 * 4) };
+    const cards = cardsAroundPiece(frame, detection, MTG_REGIONS);
+    const ids = cards.map((card) => card.id);
+    expect(ids).toContain('text-box');
+    const card = cards.find((entry) => entry.id === 'text-box')!.detection.corners;
+    // Upright: the card's top-left is up and to the left of the text box, 424 card pixels above it.
+    expect(card[0].x).toBeCloseTo(x0 - 38 * s, 0);
+    expect(card[0].y).toBeCloseTo(y0 - 424 * s, 0);
+    expect(card[2].y).toBeCloseTo(y0 + (680 - 424) * s, 0);
+    // The card the other way up would hang far below the frame: not offered.
+    expect(ids.filter((id) => id === 'text-box')).toHaveLength(1);
   });
 });

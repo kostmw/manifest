@@ -4,8 +4,8 @@ import { buildCollectorIndex, CollectorIndex } from '../games/collectorIndex';
 import { encodeHashShard } from '../games/hashShard';
 import { mtg, MTG_REGIONS } from '../games/mtg/adapter';
 import type { GameIndex, IndexFile, Printing } from '../games/types';
-import { orderCardCorners } from '../vision/geometry';
-import { artCard, cardQuad, placeCard, scryfallSmall as small } from '../vision/testScene';
+import { applyHomography, homography, orderCardCorners } from '../vision/geometry';
+import { artCard, cardQuad, cornerError, placeCard, scryfallSmall as small } from '../vision/testScene';
 import { FINGERPRINT_BYTES, FINGERPRINT_VERSION, fingerprintCardImage } from './fingerprint';
 import type { CardDetection } from '../vision/detect';
 import { identifyPrinting, placedMapping, placementFor } from './identify';
@@ -400,6 +400,39 @@ describe('recognizeFrame with printings', () => {
     expect(result.printings[0]?.printing.id).toBe('c21-263');
     expect(result.detection?.corners).toEqual(card);
     expect(result.nameConfidence).toBeGreaterThan(0.5);
+  });
+
+  it('finds the card around its text box when detection took the text box for the card, without auto-accepting it', async () => {
+    const card = orderCardCorners(cardQuad({ x: 400, y: 520 }, 700, 0.04));
+    const frame = placeCard(ARTS.get(1)!, { width: 800, height: 1040 }, card, [60, 80, 70]);
+    // The text box, as detection orders it: a short side on top, so sideways.
+    const toFrame = homography(
+      [
+        { x: 0, y: 0 },
+        { x: 488, y: 0 },
+        { x: 488, y: 680 },
+        { x: 0, y: 680 },
+      ],
+      card,
+    )!;
+    const at = (x: number, y: number) => applyHomography(toFrame, x, y);
+    const textBox = [at(450, 424), at(450, 624), at(38, 624), at(38, 424)] as CardDetection['corners'];
+    const catalog = new Catalog(memorySource(), FINGERPRINT_VERSION);
+    const dictionary = { names: NAMES, faces: {} };
+    const result = await recognizeFrame(frame, {
+      regions: MTG_REGIONS,
+      names: new NameIndex(dictionary),
+      ocr: fakeOcr([]),
+      readDespiteQuality: true,
+      detections: [detection(textBox)],
+      printings: { game: mtg, catalog, collectors: await catalog.collectors(dictionary) },
+    });
+    expect(result.printings[0]?.printing.id).toBe('c21-263');
+    expect(result.trace.some((step) => step.startsWith('piece:'))).toBe(true);
+    expect(result.guessedOutline).toBe(true);
+    expect(result.decision).toBe('review');
+    // The card's own corners, give or take a few pixels.
+    expect(cornerError(result.detection!.corners, card)).toBeLessThan(12);
   });
 
   it('finds a card with no outline by looking at the middle of the photo, without auto-accepting it', async () => {

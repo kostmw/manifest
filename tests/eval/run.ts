@@ -25,7 +25,8 @@ import { NameIndex } from '../../app/src/recognize/nameSearch';
 import { DEFAULT_DECISION, recognizeCards, recognizeFrame, type Recognition, type RecognizeOptions } from '../../app/src/recognize/pipeline';
 import { createTesseractEngine } from '../../app/src/recognize/tesseract';
 import { grayToRgba, shrinkRgba } from '../../app/src/vision/image';
-import { realScanFixtures, SYNTHETIC_VARIANTS, syntheticFixtures, type Fixture, type SyntheticVariant } from './fixtures';
+import { latestBulkFile, realScanFixtures, SYNTHETIC_VARIANTS, syntheticFixtures, type Fixture, type SyntheticVariant } from './fixtures';
+import { framesById, withFrame } from './frames';
 import { readImage, writeJpeg } from './imageIo';
 import { fileIndexSource } from './indexSource';
 import {
@@ -81,6 +82,12 @@ if (values.only !== 'real') {
   fixtures.push(
     ...(await syntheticFixtures({ cacheDir: values.cache!, regenerate: values.regenerate!, log, variant: values.set as SyntheticVariant })),
   );
+}
+// Every card's frame (frame:borderless, frame:extended-art…), so each report breaks down by it.
+{
+  const bulk = latestBulkFile();
+  const frames = bulk ? await framesById(bulk, values.cache!) : null;
+  fixtures = fixtures.map((fixture) => ({ ...fixture, tags: withFrame(fixture.tags, fixture.expectedId, frames) }));
 }
 if (values.tag) fixtures = fixtures.filter((fixture) => fixture.tags.includes(values.tag!));
 if (values.limit) fixtures = fixtures.slice(0, Number(values.limit));

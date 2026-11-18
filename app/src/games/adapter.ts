@@ -30,6 +30,13 @@ export interface CardRegions {
    * sleeve's edge. The art hash tries each and keeps the best fit.
    */
   outlines: readonly { id: string; box: Box }[];
+  /**
+   * Parts of the card that detection can take for the whole card when the
+   * card's own edge is faint (art running to the edge, a dark border in a
+   * dark box), in card pixels: an outline whose read names nothing may be one
+   * of these, and the card around it is tried (see recognize/pipeline.ts).
+   */
+  pieces?: readonly { id: string; box: Box }[];
 }
 
 /** What a collector line says, as far as OCR could read it. */
@@ -38,6 +45,12 @@ export interface CollectorReading {
   numbers: string[];
   /** Set codes the text could spell, upper case, most likely first. */
   sets: string[];
+  /**
+   * Set codes found only by reading past a separator that came out as a
+   * letter or digit: used when matching a printing, but they don't make one
+   * reading look fuller than another.
+   */
+  looseSets?: string[];
   /**
    * True when the numbers are guesses from loose digits (a lost slash or
    * rarity), not a recognizable collector-number shape: weaker evidence.

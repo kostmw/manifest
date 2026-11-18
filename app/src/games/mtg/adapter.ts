@@ -63,6 +63,16 @@ export const MTG_REGIONS: CardRegions = {
     { id: 'frame-line', box: { x: 24, y: 22, width: 440, height: 613 } },
     { id: 'sleeve', box: { x: -13.5, y: -13.5, width: 515, height: 707 } },
   ],
+  // Seen in the owner's round 7–11 test logs: extended-art and borderless cards in a red deck
+  // box, read as their text box (with or without the type line), or as the part below the art,
+  // the card's own edge lost in the box's walls. Measured on 2015-on frames; extended-art and
+  // borderless text boxes sit about where a normal frame's do.
+  pieces: [
+    { id: 'text-box', box: { x: 38, y: 424, width: 412, height: 200 } },
+    { id: 'text-and-type', box: { x: 30, y: 382, width: 428, height: 244 } },
+    { id: 'below-art', box: { x: 0, y: 378, width: 488, height: 302 } },
+    { id: 'lower-two-thirds', box: { x: 0, y: 227, width: 488, height: 453 } },
+  ],
 };
 
 /** Nonfoil unless asked for foil; foil, then etched, when asked (or when there is no nonfoil). */
