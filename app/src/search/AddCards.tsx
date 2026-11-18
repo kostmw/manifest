@@ -93,7 +93,11 @@ export function AddCards({ batch }: { batch: Batch | null }) {
 
       {status === 'error' && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-amber-300">
-          <p>Couldn't load the card list. Check your connection and try again.</p>
+          <p>
+            {navigator.onLine
+              ? "Couldn't load the card list. Check your connection and try again."
+              : "The card list isn't on this device yet. Connect once to download card data."}
+          </p>
           <button type="button" onClick={retry} className={BUTTON_SECONDARY}>
             Try again
           </button>

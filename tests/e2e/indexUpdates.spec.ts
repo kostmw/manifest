@@ -19,13 +19,16 @@ interface Server {
   build: BuildName;
   /** Serve only the manifest, as if the connection dropped right after it. */
   manifestOnly: boolean;
+  /** Don't serve printings shards (they never arrive). */
+  noPrintings: boolean;
 }
 
 async function serveIndex(context: BrowserContext): Promise<Server> {
-  const server: Server = { build: 'A', manifestOnly: false };
+  const server: Server = { build: 'A', manifestOnly: false, noPrintings: false };
   await context.route('**/data/**', async (route) => {
     const file = new URL(route.request().url()).pathname.split('/data/').pop()!;
     if (server.manifestOnly && file !== 'manifest.json') return route.abort('internetdisconnected');
+    if (server.noPrintings && file.startsWith('printings.')) return route.abort('internetdisconnected');
     try {
       const body = await readFile(`${DIRS[server.build]}/${file}`);
       await route.fulfill({ body, contentType: file.endsWith('.json') ? 'application/json' : 'application/octet-stream' });
@@ -158,14 +161,17 @@ test('switches to a newer build once its files are in, and every part of the app
 
 test("never uses or caches a file from another build than its own, and moves to the server's build", async ({ page, context }) => {
   const server = await serveIndex(context);
+  // A's printings don't arrive, so that Sol Ring's are still to be fetched when B is deployed.
+  server.noPrintings = true;
   await page.goto('./');
-  // The card reader has loaded A's names and collectors; Sol Ring's printings haven't been opened.
+  // The card reader has loaded A's names and collectors.
   await openScanner(page);
   expect((await deviceState(page)).active).toBe(await buildDate('A'));
 
   // B is deployed while the page stays open on A. GitHub Pages answers A's URL for Sol Ring's
   // printings with B's file, which has the TST printing.
   server.build = 'B';
+  server.noPrintings = false;
   await choose(page, 'sol ring', 'Sol Ring');
   await expect(page.getByText("Couldn't load the printings of Sol Ring")).toBeVisible();
   await expect(page.getByRole('button', { name: /^Add TST/ })).toHaveCount(0);

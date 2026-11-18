@@ -152,7 +152,11 @@ export function PrintingList({
 
       {state.status === 'error' && (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-amber-300">
-          <p>Couldn't load the printings of {state.name}.</p>
+          <p>
+            {navigator.onLine
+              ? `Couldn't load the printings of ${state.name}.`
+              : `The printings of ${state.name} aren't on this device yet. Connect once to finish downloading card data.`}
+          </p>
           <button type="button" onClick={() => printings.load(state.name)} className={BUTTON_SECONDARY}>
             Try again
           </button>

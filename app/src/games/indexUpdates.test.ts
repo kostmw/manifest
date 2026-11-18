@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-// The scheduler alone: the real check (indexClient) needs a browser.
-vi.mock('./indexClient', () => ({ checkForIndexUpdate: vi.fn(), onStaleBuild: vi.fn() }));
-const { CHECK_GAP_MS, CHECK_INTERVAL_MS, MIN_ATTEMPT_GAP_MS, RETRY_GAP_MS, START_DELAY_MS, scheduleIndexUpdates } = await import('./indexUpdates');
+import { CHECK_GAP_MS, CHECK_INTERVAL_MS, MIN_ATTEMPT_GAP_MS, RESUME_DELAY_MS, RETRY_GAP_MS, START_DELAY_MS, scheduleIndexUpdates } from './indexUpdates';
 
 function fakes(outcomes: string[] = []) {
   const listeners = new Map<string, Set<() => void>>();
@@ -13,14 +11,14 @@ function fakes(outcomes: string[] = []) {
     await Promise.resolve();
     await Promise.resolve();
   };
-  const timeouts: { handler: () => void; ms: number }[] = [];
+  const timeouts: { handler: () => void; ms: number; cleared?: boolean }[] = [];
   const intervals: { handler: () => void; ms: number }[] = [];
   const page = { visibilityState: 'visible' as DocumentVisibilityState, addEventListener: on, removeEventListener: off };
   const win = {
     addEventListener: on,
     removeEventListener: off,
-    setTimeout: (handler: () => void, ms: number) => timeouts.push({ handler, ms }),
-    clearTimeout: () => timeouts.splice(0),
+    setTimeout: (handler: () => void, ms: number) => timeouts.push({ handler, ms }) - 1,
+    clearTimeout: (id: unknown) => void (timeouts[id as number] && (timeouts[id as number]!.cleared = true)),
     setInterval: (handler: () => void, ms: number) => intervals.push({ handler, ms }),
     clearInterval: () => intervals.splice(0),
   };
@@ -108,15 +106,47 @@ describe('scheduleIndexUpdates', () => {
     expect(f.checks()).toBe(2);
   });
 
-  it('looks for the new build as soon as a thread was served a file from it, however recent the last check', async () => {
+  it('looks for the new build when a thread was served a file from it, as soon as the last check is 30 s old', async () => {
     const f = fakes(['up-to-date', 'switched']);
     scheduleIndexUpdates(f.deps);
     f.timeouts[0]!.handler();
     await f.settle();
-    await f.stale(); // only just checked
+    await f.stale(); // only just checked: one is set for when the gap is over
     expect(f.checks()).toBe(1);
+    const deferred = f.timeouts.at(-1)!;
+    expect(deferred.ms).toBe(MIN_ATTEMPT_GAP_MS);
     f.advance(MIN_ATTEMPT_GAP_MS);
-    await f.stale();
+    deferred.handler();
+    await f.settle();
+    expect(f.checks()).toBe(2);
+  });
+
+  it('checks again straight after a check during which a thread was served a newer file', async () => {
+    let release: (value: { kind: string }) => void = () => {};
+    const f = fakes();
+    let checks = 0;
+    f.deps.check = () => (++checks === 1 ? new Promise((resolve) => (release = resolve)) : Promise.resolve({ kind: 'switched' }));
+    scheduleIndexUpdates(f.deps);
+    f.timeouts[0]!.handler();
+    await f.settle();
+    await f.stale(); // while the first is still running
+    f.advance(MIN_ATTEMPT_GAP_MS);
+    release({ kind: 'up-to-date' });
+    await f.settle();
+    await f.settle();
+    expect(checks).toBe(2);
+  });
+
+  it('carries on a stopped download by itself a minute later', async () => {
+    const f = fakes(['incomplete', 'up-to-date']);
+    scheduleIndexUpdates(f.deps);
+    f.timeouts[0]!.handler();
+    await f.settle();
+    const resume = f.timeouts.at(-1)!;
+    expect(resume.ms).toBe(RESUME_DELAY_MS);
+    f.advance(RESUME_DELAY_MS);
+    resume.handler();
+    await f.settle();
     expect(f.checks()).toBe(2);
   });
 
