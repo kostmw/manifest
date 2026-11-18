@@ -52,7 +52,7 @@ const round = (value: number) => Math.round(value * 1000) / 1000;
 export function buildTestLogRead(input: {
   id: string;
   at: Date;
-  source: 'live' | 'photo';
+  source: 'live' | 'photo' | 'file';
   scan: LoggedScan;
   outcome: TestLogOutcome;
   settings: TestLogSettings;

@@ -1,6 +1,7 @@
 import { getGame } from '../games/registry';
 import type { GameId, Printing } from '../games/types';
 import { db } from './db';
+import { deleteBatchImports, moveBatchImports } from './imports';
 import type { Batch, BatchItem, BatchSettings } from './types';
 
 export function mergeKeyFor(printingId: string, finish: string, lang: string, condition: string): string {
@@ -41,9 +42,10 @@ export async function updateBatchSettings(id: string, changes: Partial<BatchSett
 }
 
 export async function deleteBatch(id: string): Promise<void> {
-  await db.transaction('rw', db.batches, db.items, db.reviews, async () => {
+  await db.transaction('rw', [db.batches, db.items, db.reviews, db.imports, db.importFiles], async () => {
     await db.items.where('batchId').equals(id).delete();
     await db.reviews.where('batchId').equals(id).delete();
+    await deleteBatchImports(id);
     await db.batches.delete(id);
   });
 }
@@ -55,7 +57,7 @@ export async function deleteBatch(id: string): Promise<void> {
  */
 export async function mergeBatches(sourceId: string, targetId: string): Promise<void> {
   if (sourceId === targetId) return;
-  await db.transaction('rw', db.batches, db.items, db.reviews, async () => {
+  await db.transaction('rw', [db.batches, db.items, db.reviews, db.imports, db.importFiles], async () => {
     if (!(await db.batches.get(targetId))) throw new Error('The batch to merge into is gone');
     for (const item of await db.items.where('batchId').equals(sourceId).toArray()) {
       const twin = await db.items.where({ batchId: targetId, mergeKey: item.mergeKey }).first();
@@ -71,6 +73,8 @@ export async function mergeBatches(sourceId: string, targetId: string): Promise<
       }
     }
     await db.reviews.where('batchId').equals(sourceId).modify({ batchId: targetId });
+    // Photos imported into either batch count as read into the merged one.
+    await moveBatchImports(sourceId, targetId);
     await db.batches.delete(sourceId);
   });
 }

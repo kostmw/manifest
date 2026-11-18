@@ -53,7 +53,7 @@ export interface TestLogRead {
   kind: 'read';
   /** ISO timestamp. */
   at: string;
-  source: 'live' | 'photo';
+  source: 'live' | 'photo' | 'file';
   build: string;
   userAgent: string;
   settings: TestLogSettings;

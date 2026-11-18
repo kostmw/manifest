@@ -103,6 +103,25 @@ export interface FrameOutcome {
   supersedes?: number[];
 }
 
+/** What reading one imported file gave (bulk import). */
+export type FileRead =
+  | {
+      kind: 'cards';
+      /** One per card found, each with its own crop. */
+      results: ScanResult[];
+      frame: { width: number; height: number };
+      timings: Record<string, number>;
+    }
+  | {
+      kind: 'no-card';
+      /** The whole photo, small, in a card-shaped picture: what a review shows if the user sends it there anyway. */
+      picture: Blob | null;
+      frame: { width: number; height: number };
+      timings: Record<string, number>;
+    }
+  /** The browser couldn't open the file as an image (desktop Chrome and HEIC, say, or a damaged file). */
+  | { kind: 'unopenable' };
+
 /**
  * Live frames are capped by the camera constraints; photos are scaled down to
  * this. Detection works on a small copy anyway; the full size is kept for the
@@ -153,6 +172,25 @@ async function toJpeg(image: RgbaImage): Promise<Blob> {
   const context = canvas.getContext('2d')!;
   context.putImageData(new ImageData(new Uint8ClampedArray(image.data), image.width, image.height), 0, 0);
   return canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+}
+
+/** The card-shaped picture a photo with no card found gets: the whole photo, letterboxed. */
+const PICTURE_SIZE = { width: 366, height: 510 };
+
+async function wholePicture(image: RgbaImage): Promise<Blob> {
+  const full = new OffscreenCanvas(image.width, image.height);
+  // No copy when the pixels already sit in an ImageData-ready array: this is a 3000-pixel photo.
+  const data = image.data instanceof Uint8ClampedArray && image.data.buffer instanceof ArrayBuffer ? (image.data as Uint8ClampedArray<ArrayBuffer>) : new Uint8ClampedArray(image.data);
+  full.getContext('2d')!.putImageData(new ImageData(data, image.width, image.height), 0, 0);
+  const scale = Math.min(PICTURE_SIZE.width / image.width, PICTURE_SIZE.height / image.height);
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const small = new OffscreenCanvas(PICTURE_SIZE.width, PICTURE_SIZE.height);
+  const context = small.getContext('2d')!;
+  context.fillStyle = '#18181b';
+  context.fillRect(0, 0, PICTURE_SIZE.width, PICTURE_SIZE.height);
+  context.drawImage(full, (PICTURE_SIZE.width - width) / 2, (PICTURE_SIZE.height - height) / 2, width, height);
+  return small.convertToBlob({ type: 'image/jpeg', quality: 0.75 });
 }
 
 function ready() {
@@ -296,6 +334,41 @@ const api = {
       timings: { pixels: copied, ...recognition.timings, total: performance.now() - started },
       result: recognition.decision === 'no-card' ? null : await toResult(recognition, started, { width: frame.width, height: frame.height }),
     };
+  },
+
+  /**
+   * One file from a bulk import. The file is opened here, not on the main
+   * thread, scaled down like a photo and let go straight away, so a long
+   * import never holds more than one picture. The batch's set lock comes with
+   * each file: the import outlives the Scan tab that sends the live lock.
+   */
+  async importFile(file: Blob, options: { lockSets: string[] }): Promise<FileRead> {
+    const started = performance.now();
+    const context = ready();
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      return { kind: 'unopenable' };
+    }
+    const decoded = performance.now();
+    const frame = pixels(bitmap, PHOTO_MAX_SIDE);
+    const copied = performance.now();
+    const recognition = await recognizeFrame(frame, {
+      ...context,
+      printings: { ...context.printings, lockSets: [...options.lockSets] },
+      readDespiteQuality: true,
+      keepImages: true,
+      centerFallback: true,
+    });
+    const size = { width: frame.width, height: frame.height };
+    const timings = { decode: decoded - started, pixels: copied - decoded, ...recognition.timings };
+    if (recognition.decision === 'no-card') {
+      const picture = await wholePicture(frame).catch(() => null);
+      return { kind: 'no-card', picture, frame: size, timings: { ...timings, total: performance.now() - started } };
+    }
+    const result = await toResult(recognition, started, size);
+    return { kind: 'cards', results: [result], frame: size, timings: { ...timings, total: performance.now() - started } };
   },
 };
 
