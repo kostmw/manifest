@@ -41,6 +41,13 @@ export interface DetectOptions {
   border?: number;
   /** Called for each rejected component, for the eval's failure report. */
   onReject?: (reason: string, detail: Record<string, number>) => void;
+  /**
+   * For photos of several cards (vision/multiCard.ts): every outline that
+   * lies on edges, unmerged and unsorted by nesting, including ones that
+   * aren't card-shaped (a row or block of touching cards), marked `block`.
+   * Off, detection is exactly as it was.
+   */
+  everything?: boolean;
 }
 
 export interface CardDetection {
@@ -55,6 +62,8 @@ export interface CardDetection {
   tilt: number;
   /** Card area ÷ frame area. */
   areaFraction: number;
+  /** With `everything`: the outline isn't card-shaped (a row or block of cards, a pocket strip). */
+  block?: true;
 }
 
 interface Component {
@@ -350,7 +359,7 @@ function edgeLevels(ridges: Float32Array): number[] {
 const MIN_TILT = 15;
 const MAX_TILT = 70;
 
-type Candidate = { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number; tilt: number };
+type Candidate = { corners: Point[]; score: number; edgeSupport: number; aspect: number; areaFraction: number; tilt: number; block?: true };
 
 /**
  * An outline that failed only on edge support, with two neighbouring sides
@@ -464,6 +473,10 @@ function shapeCheck(
   }
   if (ratio < options.aspect * 0.7 || ratio > Math.min(1, options.aspect * 1.3)) {
     reject('aspect', { ratio, outline });
+    if (options.everything) {
+      const areaFraction = polygonArea(ordered) / (width * height);
+      return { corners: ordered, score: support.mean * 0.5, edgeSupport: support.weakest, aspect: ratio, areaFraction, tilt: 0, block: true };
+    }
     return null;
   }
 
@@ -586,6 +599,11 @@ export function detectCards(image: RgbaImage, options: DetectOptions): CardDetec
     }
   }
 
+  const toFrame = (corners: readonly Point[]) => corners.map((p) => ({ x: (p.x + 0.5) / scale - 0.5, y: (p.y + 0.5) / scale - 0.5 })) as Quad;
+  if (options.everything) {
+    return candidates.sort((a, b) => b.areaFraction - a.areaFraction).map((candidate) => ({ ...candidate, corners: toFrame(candidate.corners) }));
+  }
+
   // A card's own frame line or sleeve edge gives a second, almost identical quad: keep the outer one.
   candidates.sort((a, b) => b.areaFraction - a.areaFraction);
   const kept: typeof candidates = [];
@@ -600,8 +618,5 @@ export function detectCards(image: RgbaImage, options: DetectOptions): CardDetec
   const depth = new Map(kept.map((candidate) => [candidate, kept.filter((outer) => encloses(outer, candidate, 0.2)).length]));
   return kept
     .sort((a, b) => depth.get(a)! - depth.get(b)! || b.score - a.score)
-    .map((candidate) => ({
-      ...candidate,
-      corners: candidate.corners.map((p) => ({ x: (p.x + 0.5) / scale - 0.5, y: (p.y + 0.5) / scale - 0.5 })) as Quad,
-    }));
+    .map((candidate) => ({ ...candidate, corners: toFrame(candidate.corners) }));
 }

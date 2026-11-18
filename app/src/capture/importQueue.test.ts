@@ -68,7 +68,9 @@ function harness(overrides: Partial<ImportDeps> = {}): Harness {
         if (says === 'hang') return await new Promise<never>(() => {});
         if (says === 'broken') return { kind: 'unopenable' };
         if (says === 'empty') return { kind: 'no-card', picture: new Blob(['jpeg']), frame: { width: 10, height: 10 }, timings: {} };
-        return { kind: 'cards', results: [scan(says === 'unsure' ? 'review' : 'accept')], frame: { width: 10, height: 10 }, timings: {} };
+        // A binder page: three cards read, two outlines that named nothing.
+        if (says === 'page') return { kind: 'cards', results: [scan('accept'), scan('accept'), scan('review')], unread: [new Blob(['a']), new Blob(['b'])], frame: { width: 10, height: 10 }, timings: {} };
+        return { kind: 'cards', results: [scan(says === 'unsure' ? 'review' : 'accept')], unread: [], frame: { width: 10, height: 10 }, timings: {} };
       } finally {
         inFlight--;
       }
@@ -167,7 +169,7 @@ describe('ImportRunner', () => {
           fail = false;
           throw new Error('worker trouble');
         }
-        return { kind: 'cards', results: [scan('accept')], frame: { width: 1, height: 1 }, timings: {} };
+        return { kind: 'cards', results: [scan('accept')], unread: [], frame: { width: 1, height: 1 }, timings: {} };
       },
     });
     await runner.start(batch, [photo('a.jpg')]);
@@ -204,6 +206,60 @@ describe('ImportRunner', () => {
     expect(record?.picture).toBeUndefined();
   });
 
+  it('files every card of a photo of several, and lists the outlines that named none until sent to review', async () => {
+    const { runner } = harness();
+    await runner.start(batch, [photo('page-1.jpg', 'page')]);
+    let view = await finished(runner);
+    expect(view.job.photos).toEqual({ added: 0, review: 1, failed: 0, skipped: 0 });
+    expect(view.job.cards).toEqual({ added: 2, review: 1, unread: 2 });
+    expect(view.failures).toEqual([{ key: expect.any(String), name: 'page-1.jpg', failure: 'unread', canRetry: false, canReview: true, count: 2 }]);
+
+    // Listed again after a reload.
+    const after = harness();
+    await after.runner.restore();
+    expect(after.runner.getSnapshot()!.failures).toMatchObject([{ failure: 'unread', count: 2 }]);
+
+    expect(await runner.reviewAnyway(view.failures[0]!.key)).toBe(true);
+    view = runner.getSnapshot()!;
+    expect(view.failures).toEqual([]);
+    expect(view.job.cards).toEqual({ added: 2, review: 3, unread: 0 });
+    expect(await getReviews(batch.id)).toHaveLength(2);
+    const record = (await db.importFiles.toArray())[0]!;
+    expect(record.unread).toBeUndefined();
+    expect(record.reviewIds).toHaveLength(3);
+  });
+
+  it('says when a photo of several has mostly the cards of an earlier one, and takes them out or keeps them', async () => {
+    const { runner } = harness();
+    await runner.start(batch, [photo('page-1.jpg', 'page'), photo('page-1-again.jpg', 'page'), photo('page-2-again.jpg', 'page')]);
+    let view = await finished(runner);
+    // The first page's unread outlines; then each later page, the same cards again.
+    expect(view.failures.map(({ name, failure, count, other }) => ({ name, failure, count, other }))).toEqual([
+      { name: 'page-1.jpg', failure: 'unread', count: 2, other: undefined },
+      { name: 'page-1-again.jpg', failure: 'repeat', count: 3, other: 'page-1.jpg' },
+      { name: 'page-2-again.jpg', failure: 'repeat', count: 3, other: 'page-1.jpg' },
+    ]);
+    expect(view.job.cards).toEqual({ added: 6, review: 3, unread: 6 });
+
+    expect(await runner.takeOut(view.failures[1]!.key)).toBe(true);
+    view = runner.getSnapshot()!;
+    expect(view.job.photos).toEqual({ added: 0, review: 2, failed: 0, skipped: 1 });
+    expect(view.job.cards).toEqual({ added: 4, review: 2, unread: 4 });
+    expect(view.failures.map((f) => f.name)).toEqual(['page-1.jpg', 'page-2-again.jpg']);
+
+    // Kept: it was really other copies; its unread outlines are listed instead.
+    expect(await runner.keepRepeat(view.failures[1]!.key)).toBe(true);
+    view = runner.getSnapshot()!;
+    expect(view.failures.map(({ name, failure }) => ({ name, failure }))).toEqual([
+      { name: 'page-1.jpg', failure: 'unread' },
+      { name: 'page-2-again.jpg', failure: 'unread' },
+    ]);
+    // After a reload, the photo taken out isn't listed again.
+    const after = harness();
+    await after.runner.restore();
+    expect(after.runner.getSnapshot()!.failures.map((f) => f.name)).toEqual(['page-1.jpg', 'page-2-again.jpg']);
+  });
+
   it('skips photos already read into the batch, and the same photo picked twice, until asked to read them again', async () => {
     const first = harness();
     await first.runner.start(batch, [photo('a.jpg'), photo('b.jpg')]);
@@ -237,7 +293,7 @@ describe('ImportRunner', () => {
     const first = harness();
     await first.runner.start(batch, [photo('odd.jpg', 'throw')]);
     await finished(first.runner);
-    const second = harness({ read: async () => ({ kind: 'cards', results: [scan('accept')], frame: { width: 1, height: 1 }, timings: {} }) });
+    const second = harness({ read: async () => ({ kind: 'cards', results: [scan('accept')], unread: [], frame: { width: 1, height: 1 }, timings: {} }) });
     await second.runner.start(batch, [photo('odd.jpg', 'throw')]);
     expect((await finished(second.runner)).job.photos).toMatchObject({ added: 1, skipped: 0 });
   });

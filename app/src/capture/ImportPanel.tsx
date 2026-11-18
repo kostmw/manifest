@@ -17,8 +17,40 @@ function FailureRow({ failure, live }: { failure: ImportFailureView; live: boole
         <span className="block truncate text-sm text-zinc-200" title={failure.name}>
           {failure.name}
         </span>
-        <span className="block text-xs text-zinc-400">{failureText(failure.failure, failure.name)}</span>
+        <span className="block text-xs text-zinc-400">
+          {failure.failure === 'repeat'
+            ? `${failure.count} of its cards were also in ${failure.other}: the same page twice? They were added again.`
+            : `${failure.failure === 'unread' && failure.count ? `${failure.count} ${failure.count === 1 ? 'outline' : 'outlines'}: ` : ''}${failureText(failure.failure, failure.name)}`}
+        </span>
       </span>
+      {failure.failure === 'repeat' && (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Take the cards of ${failure.name} out`}
+            onClick={() => {
+              setBusy(true);
+              void imports.takeOut(failure.key).finally(() => setBusy(false));
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Take them out
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Keep the cards of ${failure.name}`}
+            onClick={() => {
+              setBusy(true);
+              void imports.keepRepeat(failure.key).finally(() => setBusy(false));
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Keep them
+          </button>
+        </>
+      )}
       {live && failure.canRetry && (
         <button type="button" onClick={() => imports.retry(failure.key)} aria-label={`Retry ${failure.name}`} className={BUTTON_SECONDARY}>
           Retry
@@ -28,14 +60,14 @@ function FailureRow({ failure, live }: { failure: ImportFailureView; live: boole
         <button
           type="button"
           disabled={busy}
-          aria-label={`Review ${failure.name} anyway`}
+          aria-label={`Review ${failure.failure === 'unread' ? `the unread outlines of ${failure.name}` : failure.name} anyway`}
           onClick={() => {
             setBusy(true);
             void imports.reviewAnyway(failure.key).finally(() => setBusy(false));
           }}
           className={BUTTON_SECONDARY}
         >
-          Review it anyway
+          {failure.failure === 'unread' && (failure.count ?? 1) > 1 ? 'Review them anyway' : 'Review it anyway'}
         </button>
       )}
     </li>
@@ -53,11 +85,11 @@ function Failures({ view }: { view: ImportView }) {
     // Open to begin with; React leaves it as the user sets it after that, since `open` never changes.
     <details className="rounded-lg bg-zinc-900/60 px-3 py-1" open>
       <summary className="flex min-h-11 cursor-pointer items-center text-sm text-amber-300 select-none">
-        {failures.length === 1 ? '1 photo gave no card' : `${failures.length.toLocaleString('en-US')} photos gave no card`}
+        {failures.length === 1 ? '1 photo to look at' : `${failures.length.toLocaleString('en-US')} photos to look at`}
       </summary>
       <p className="text-xs text-zinc-400">
-        Nothing from them is in the batch.
-        {reviewable > 0 ? ' “Review it anyway” puts the photo in Review, to name the card by search.' : ''}
+        No card from these is in the batch, apart from the ones already read from photos of several.
+        {reviewable > 0 ? ' “Review it anyway” puts the picture in Review, to name the card by search.' : ''}
       </p>
       {reviewable > 1 && (
         <button
@@ -72,7 +104,7 @@ function Failures({ view }: { view: ImportView }) {
           Review all {reviewable.toLocaleString('en-US')} anyway
         </button>
       )}
-      <ul aria-label="Photos that gave no card" className="divide-y divide-zinc-800">
+      <ul aria-label="Photos to look at" className="divide-y divide-zinc-800">
         {shown.map((failure) => (
           <FailureRow key={failure.key} failure={failure} live={view.live} />
         ))}
