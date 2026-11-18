@@ -27,7 +27,8 @@ import {
   type ImportJob,
 } from '../session/imports';
 import type { IntakeOutcome } from '../session/intake';
-import { queueReview } from '../session/reviews';
+import { changeQuantity } from '../session/batches';
+import { discardReview, queueReview } from '../session/reviews';
 import type { Batch } from '../session/types';
 import { fileKey, isImageFile } from './importFiles';
 
@@ -59,9 +60,37 @@ export interface ImportFailureView {
   canRetry: boolean;
   /** There's a picture of the photo to send to review. */
   canReview: boolean;
-  /** For `unread`: how many outlines in the photo named no card. */
+  /** For `unread`: how many outlines in the photo named no card; for `repeat`: how many cards it shares. */
   count?: number;
+  /** For `repeat`: the earlier photo with the same cards. */
+  other?: string;
 }
+
+/** A photo's list entry, from what was saved about it (after a reload). */
+function listedFrom(file: ImportFile): ImportFailureView {
+  if (file.status === 'failed') return { key: file.key, name: file.name, failure: file.failure ?? 'error', canRetry: false, canReview: Boolean(file.picture) };
+  if (file.repeatOf) return { key: file.key, name: file.name, failure: 'repeat', canRetry: false, canReview: false, count: file.repeatOf.shared, other: file.repeatOf.name };
+  return { key: file.key, name: file.name, failure: 'unread', canRetry: false, canReview: true, count: file.unread?.length ?? 0 };
+}
+
+/** Cards two photos share (by name, a copy counted once per photo it's in). */
+export function sharedCards(a: readonly string[], b: readonly string[]): number {
+  const left = new Map<string, number>();
+  for (const name of a) left.set(name, (left.get(name) ?? 0) + 1);
+  let shared = 0;
+  for (const name of b) {
+    const count = left.get(name) ?? 0;
+    if (count > 0) {
+      shared++;
+      left.set(name, count - 1);
+    }
+  }
+  return shared;
+}
+
+/** A photo of several sharing at least this many cards, and this share of its cards, with an earlier one is probably the same page again. */
+const REPEAT_SHARED = 3;
+const REPEAT_SHARE = 0.6;
 
 export interface ImportView {
   job: ImportJob;
@@ -118,6 +147,8 @@ export class ImportRunner {
   /** Keys read in this job: the same photo picked twice is read once. */
   private seen = new Set<string>();
   private readTimes: number[] = [];
+  /** Photos of several cards read in this job, and the cards in them, for spotting the same page twice. */
+  private pages: { name: string; cards: string[] }[] = [];
   private restored: Promise<void> | null = null;
 
   constructor(private readonly deps: ImportDeps) {}
@@ -164,11 +195,7 @@ export class ImportRunner {
         last: null,
         perMinute: null,
         remainingMs: null,
-        failures: failures.map((file) =>
-          file.status === 'failed'
-            ? { key: file.key, name: file.name, failure: file.failure ?? 'error', canRetry: false, canReview: Boolean(file.picture) }
-            : { key: file.key, name: file.name, failure: 'unread' as const, canRetry: false, canReview: true, count: file.unread!.length },
-        ),
+        failures: failures.map(listedFrom),
         skippedAtHand: 0,
         saveFailed: false,
       };
@@ -212,6 +239,7 @@ export class ImportRunner {
     this.skipped = [];
     this.seen = new Set();
     this.readTimes = [];
+    this.pages = [];
     this.view = {
       job,
       live: true,
@@ -352,6 +380,46 @@ export class ImportRunner {
     return true;
   }
 
+  /** A repeated page: takes its cards back out of the batch and the review queue. */
+  async takeOut(key: string): Promise<boolean> {
+    const view = this.view;
+    if (!view) return false;
+    const record = await getImportFile(view.job.id, key);
+    if (!record || record.status === 'failed' || record.takenOut) return false;
+    for (const itemId of record.itemIds ?? []) await changeQuantity(itemId, -1);
+    for (const reviewId of record.reviewIds ?? []) await discardReview(reviewId);
+    const now = this.view;
+    if (!now || now.job.id !== view.job.id) return true;
+    const status = record.status;
+    const job = this.job({
+      photos: { ...now.job.photos, [status]: now.job.photos[status] - 1, skipped: now.job.photos.skipped + 1 },
+      cards: {
+        added: now.job.cards.added - (record.itemIds?.length ?? 0),
+        review: now.job.cards.review - (record.reviewIds?.length ?? 0),
+        ...(now.job.cards.unread !== undefined ? { unread: Math.max(0, now.job.cards.unread - (record.unread?.length ?? 0)) } : {}),
+      },
+    });
+    const { unread: _unread, repeatOf: _repeatOf, ...rest } = record;
+    await saveFile(job, { ...rest, takenOut: true, at: new Date(this.deps.now()).toISOString() });
+    this.set({ job, failures: now.failures.filter((failure) => failure.key !== key) });
+    return true;
+  }
+
+  /** A repeated page whose cards really are other copies: keeps them, and lists its unread outlines if it has any. */
+  async keepRepeat(key: string): Promise<boolean> {
+    const view = this.view;
+    if (!view) return false;
+    const record = await getImportFile(view.job.id, key);
+    if (!record?.repeatOf) return false;
+    const { repeatOf: _repeatOf, ...rest } = record;
+    await saveFile(this.view?.job ?? view.job, rest);
+    const now = this.view;
+    if (!now || now.job.id !== view.job.id) return true;
+    const others = now.failures.filter((failure) => failure.key !== key);
+    this.set({ failures: rest.unread?.length ? [...others, listedFrom(rest)] : others });
+    return true;
+  }
+
   /** "Review them anyway" for every listed photo that has a picture. */
   async reviewAllAnyway(): Promise<number> {
     let count = 0;
@@ -463,6 +531,18 @@ export class ImportRunner {
       }
     }
     const status = reviewIds.length > 0 ? 'review' : 'added';
+    // A photo of several cards with mostly the cards of an earlier one: the same page twice?
+    const names = read.results.map((result) => result.names[0]).filter((name): name is string => Boolean(name));
+    let repeatOf: ImportFile['repeatOf'];
+    if (names.length >= 2) {
+      for (const page of this.pages) {
+        const shared = sharedCards(page.cards, names);
+        if (shared >= REPEAT_SHARED && shared >= REPEAT_SHARE * Math.max(page.cards.length, names.length) && shared > (repeatOf?.shared ?? 0)) {
+          repeatOf = { name: page.name, shared };
+        }
+      }
+      this.pages.push({ name: file.name, cards: names });
+    }
     const unread = (await Promise.all(read.unread.map((picture) => picture.arrayBuffer().catch(() => null)))).filter((bytes): bytes is ArrayBuffer => bytes !== null);
     const now = this.view!;
     const job = this.job({
@@ -483,9 +563,15 @@ export class ImportRunner {
       ...(itemIds.length ? { itemIds } : {}),
       ...(reviewIds.length ? { reviewIds } : {}),
       ...(unread.length ? { unread } : {}),
+      ...(repeatOf ? { repeatOf } : {}),
       at: new Date(this.deps.now()).toISOString(),
     });
-    const listed: ImportFailureView[] = unread.length ? [{ key, name: file.name, failure: 'unread', canRetry: false, canReview: true, count: unread.length }] : [];
+    // A repeated page is listed as that (its unread outlines come back if its cards are kept).
+    const listed: ImportFailureView[] = repeatOf
+      ? [{ key, name: file.name, failure: 'repeat', canRetry: false, canReview: false, count: repeatOf.shared, other: repeatOf.name }]
+      : unread.length
+        ? [{ key, name: file.name, failure: 'unread', canRetry: false, canReview: true, count: unread.length }]
+        : [];
     this.set({ job, last, pending: this.queue.length, ...(listed.length ? { failures: [...now.failures, ...listed] } : {}), ...this.timed() });
     return false;
   }

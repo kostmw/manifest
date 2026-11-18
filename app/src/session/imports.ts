@@ -42,7 +42,9 @@ export type ImportFailure =
   /** Reading it went wrong (or took far too long). */
   | 'error'
   /** A photo of several cards: some outlines in it named no card (see ImportFile.unread). The others were filed. */
-  | 'unread';
+  | 'unread'
+  /** A photo of several cards with mostly the same cards as an earlier photo in the import (see ImportFile.repeatOf). */
+  | 'repeat';
 
 export interface ImportFile {
   jobId: string;
@@ -64,6 +66,14 @@ export interface ImportFile {
    * JPEG bytes, for "Review it anyway". Cleared once sent to review.
    */
   unread?: ArrayBuffer[];
+  /**
+   * A photo of several cards that shares most of its cards with an earlier
+   * photo in the same import: probably the same binder page photographed
+   * twice, so its cards may be counted twice. Cleared when the user keeps them.
+   */
+  repeatOf?: { name: string; shared: number };
+  /** The user took this photo's cards back out of the batch (a repeated page). */
+  takenOut?: true;
   /** ISO timestamp. */
   at: string;
 }
@@ -109,7 +119,9 @@ export async function latestOpenJob(): Promise<ImportJob | undefined> {
 /** A job's files that gave no card, or have outlines that named none, oldest first. */
 export async function jobFailures(jobId: string): Promise<ImportFile[]> {
   const files = await db.importFiles.where('jobId').equals(jobId).toArray();
-  return files.filter((file) => file.status === 'failed' || (file.unread?.length ?? 0) > 0).sort((a, b) => a.at.localeCompare(b.at));
+  return files
+    .filter((file) => !file.takenOut && (file.status === 'failed' || (file.unread?.length ?? 0) > 0 || file.repeatOf))
+    .sort((a, b) => a.at.localeCompare(b.at));
 }
 
 export async function getImportFile(jobId: string, key: string): Promise<ImportFile | undefined> {

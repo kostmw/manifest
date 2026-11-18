@@ -229,3 +229,18 @@ test('imports photos of several cards, each card filed', async ({ page }) => {
   await expect(page.getByTestId('import-tally')).toHaveText('3 cards added · 1 to review');
   await expect(nav(page).getByRole('button', { name: 'Batch (3)' })).toBeVisible();
 });
+
+test('says when two photos show the same page, and takes the second one’s cards out', async ({ page }) => {
+  // The same three cards photographed twice, a little differently: two files, the same cards.
+  const again = THREE.map((card) => ({ ...card, rotation: (card.rotation ?? 0) + 0.02 }));
+  const files = [await spreadPhoto(page, 'shot-1.png', THREE), await spreadPhoto(page, 'shot-2.png', again)];
+  await page.getByLabel('Import photos').setInputFiles(files);
+  await expect(panel(page).getByRole('status')).toContainText('Import finished: 2 photos', { timeout: 90_000 });
+  await expect(nav(page).getByRole('button', { name: 'Batch (4)' })).toBeVisible();
+  const listed = panel(page).getByRole('list', { name: 'Photos to look at' }).getByRole('listitem').filter({ hasText: 'shot-2.png' });
+  await expect(listed).toContainText('also in shot-1.png: the same page twice?');
+  await listed.getByRole('button', { name: 'Take the cards of shot-2.png out' }).click();
+  await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
+  await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
+  await expect(page.getByTestId('import-tally')).toHaveText('2 cards added · 1 to review · 1 skipped');
+});

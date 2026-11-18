@@ -229,6 +229,37 @@ describe('ImportRunner', () => {
     expect(record.reviewIds).toHaveLength(3);
   });
 
+  it('says when a photo of several has mostly the cards of an earlier one, and takes them out or keeps them', async () => {
+    const { runner } = harness();
+    await runner.start(batch, [photo('page-1.jpg', 'page'), photo('page-1-again.jpg', 'page'), photo('page-2-again.jpg', 'page')]);
+    let view = await finished(runner);
+    // The first page's unread outlines; then each later page, the same cards again.
+    expect(view.failures.map(({ name, failure, count, other }) => ({ name, failure, count, other }))).toEqual([
+      { name: 'page-1.jpg', failure: 'unread', count: 2, other: undefined },
+      { name: 'page-1-again.jpg', failure: 'repeat', count: 3, other: 'page-1.jpg' },
+      { name: 'page-2-again.jpg', failure: 'repeat', count: 3, other: 'page-1.jpg' },
+    ]);
+    expect(view.job.cards).toEqual({ added: 6, review: 3, unread: 6 });
+
+    expect(await runner.takeOut(view.failures[1]!.key)).toBe(true);
+    view = runner.getSnapshot()!;
+    expect(view.job.photos).toEqual({ added: 0, review: 2, failed: 0, skipped: 1 });
+    expect(view.job.cards).toEqual({ added: 4, review: 2, unread: 4 });
+    expect(view.failures.map((f) => f.name)).toEqual(['page-1.jpg', 'page-2-again.jpg']);
+
+    // Kept: it was really other copies; its unread outlines are listed instead.
+    expect(await runner.keepRepeat(view.failures[1]!.key)).toBe(true);
+    view = runner.getSnapshot()!;
+    expect(view.failures.map(({ name, failure }) => ({ name, failure }))).toEqual([
+      { name: 'page-1.jpg', failure: 'unread' },
+      { name: 'page-2-again.jpg', failure: 'unread' },
+    ]);
+    // After a reload, the photo taken out isn't listed again.
+    const after = harness();
+    await after.runner.restore();
+    expect(after.runner.getSnapshot()!.failures.map((f) => f.name)).toEqual(['page-1.jpg', 'page-2-again.jpg']);
+  });
+
   it('skips photos already read into the batch, and the same photo picked twice, until asked to read them again', async () => {
     const first = harness();
     await first.runner.start(batch, [photo('a.jpg'), photo('b.jpg')]);

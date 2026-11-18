@@ -18,10 +18,39 @@ function FailureRow({ failure, live }: { failure: ImportFailureView; live: boole
           {failure.name}
         </span>
         <span className="block text-xs text-zinc-400">
-          {failure.failure === 'unread' && failure.count ? `${failure.count} ${failure.count === 1 ? 'outline' : 'outlines'}: ` : ''}
-          {failureText(failure.failure, failure.name)}
+          {failure.failure === 'repeat'
+            ? `${failure.count} of its cards were also in ${failure.other}: the same page twice? They were added again.`
+            : `${failure.failure === 'unread' && failure.count ? `${failure.count} ${failure.count === 1 ? 'outline' : 'outlines'}: ` : ''}${failureText(failure.failure, failure.name)}`}
         </span>
       </span>
+      {failure.failure === 'repeat' && (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Take the cards of ${failure.name} out`}
+            onClick={() => {
+              setBusy(true);
+              void imports.takeOut(failure.key).finally(() => setBusy(false));
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Take them out
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Keep the cards of ${failure.name}`}
+            onClick={() => {
+              setBusy(true);
+              void imports.keepRepeat(failure.key).finally(() => setBusy(false));
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Keep them
+          </button>
+        </>
+      )}
       {live && failure.canRetry && (
         <button type="button" onClick={() => imports.retry(failure.key)} aria-label={`Retry ${failure.name}`} className={BUTTON_SECONDARY}>
           Retry

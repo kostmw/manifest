@@ -74,6 +74,8 @@ export function failureText(failure: ImportFailure, name: string): string {
       return 'Reading it went wrong';
     case 'unread':
       return 'Some outlines in it named no card (an empty pocket, or a card it couldn’t read)';
+    case 'repeat':
+      return 'Mostly the same cards as an earlier photo: the same page twice? Its cards were added again';
   }
 }
 
