@@ -1,12 +1,11 @@
-import { createReadStream, createWriteStream, existsSync } from 'node:fs';
-import { mkdir, rename } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { Readable, type Readable as ReadableType } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import type { Readable as ReadableType } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import type { NameDictionary, Printing } from '../../app/src/games/types';
+import { downloadToFile, fetchJson } from '../download';
 import type { BuildOptions, BuiltGameData, GameIndexBuilder } from './types';
 
 const SCRYFALL_HEADERS = {
@@ -147,9 +146,7 @@ interface BulkEntry {
 
 /** Downloads the bulk file once per Scryfall update. Bulk files are meant for this, unlike per-card API calls. */
 async function fetchBulkFile(cacheDir: string): Promise<{ path: string; updatedAt: string }> {
-  const listing = await fetch('https://api.scryfall.com/bulk-data', { headers: SCRYFALL_HEADERS });
-  if (!listing.ok) throw new Error(`Scryfall bulk listing failed: HTTP ${listing.status}`);
-  const { data } = (await listing.json()) as { data: BulkEntry[] };
+  const { data } = await fetchJson<{ data: BulkEntry[] }>('https://api.scryfall.com/bulk-data', { headers: SCRYFALL_HEADERS });
 
   const entry = data.find((candidate) => candidate.type === BULK_TYPE);
   if (!entry?.jsonl_download_uri) throw new Error(`Scryfall bulk listing has no JSONL file for ${BULK_TYPE}`);
@@ -159,11 +156,7 @@ async function fetchBulkFile(cacheDir: string): Promise<{ path: string; updatedA
   const path = join(cacheDir, `${BULK_TYPE}-${stamp}.jsonl.gz`);
   if (existsSync(path)) return { path, updatedAt: entry.updated_at };
 
-  const download = await fetch(entry.jsonl_download_uri, { headers: SCRYFALL_HEADERS });
-  if (!download.ok || !download.body) throw new Error(`Scryfall bulk download failed: HTTP ${download.status}`);
-  const partial = `${path}.partial`;
-  await pipeline(Readable.fromWeb(download.body as NodeReadableStream), createWriteStream(partial));
-  await rename(partial, path);
+  await downloadToFile(entry.jsonl_download_uri, path, { headers: SCRYFALL_HEADERS });
   return { path, updatedAt: entry.updated_at };
 }
 
