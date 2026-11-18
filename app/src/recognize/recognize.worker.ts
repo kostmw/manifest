@@ -7,9 +7,10 @@
 import { expose } from 'comlink';
 import { Catalog } from '../games/catalog';
 import type { CollectorIndex } from '../games/collectorIndex';
-import { browserIndexSource, loadNameDictionary } from '../games/indexClient';
+import { sameBuild } from '../games/indexBuilds';
+import { browserIndexSource, loadManifest, loadNameDictionary, onBuildChange } from '../games/indexClient';
 import { getGame } from '../games/registry';
-import type { GameId } from '../games/types';
+import type { GameId, IndexManifest } from '../games/types';
 import type { Quad } from '../vision/geometry';
 import type { RgbaImage } from '../vision/image';
 import type { QualityAdvice, QualityIssue, QualityMetrics } from '../vision/quality';
@@ -268,14 +269,61 @@ async function liveOutcome(read: LiveRead, started: number, outcome: FrameOutcom
   }
 }
 
+/** What recognition reads from the card index, all from one build of it. */
+interface LoadedIndex {
+  build: IndexManifest;
+  names: NameIndex;
+  catalog: Catalog;
+  collectors: CollectorIndex | null;
+}
+
+let indexBuild: IndexManifest | null = null;
+
+async function loadIndex(gameId: GameId): Promise<LoadedIndex> {
+  // One build for the names, the catalog and the collectors, even if another becomes active meanwhile.
+  const build = await loadManifest();
+  const nextCatalog = new Catalog(browserIndexSource(gameId, build), FINGERPRINT_VERSION);
+  const dictionary = await loadNameDictionary(gameId, build);
+  // Collector lookups are a fallback; scanning works without them.
+  const nextCollectors = await nextCatalog.collectors(dictionary).catch(() => null);
+  return { build, names: new NameIndex(dictionary), catalog: nextCatalog, collectors: nextCollectors };
+}
+
+function useIndex(index: LoadedIndex): void {
+  indexBuild = index.build;
+  names = index.names;
+  catalog = index.catalog;
+  collectors = index.collectors;
+  // Every fingerprint (about 1.8 MB, cached), for cards whose title can't be read. Not awaited:
+  // the first scans don't need it, and a failure only means text-only recognition.
+  void index.catalog.fingerprintTable().catch(() => null);
+}
+
+/**
+ * Moves to the active build of the card index when it isn't the one in use.
+ * The parts are swapped together; a read already under way finishes on the
+ * build it started with (ready() hands it the parts).
+ */
+let switching: Promise<void> = Promise.resolve();
+function followIndexBuild(): void {
+  const gameId = game;
+  if (!gameId) return;
+  switching = switching
+    .then(async () => {
+      if (indexBuild && sameBuild(await loadManifest(), indexBuild)) return;
+      useIndex(await loadIndex(gameId));
+    })
+    .catch(() => {}); // Keep the build in use; the next switch tries again.
+}
+onBuildChange(followIndexBuild);
+
 const api = {
   async load(gameId: GameId): Promise<void> {
     if (game === gameId && names && ocr) return;
     const base = new URL(`${import.meta.env.BASE_URL}${__OCR_DIR__}/`, self.location.origin).href;
     const core = WebAssembly.validate(SIMD_PROBE) ? 'tesseract-core-simd-lstm.js' : 'tesseract-core-lstm.js';
-    const nextCatalog = new Catalog(browserIndexSource(gameId), FINGERPRINT_VERSION);
-    const [dictionary, engine] = await Promise.all([
-      loadNameDictionary(gameId),
+    const [index, engine] = await Promise.all([
+      loadIndex(gameId),
       createTesseractEngine({
         langPath: base.replace(/\/$/, ''),
         corePath: `${base}${core}`,
@@ -284,17 +332,12 @@ const api = {
         cachePath: __OCR_DIR__,
       }),
     ]);
-    // Collector lookups are a fallback; scanning works without them.
-    const nextCollectors = await nextCatalog.collectors(dictionary).catch(() => null);
     await ocr?.dispose();
-    names = new NameIndex(dictionary);
     ocr = engine;
-    catalog = nextCatalog;
-    collectors = nextCollectors;
     game = gameId;
-    // Every fingerprint (about 1.8 MB, cached), for cards whose title can't be read. Not awaited:
-    // the first scans don't need it, and a failure only means text-only recognition.
-    void nextCatalog.fingerprintTable().catch(() => null);
+    useIndex(index);
+    // A switch while this was loading.
+    followIndexBuild();
   },
 
   /**

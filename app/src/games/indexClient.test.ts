@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sortPrintings, staleCacheEntries, thumbnailUrl } from './indexClient';
+import { sortPrintings, thumbnailUrl } from './indexClient';
 import type { Printing } from './types';
 
 const p = (id: string, released: string | undefined, set: string, number: string): Printing => ({
@@ -11,28 +11,6 @@ const p = (id: string, released: string | undefined, set: string, number: string
   finishes: ['nonfoil'],
   lang: 'en',
   ...(released ? { released } : {}),
-});
-
-describe('staleCacheEntries', () => {
-  const origin = 'https://kostmw.github.io';
-  const current = new Set(['/manifest/data/printings.mtg.00.json?v=new', '/manifest/data/names.mtg.json?v=same']);
-
-  it('finds old versions of files, and keeps current ones', () => {
-    expect(
-      staleCacheEntries(
-        [
-          `${origin}/manifest/data/printings.mtg.00.json?v=old`,
-          `${origin}/manifest/data/printings.mtg.00.json?v=new`,
-          `${origin}/manifest/data/names.mtg.json?v=same`,
-        ],
-        current,
-      ),
-    ).toEqual([`${origin}/manifest/data/printings.mtg.00.json?v=old`]);
-  });
-
-  it('never removes the cached manifest, which offline use depends on', () => {
-    expect(staleCacheEntries([`${origin}/manifest/data/manifest.json`], current)).toEqual([]);
-  });
 });
 
 describe('sortPrintings', () => {
