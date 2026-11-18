@@ -18,12 +18,14 @@ import {
   installFirst,
   isUsableManifest,
   manifestUrl,
+  missingFiles,
   readActive,
   readCached,
   sameBuild,
   updateBuild,
   type IndexStore,
   type UpdateOutcome,
+  type UpdateProgress,
 } from './indexBuilds';
 import { printingShardFile, printingShardIndex } from './shard';
 import type { GameId, GameIndex, IndexFile, IndexManifest, NameDictionary, Printing } from './types';
@@ -192,11 +194,12 @@ export async function loadSets(game: GameId): Promise<SetInfo[] | null> {
 }
 
 /**
- * Looks for a newer build on the server and switches to it once it is
- * downloaded (indexBuilds.ts updateBuild). Run by the main thread only.
+ * Looks for a newer build on the server, switching to it once it is all
+ * downloaded, and fills in what the active build lacks: the offline copy
+ * (indexBuilds.ts updateBuild). Run by the main thread only.
  */
 export async function checkForIndexUpdate(
-  onProgress?: (progress: { done: number; total: number; bytes: number }) => void,
+  options: { onProgress?: (progress: UpdateProgress) => void; pause?: () => Promise<void> } = {},
 ): Promise<UpdateOutcome | { kind: 'unavailable' }> {
   const store = await openStore();
   if (!store) return { kind: 'unavailable' };
@@ -204,12 +207,22 @@ export async function checkForIndexUpdate(
     store,
     fetch: network,
     base: BASE,
-    onProgress,
+    onProgress: options.onProgress,
+    pause: options.pause,
+    estimate: typeof navigator !== 'undefined' && navigator.storage?.estimate ? () => navigator.storage.estimate() : undefined,
     announce: (manifest) => {
       openChannel()?.postMessage({ type: 'switched', buildDate: manifest.buildDate } satisfies ChannelMessage);
       void followActive();
     },
   });
+}
+
+/** The active build and how much of it isn't on the device yet, from the cache alone. Null where there is no Cache Storage. */
+export async function offlineIndexState(): Promise<{ build: IndexManifest | null; missing: number } | null> {
+  const store = await openStore();
+  if (!store) return null;
+  const build = await readActive(store, BASE);
+  return { build, missing: build ? (await missingFiles(store, BASE, build)).length : 0 };
 }
 
 /** Lighter image for lists. The index stores `normal` URLs, and Scryfall's sizes differ only in this path part. */

@@ -1,6 +1,9 @@
+import { OfflineLine } from './OfflineStatus';
+
 export function LegalFooter() {
   return (
     <footer className="px-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-xs leading-relaxed text-zinc-500">
+      <OfflineLine />
       <p>
         Manifest is unofficial fan content. It is not affiliated with, endorsed by, or sponsored by Wizards of the
         Coast, The Pokémon Company, or Konami. Card data ©{' '}

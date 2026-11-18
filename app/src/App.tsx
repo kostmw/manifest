@@ -5,6 +5,7 @@ import { AddCards } from './search/AddCards';
 import { BatchView } from './session/BatchView';
 import { useBatches } from './session/useBatches';
 import { LegalFooter } from './ui/LegalFooter';
+import { OfflineNotice } from './ui/OfflineStatus';
 import { UpdateBanner } from './ui/UpdateBanner';
 
 type Tab = 'add' | 'batch' | 'review' | 'scan';
@@ -76,6 +77,7 @@ export function App() {
       </nav>
       <main className="flex flex-1 flex-col gap-4 px-4 py-3">
         <UpdateBanner />
+        <OfflineNotice />
         {batches.storageFailed && (
           <p role="alert" className="rounded-xl bg-amber-950 p-3 text-sm leading-relaxed text-amber-200">
             Your browser is blocking on-device storage, so Manifest can't save cards. Private windows can cause this.

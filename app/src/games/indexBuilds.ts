@@ -20,7 +20,7 @@
  * No browser globals beyond fetch's Response and WebCrypto: the cache, the
  * network and the announcement of a switch are passed in, for tests.
  */
-import type { GameId, IndexFile, IndexManifest } from './types';
+import type { IndexFile, IndexManifest } from './types';
 
 /** The parts of Cache Storage this needs, with URLs as strings. */
 export interface IndexStore {
@@ -38,10 +38,14 @@ export interface BuildDeps {
   base: string;
   /** Told when a new build becomes active, so that every part of the app moves to it. */
   announce?: (manifest: IndexManifest) => void;
-  /** Files downloaded so far out of those the update needs, as it goes. */
-  onProgress?: (progress: { done: number; total: number; bytes: number }) => void;
-  /** Downloads at once. */
+  /** How the download is going, after each file. */
+  onProgress?: (progress: UpdateProgress) => void;
+  /** Downloads at once (default 6). */
   concurrency?: number;
+  /** Storage used and available, to check there is room before downloading (navigator.storage.estimate). */
+  estimate?: () => Promise<{ usage?: number; quota?: number }>;
+  /** Awaited between files, so that a background download can make way for the app. */
+  pause?: () => Promise<void>;
 }
 
 /** A downloaded file whose content isn't what its manifest says: the server has moved on to another build. */
@@ -82,30 +86,6 @@ export function buildFiles(manifest: IndexManifest): IndexFile[] {
 function keyOf(url: string): string {
   const parsed = new URL(url, 'https://x.invalid');
   return `${parsed.pathname}${parsed.search}`;
-}
-
-/**
- * The files a candidate needs before it can become active: everything but the
- * printings, which are fetched by card name; and, so that an update never
- * takes away what worked offline, the printings shards whose active version
- * is cached. When the shard count changes, shards can't be matched up, so all
- * of them.
- */
-export function requiredFiles(active: IndexManifest | null, candidate: IndexManifest, cached: ReadonlySet<string>, base: string): IndexFile[] {
-  const files: IndexFile[] = [];
-  for (const [id, game] of Object.entries(candidate.games) as [GameId, IndexManifest['games'][GameId]][]) {
-    if (!game) continue;
-    files.push(game.names, ...(game.collectors ? [game.collectors] : []), ...(game.sets ? [game.sets] : []), ...(game.hashes ?? []));
-    const before = active?.games[id];
-    if (!before || before.shards.length !== game.shards.length) {
-      files.push(...game.shards);
-      continue;
-    }
-    game.shards.forEach((shard, i) => {
-      if (cached.has(keyOf(fileUrl(base, before.shards[i]!)))) files.push(shard);
-    });
-  }
-  return files;
 }
 
 /** Cached index files that no build being kept refers to. The manifests themselves are never stale. */
@@ -162,15 +142,43 @@ async function isCachedAndChecked(store: IndexStore, base: string, file: IndexFi
   return (await readCached(store, base, file)) !== null;
 }
 
-/** Downloads a file, checks it against its manifest entry and caches it. Throws IndexFileMismatch, and caches nothing, if it doesn't match. */
-export async function downloadFile(deps: Pick<BuildDeps, 'fetch' | 'base'> & { store: IndexStore | null }, file: IndexFile): Promise<Uint8Array> {
+/** Thrown when the device has no room left to cache the index. */
+export function isQuotaError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+}
+
+/**
+ * Downloads a file, checks it against its manifest entry and caches it.
+ * Throws IndexFileMismatch, and caches nothing, if it doesn't match. A
+ * background download (the offline copy) asks for low network priority, and
+ * fails if the file can't be cached; a file the app needs now is returned
+ * even then.
+ */
+export async function downloadFile(
+  deps: Pick<BuildDeps, 'fetch' | 'base'> & { store: IndexStore | null },
+  file: IndexFile,
+  options: { background?: boolean } = {},
+): Promise<Uint8Array> {
   const url = fileUrl(deps.base, file);
-  const response = await deps.fetch(url);
+  const response = await deps.fetch(url, options.background ? ({ priority: 'low' } as RequestInit) : undefined);
   if (!response.ok) throw new Error(`Couldn't download ${file.file} (HTTP ${response.status})`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!(await matches(bytes, file))) throw new IndexFileMismatch(file.file);
-  if (deps.store) await deps.store.put(url, cachedResponse(bytes, file)).catch(() => {});
+  if (deps.store) {
+    const stored = deps.store.put(url, cachedResponse(bytes, file));
+    await (options.background ? stored : stored.catch(() => {}));
+  }
   return bytes;
+}
+
+/** A build's files that aren't cached yet (or were cached unchecked and turn out to be from another build). */
+export async function missingFiles(store: IndexStore, base: string, manifest: IndexManifest, cachedUrls?: readonly string[]): Promise<IndexFile[]> {
+  const cached = new Set((cachedUrls ?? (await store.keys())).map(keyOf));
+  const missing: IndexFile[] = [];
+  for (const file of buildFiles(manifest)) {
+    if (!cached.has(keyOf(fileUrl(base, file))) || !(await isCachedAndChecked(store, base, file))) missing.push(file);
+  }
+  return missing;
 }
 
 async function readManifest(store: IndexStore, url: string): Promise<IndexManifest | null> {
@@ -205,23 +213,89 @@ export type UpdateOutcome =
   | { kind: 'offline' }
   /** The server's manifest is one this version of the app can't read. Nothing changed. */
   | { kind: 'unsupported' }
-  /** There was no build yet: the server's became active straight away. */
-  | { kind: 'installed'; manifest: IndexManifest }
-  /** Already on the server's build. */
-  | { kind: 'up-to-date'; manifest: IndexManifest }
+  /** There was no build yet: the server's became active straight away, and is now all downloaded. */
+  | { kind: 'installed'; manifest: IndexManifest; downloaded: number }
+  /** Already on the server's build, which is all downloaded (`downloaded` files were missing). */
+  | { kind: 'up-to-date'; manifest: IndexManifest; downloaded: number }
   /** The server's build was downloaded and is now active. */
-  | { kind: 'switched'; manifest: IndexManifest; downloaded: number; bytes: number }
+  | { kind: 'switched'; manifest: IndexManifest; downloaded: number }
   /** The download stopped (the connection went): the active build stays, and the next update carries on. */
   | { kind: 'incomplete'; error: unknown }
   /** The server returned a file from yet another build (a deploy in progress): try again later. */
-  | { kind: 'mismatch'; file: string };
+  | { kind: 'mismatch'; file: string }
+  /** The device has no room for the files: nothing more is downloaded. */
+  | { kind: 'storage' };
+
+export interface UpdateProgress {
+  /** The build being downloaded. */
+  buildDate: string;
+  /** A newer build than the active one (the active one stays in use meanwhile), rather than the active one filled in. */
+  updating: boolean;
+  done: number;
+  total: number;
+  /** Bytes as cached (the manifest's sizes; the download itself is compressed). */
+  bytes: number;
+  totalBytes: number;
+}
+
+/** Attempts per file before the download counts as stopped: a dropped request on a phone is common. */
+const ATTEMPTS = 3;
 
 /**
- * Looks for a newer build and, if there is one, downloads what it needs and
- * switches to it. Until then, and whatever goes wrong, the active build stays
- * as it is. Old files are cleaned out first: those neither the active build
- * nor the candidate uses, so the build before the active one is kept until
- * this next update, for any part of the app still reading it.
+ * Downloads a build's missing files, the scanner's first (names, collectors,
+ * sets, fingerprints), then the printings. Stops at the first file that can't
+ * be had.
+ */
+async function downloadAll(deps: BuildDeps, manifest: IndexManifest, cachedUrls: readonly string[], updating: boolean): Promise<UpdateOutcome | { kind: 'done'; downloaded: number }> {
+  const all = buildFiles(manifest);
+  const missing = await missingFiles(deps.store, deps.base, manifest, cachedUrls);
+  const totalBytes = all.reduce((sum, file) => sum + file.bytes, 0);
+  let bytes = totalBytes - missing.reduce((sum, file) => sum + file.bytes, 0);
+  let done = all.length - missing.length;
+  const progress = () => deps.onProgress?.({ buildDate: manifest.buildDate, updating, done, total: all.length, bytes, totalBytes });
+  if (missing.length === 0) return { kind: 'done', downloaded: 0 };
+
+  // Room for what is left, as cached. Browsers keep Cache Storage decompressed.
+  const estimate = await deps.estimate?.().catch(() => null);
+  if (estimate?.quota !== undefined && estimate.usage !== undefined && estimate.quota - estimate.usage < (totalBytes - bytes) * 1.1) {
+    return { kind: 'storage' };
+  }
+
+  progress();
+  const queue = [...missing];
+  const stopped: { outcome: UpdateOutcome | null } = { outcome: null };
+  const worker = async () => {
+    while (queue.length > 0 && !stopped.outcome) {
+      const file = queue.shift()!;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await downloadFile(deps, file, { background: true });
+          done += 1;
+          bytes += file.bytes;
+          progress();
+          break;
+        } catch (error) {
+          if (error instanceof IndexFileMismatch) stopped.outcome ??= { kind: 'mismatch', file: error.file };
+          else if (isQuotaError(error)) stopped.outcome ??= { kind: 'storage' };
+          else if (attempt < ATTEMPTS && !stopped.outcome) continue;
+          else stopped.outcome ??= { kind: 'incomplete', error };
+          break;
+        }
+      }
+      await deps.pause?.();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, deps.concurrency ?? 6) }, worker));
+  return stopped.outcome ?? { kind: 'done', downloaded: missing.length };
+}
+
+/**
+ * Looks for a newer build and makes sure the build in use is all on the
+ * device. A newer build is downloaded in full and only then switched to;
+ * until then, and whatever goes wrong, the active build stays as it is. Old
+ * files are cleaned out first: those neither the active build nor the
+ * candidate uses, so the build before the active one is kept until this next
+ * update, for any part of the app still reading it.
  */
 export async function updateBuild(deps: BuildDeps): Promise<UpdateOutcome> {
   const { store, base } = deps;
@@ -235,17 +309,21 @@ export async function updateBuild(deps: BuildDeps): Promise<UpdateOutcome> {
   }
   if (!isUsableManifest(latest)) return { kind: 'unsupported' };
 
-  const active = await readActive(store, base);
+  let active = await readActive(store, base);
+  let installed = false;
   if (!active) {
-    const installed = await installFirst(store, base, latest);
-    if (installed === latest) deps.announce?.(latest);
-    return { kind: 'installed', manifest: installed };
+    // The very first build has nothing to replace: it is used straight away, its files fetched as needed and below.
+    active = await installFirst(store, base, latest);
+    installed = active === latest;
+    if (installed) deps.announce?.(latest);
   }
   const cachedUrls = await store.keys();
   if (sameBuild(active, latest)) {
     await Promise.all(staleEntries(cachedUrls, [active], base).map((url) => store.delete(url)));
     await store.delete(candidateUrl(base));
-    return { kind: 'up-to-date', manifest: active };
+    const filled = await downloadAll(deps, active, cachedUrls, false);
+    if (filled.kind !== 'done') return filled;
+    return { kind: installed ? 'installed' : 'up-to-date', manifest: active, downloaded: filled.downloaded };
   }
 
   // A newer build. Any earlier candidate is replaced; the files they share stay.
@@ -253,37 +331,12 @@ export async function updateBuild(deps: BuildDeps): Promise<UpdateOutcome> {
   const stale = staleEntries(cachedUrls, [active, latest], base);
   await Promise.all(stale.map((url) => store.delete(url)));
   const staleSet = new Set(stale);
-  const cached = new Set(cachedUrls.filter((url) => !staleSet.has(url)).map(keyOf));
-
-  const needed = requiredFiles(active, latest, cached, base);
-  const missing: IndexFile[] = [];
-  for (const file of needed) {
-    if (!cached.has(keyOf(fileUrl(base, file))) || !(await isCachedAndChecked(store, base, file))) missing.push(file);
-  }
-
-  let done = needed.length - missing.length;
-  let bytes = 0;
-  deps.onProgress?.({ done, total: needed.length, bytes });
-  const queue = [...missing];
-  const stopped: { outcome: UpdateOutcome | null } = { outcome: null };
-  const worker = async () => {
-    while (queue.length > 0 && !stopped.outcome) {
-      const file = queue.shift()!;
-      try {
-        bytes += (await downloadFile(deps, file)).byteLength;
-        done += 1;
-        deps.onProgress?.({ done, total: needed.length, bytes });
-      } catch (error) {
-        stopped.outcome ??= error instanceof IndexFileMismatch ? { kind: 'mismatch', file: error.file } : { kind: 'incomplete', error };
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, deps.concurrency ?? 4) }, worker));
-  if (stopped.outcome) return stopped.outcome;
+  const downloaded = await downloadAll(deps, latest, cachedUrls.filter((url) => !staleSet.has(url)), true);
+  if (downloaded.kind !== 'done') return downloaded;
 
   // Everything is here: switch in one write.
   await writeManifest(store, manifestUrl(base), latest);
   await store.delete(candidateUrl(base));
   deps.announce?.(latest);
-  return { kind: 'switched', manifest: latest, downloaded: missing.length, bytes };
+  return { kind: 'switched', manifest: latest, downloaded: downloaded.downloaded };
 }
