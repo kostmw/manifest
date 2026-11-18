@@ -296,8 +296,8 @@ describe('updateBuild', () => {
     expect((await readActive(store, BASE))!.buildDate).toBe('2026-11-17'); // still usable online
 
     store.full = true;
-    expect(await updateBuild(deps)).toEqual({ kind: 'storage' });
-    expect(server.downloads().length).toBeLessThan(5);
+    expect(await updateBuild({ ...deps, concurrency: 1 })).toEqual({ kind: 'storage' });
+    expect(server.downloads()).toHaveLength(1); // stopped at the first file that couldn't be cached
   });
 
   it("ignores a manifest this version of the app can't read", async () => {

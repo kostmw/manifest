@@ -97,7 +97,7 @@ test('after a single visit, every part of the app works offline', async ({ page,
 test('shows the first download as it goes', async ({ page, context }) => {
   // A slow connection for the card data, so that the download takes a while.
   await context.route('**/data/**', async (route) => {
-    if (!route.request().url().includes('manifest.json')) await new Promise((resolve) => setTimeout(resolve, 150));
+    if (!route.request().url().includes('manifest.json')) await new Promise((resolve) => setTimeout(resolve, 300));
     await route.continue();
   });
   await page.goto('./');

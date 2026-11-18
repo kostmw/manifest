@@ -40,7 +40,7 @@ export interface BuildDeps {
   announce?: (manifest: IndexManifest) => void;
   /** How the download is going, after each file. */
   onProgress?: (progress: UpdateProgress) => void;
-  /** Downloads at once (default 3). */
+  /** Downloads at once (default 6). */
   concurrency?: number;
   /** Storage used and available, to check there is room before downloading (navigator.storage.estimate). */
   estimate?: () => Promise<{ usage?: number; quota?: number }>;
@@ -285,7 +285,7 @@ async function downloadAll(deps: BuildDeps, manifest: IndexManifest, cachedUrls:
       await deps.pause?.();
     }
   };
-  await Promise.all(Array.from({ length: Math.max(1, deps.concurrency ?? 3) }, worker));
+  await Promise.all(Array.from({ length: Math.max(1, deps.concurrency ?? 6) }, worker));
   return stopped.outcome ?? { kind: 'done', downloaded: missing.length };
 }
 
