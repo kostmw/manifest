@@ -188,7 +188,10 @@ async function buildIndex(options: BuildOptions): Promise<BuiltGameData> {
 
 export const mtgIndexBuilder: GameIndexBuilder = {
   id: 'mtg',
-  // Averages well under 1 MB per shard today, and leaves room for years of new sets.
-  shardCount: 64,
+  // About 0.2 MB (30 KB gzipped) per shard, so a nightly build changes only the shards its new
+  // cards fall in: 16 to 18 Nov 2026 was 4.0 MB to download, against 8.3 MB with 64 shards. The app
+  // reads the count from the manifest (one fingerprint shard per printings shard), so any count works
+  // with any version of it; file names stay printings.mtg.<n>.json, n unpadded past 99.
+  shardCount: 256,
   buildIndex,
 };
