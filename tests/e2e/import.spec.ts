@@ -203,8 +203,9 @@ async function spreadPhoto(page: Page, name: string, cards: FakeCardOptions[], s
   return { name, mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
 }
 
-// At the angles the one-card tests read them at.
-const THREE = [{ ...SOL_RING, rotation: 0.06 }, { ...TUTOR, flipped: true, rotation: -0.1 }, { title: 'Lightning Bolt', rotation: 0.06 }];
+// Two with one printing in the test index, settled by the title alone (the collector line's OCR
+// depends on the system's fonts), and Lightning Bolt, whose two printings it can't tell apart.
+const THREE = [{ title: 'Aether Vial', rotation: 0.05 }, { title: 'Fire Elemental', rotation: -0.04 }, { title: 'Lightning Bolt', rotation: 0.06 }];
 
 test('reads every card in a photo of several, from Scan a photo', async ({ page }) => {
   const upload = await spreadPhoto(page, 'spread.png', THREE);
@@ -215,8 +216,8 @@ test('reads every card in a photo of several, from Scan a photo', async ({ page 
   await expect(nav(page).getByRole('button', { name: 'Batch (2)' })).toBeVisible();
   await expect(nav(page).getByRole('button', { name: 'Review (1)' })).toBeVisible();
   const strip = page.getByRole('list', { name: 'Last cards scanned' });
-  await expect(strip.getByRole('button', { name: 'Sol Ring, CMM 410, added' })).toBeVisible();
-  await expect(strip.getByRole('button', { name: 'Demonic Tutor, CMM 509, added' })).toBeVisible();
+  await expect(strip.getByRole('button', { name: 'Aether Vial, MMA 197, added' })).toBeVisible();
+  await expect(strip.getByRole('button', { name: 'Fire Elemental, 4BB 191, added' })).toBeVisible();
   // One card per photo still gets its own confirm step.
   await expect(page.getByRole('region', { name: 'Scan result' })).toHaveCount(0);
 });
