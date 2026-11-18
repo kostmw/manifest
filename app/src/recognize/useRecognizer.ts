@@ -41,6 +41,16 @@ function sharedWorker(game: GameId): NonNullable<typeof shared> {
   return shared;
 }
 
+/**
+ * The shared recognition worker once it has loaded, for work that outlives
+ * the Scan tab (bulk import). Rejects if it fails to load.
+ */
+export async function loadedRecognizer(game: GameId): Promise<Remote<RecognizeWorker>> {
+  const entry = sharedWorker(game);
+  await entry.ready;
+  return entry.remote;
+}
+
 /** Loads the name list and OCR engine into the shared recognition worker (see sharedWorker). */
 export function useRecognizer(game: GameId, lockSets: readonly string[] = [], countCopies = false) {
   const [status, setStatus] = useState<RecognizerStatus>('loading');

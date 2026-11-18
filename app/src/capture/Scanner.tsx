@@ -24,10 +24,13 @@ import { BUTTON_SECONDARY } from '../ui/styles';
 import { ADVICE_HINTS, QUALITY_HINTS } from '../vision/quality';
 import { CameraPreview } from './CameraPreview';
 import { countCopiesEnabled, setCountCopiesEnabled } from './copies';
+import { filesFromDrop, importable } from './importFiles';
+import { ImportPanel } from './ImportPanel';
 import { copyRecent, pushRecent, removeRecent, undoRecent, useRecentScans, type RecentScan } from './recentScans';
 import { ScanSettings } from './ScanSettings';
 import { TestLogPanel } from './TestLogPanel';
 import { useCamera, type Torch } from './useCamera';
+import { imports, useImport } from './useImport';
 import { useWakeLock } from './useWakeLock';
 
 /** Time between live frames. Detection takes a fraction of it; OCR runs only on steady frames. */
@@ -209,6 +212,12 @@ function RecentStrip({
   );
 }
 
+/** A computer's browser that can pick a whole folder (phones can't, or only awkwardly). */
+function canPickFolders(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia?.('(pointer: fine)').matches) return false;
+  return 'webkitdirectory' in document.createElement('input');
+}
+
 const SOUND_LABELS: Record<SoundMode, string> = { off: 'Sound off', on: 'Sound on', always: 'Sound on, even in silent mode' };
 
 export function Scanner({
@@ -255,6 +264,11 @@ export function Scanner({
   const rate = useFrameRate(frame);
   const recent = useRecentScans(batch?.id ?? null);
   const [photoState, setPhotoState] = useState<'idle' | 'reading' | 'no-card' | 'failed'>('idle');
+  const importView = useImport();
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importRefused, setImportRefused] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [folders] = useState(canPickFolders);
   const streaming = camera.state.status === 'live';
   useWakeLock(streaming);
   // The camera starting again (back from another tab, or after Stop camera) sees the card read
@@ -470,6 +484,25 @@ export function Scanner({
     }
   };
 
+  /** Another batch's import still running: this batch can't start one until it finishes or is cancelled. */
+  const importBusyElsewhere = Boolean(imports.active && importView && importView.job.batchId !== batch?.id);
+  const canImport = recognizer.status === 'ready' && Boolean(batch) && !importBusyElsewhere;
+
+  const startImport = (files: Iterable<File>) => {
+    const target = batchRef.current;
+    const chosen = importable(files);
+    if (!target || chosen.length === 0) return;
+    setImportRefused(false);
+    imports.start(target, chosen).catch(() => setImportRefused(true));
+  };
+
+  const onImport = (event: ChangeEvent<HTMLInputElement>) => {
+    // Copied before the input is cleared: clearing it empties its file list.
+    const files = [...(event.target.files ?? [])];
+    event.target.value = '';
+    startImport(files);
+  };
+
   /** "Removed X · Undo": a card just taken out with Undo, and how to put it back, for a few seconds. */
   const [removed, setRemoved] = useState<{ name: string; putBack: () => Promise<void>; key: number } | null>(null);
   useEffect(() => {
@@ -516,7 +549,28 @@ export function Scanner({
   return (
     // Any tap here may unlock sound: browsers only allow audio that a tap started. A touch counts
     // as one when it ends (pointerup), not when it starts.
-    <div className="flex flex-col gap-3" onPointerUp={unlockAudio} onKeyDown={unlockAudio}>
+    <div
+      className={`flex flex-col gap-3 ${dragging ? 'rounded-xl outline-2 outline-offset-4 outline-emerald-400 outline-dashed' : ''}`}
+      onPointerUp={unlockAudio}
+      onKeyDown={unlockAudio}
+      // On a computer, photos or a folder dropped anywhere on the Scan tab are imported.
+      onDragOver={(event) => {
+        if (!canImport || !event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget === event.target) setDragging(false);
+      }}
+      onDrop={(event) => {
+        setDragging(false);
+        if (!canImport || !event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        // Read straight away: the dropped items are only readable during the event.
+        void filesFromDrop(event.dataTransfer).then(startImport);
+      }}
+    >
       {recognizer.status === 'loading' && (
         <p role="status" className="text-sm text-zinc-400">
           Getting the card reader ready. The first time, this downloads about 3 MB.
@@ -548,6 +602,15 @@ export function Scanner({
           </button>
         )}
       </div>
+
+      {importView && (
+        <ImportPanel
+          view={importView}
+          activeBatchId={batch?.id ?? null}
+          onPickAgain={canImport ? () => importInputRef.current?.click() : null}
+          onOpenReview={() => onOpenReview()}
+        />
+      )}
 
       {/* What just happened, and what to do about it: above the camera, so it shows without scrolling while it runs. */}
       <div className="flex min-h-14 flex-col gap-1">
@@ -684,17 +747,56 @@ export function Scanner({
       {streaming && debug && <LiveDebug frame={frame} rate={rate} read={lastRead} recent={recent} repeats={repeats} />}
 
       <div className="flex flex-col gap-2">
-        <label className={`${BUTTON_SECONDARY} self-start ${recognizer.status === 'ready' ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
-          Scan a photo
-          <input
-            type="file"
-            accept="image/*"
-            aria-label="Scan a photo"
-            className="sr-only"
-            disabled={recognizer.status !== 'ready'}
-            onChange={(event) => void onPhoto(event)}
-          />
-        </label>
+        <div className="flex flex-wrap gap-2">
+          <label className={`${BUTTON_SECONDARY} ${recognizer.status === 'ready' ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
+            Scan a photo
+            <input
+              type="file"
+              accept="image/*"
+              aria-label="Scan a photo"
+              className="sr-only"
+              disabled={recognizer.status !== 'ready'}
+              onChange={(event) => void onPhoto(event)}
+            />
+          </label>
+          <label className={`${BUTTON_SECONDARY} ${canImport ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
+            {imports.active && importView?.job.batchId === batch?.id ? 'Import more photos' : 'Import photos'}
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              aria-label="Import photos"
+              className="sr-only"
+              disabled={!canImport}
+              onChange={onImport}
+            />
+          </label>
+          {folders && (
+            <label className={`${BUTTON_SECONDARY} ${canImport ? 'cursor-pointer' : 'pointer-events-none opacity-60'}`}>
+              Import a folder
+              <input
+                ref={(input) => input?.setAttribute('webkitdirectory', '')}
+                type="file"
+                multiple
+                aria-label="Import a folder"
+                className="sr-only"
+                disabled={!canImport}
+                onChange={onImport}
+              />
+            </label>
+          )}
+        </div>
+        <p className="text-xs text-zinc-500">
+          Import reads many photos one after another{folders ? ', or drop them here' : ''}: from Photos, Files, or a
+          scanner’s pages. Each card is added, or waits in Review if it isn’t sure.
+        </p>
+        {importBusyElsewhere && <p className="text-xs text-amber-300">Another batch’s import is still running: it has to finish or be cancelled first.</p>}
+        {importRefused && (
+          <p role="alert" className="text-sm text-amber-300">
+            Couldn’t start the import. Your browser’s storage may be full or blocked.
+          </p>
+        )}
         {photoState === 'reading' && <p className="text-sm text-zinc-400">Reading the photo…</p>}
         {photoState === 'no-card' && (
           <p role="alert" className="text-sm text-amber-300">

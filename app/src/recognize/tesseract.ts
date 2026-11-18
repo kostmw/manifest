@@ -6,7 +6,7 @@
  */
 import { createWorker, OEM, PSM } from 'tesseract.js';
 import { encodePgm } from '../vision/image';
-import { TITLE_CHARACTERS, type OcrEngine } from './ocr';
+import { oneLineAtATime, TITLE_CHARACTERS, type OcrEngine } from './ocr';
 
 export interface TesseractPaths {
   /** Directory holding eng.traineddata.gz. */
@@ -44,7 +44,7 @@ export async function createTesseractEngine(paths: TesseractPaths): Promise<OcrE
   });
 
   let whitelist = TITLE_CHARACTERS;
-  return {
+  return oneLineAtATime({
     async readLine(image, options) {
       const characters = options?.characters ?? TITLE_CHARACTERS;
       if (characters !== whitelist) {
@@ -58,5 +58,5 @@ export async function createTesseractEngine(paths: TesseractPaths): Promise<OcrE
     async dispose() {
       await worker.terminate();
     },
-  };
+  });
 }
